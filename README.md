@@ -27,6 +27,9 @@ cartograph skills
 # Index by GitHub shorthand — no full URL needed
 cartograph analyze <path|url>
 
+# Index a specific tag or branch (Go module style)
+cartograph analyze hashicorp/nomad@v1.8.0
+
 # Index with semantic embeddings (enables semantic search)
 cartograph analyze <path|url> --embed async
 

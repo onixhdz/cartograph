@@ -38,6 +38,11 @@ cartograph analyze https://github.com/org/repo
 # GitHub shorthand — auto-expands to https://github.com/hashicorp/nomad
 cartograph analyze hashicorp/nomad
 
+# Index a specific tag or branch (Go module style: target@ref)
+cartograph analyze hashicorp/nomad@v1.8.0
+cartograph analyze hashicorp/nomad@release/1.7.x
+cartograph analyze github.com/gorilla/mux@v1.8.0
+
 # Host-prefixed URL — auto-expands to https://github.com/org/repo
 cartograph analyze github.com/org/repo
 

@@ -220,6 +220,17 @@ func (c *AnalyzeCmd) Run(cli *CLI) error {
 }
 
 func (c *AnalyzeCmd) runOne(cli *CLI, target string) error {
+	// Extract inline @ref (Go module style): owner/repo@v1.0 → owner/repo + branch "v1.0".
+	if base, ref := remote.SplitRef(target); ref != "" {
+		if c.Branch != "" {
+			return fmt.Errorf("cannot use both inline @ref (%s) and --branch flag (%s)", ref, c.Branch)
+		}
+		target = base
+		origBranch := c.Branch
+		c.Branch = ref
+		defer func() { c.Branch = origBranch }()
+	}
+
 	if remote.IsGitURL(target) {
 		return c.runRemote(cli, target)
 	}
@@ -396,6 +407,22 @@ func (c *AnalyzeCmd) runLocal(cli *CLI, target string) error {
 				}); needed {
 					fmt.Printf("  ℹ %s. Rebuilding...\n", reason)
 					c.Force = true
+				}
+
+				// Idempotency: skip re-analysis if HEAD hasn't changed.
+				if !c.Force {
+					if currentSHA := gitHeadHash(abs); currentSHA != "" && currentSHA == prev.Meta.CommitHash {
+						fmt.Printf("  Up to date (commit %s). ", currentSHA[:min(12, len(currentSHA))])
+
+						if c.Embed != embedOff {
+							fmt.Println("Triggering embedding...")
+							c.requestEmbedding(repoName)
+							return nil
+						}
+
+						fmt.Println("Use --force to re-analyze.")
+						return nil
+					}
 				}
 			}
 		}
