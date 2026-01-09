@@ -1,12 +1,14 @@
 package service
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/cloudprivacylabs/lpg/v2"
+
 	"github.com/realxen/cartograph/internal/graph"
 	"github.com/realxen/cartograph/internal/search"
 	"github.com/realxen/cartograph/internal/storage"
@@ -331,5 +333,8 @@ func TestMemoryClient_QueryAmbiguousShortName(t *testing.T) {
 
 // writeTestFile creates a file in dir with the given content.
 func writeTestFile(dir, name, content string) error {
-	return os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+		return fmt.Errorf("write test file: %w", err)
+	}
+	return nil
 }

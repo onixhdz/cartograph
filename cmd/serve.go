@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -51,7 +53,7 @@ func (c *ServeStartCmd) runDetached() error {
 
 	lf := service.NewLockfile(dataDir)
 	if lf.IsStale() {
-		lf.Release() //nolint:errcheck
+		_ = lf.Release()
 	}
 
 	// Remove leftover socket so the child's Listen succeeds.
@@ -59,16 +61,16 @@ func (c *ServeStartCmd) runDetached() error {
 	if socketPath == "" {
 		socketPath = DefaultSocketPath()
 	}
-	os.Remove(socketPath) //nolint:errcheck
+	_ = os.Remove(socketPath)
 
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("serve: cannot find executable: %w", err)
 	}
 
-	os.MkdirAll(dataDir, 0o755) //nolint:errcheck
+	_ = os.MkdirAll(dataDir, 0o750)
 	logPath := DefaultLogPath()
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		logFile = nil
 	}
@@ -80,23 +82,23 @@ func (c *ServeStartCmd) runDetached() error {
 		args = append(args, fmt.Sprintf("--timeout=%d", c.Timeout))
 	}
 	if c.Socket != "" {
-		args = append(args, fmt.Sprintf("--socket=%s", c.Socket))
+		args = append(args, "--socket="+c.Socket)
 	}
 
-	cmd := exec.Command(exe, args...)
+	cmd := exec.CommandContext(context.Background(), exe, args...)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.Stdin = nil
 	cmd.SysProcAttr = sysutil.DetachProcAttr()
 	if err := cmd.Start(); err != nil {
 		if logFile != nil {
-			logFile.Close()
+			_ = logFile.Close()
 		}
 		return fmt.Errorf("serve: start background process: %w", err)
 	}
 	_ = cmd.Process.Release()
 	if logFile != nil {
-		logFile.Close()
+		_ = logFile.Close()
 	}
 
 	// Wait for PID file (up to 5s).
@@ -112,7 +114,7 @@ func (c *ServeStartCmd) runDetached() error {
 	if !pidAppeared {
 		fmt.Fprintf(os.Stderr, "Service failed to start (no PID file after 5s).\n")
 		printLogTail(logPath, 10)
-		return fmt.Errorf("serve: background start timed out")
+		return errors.New("serve: background start timed out")
 	}
 
 	// Wait for connections (up to 10s).
@@ -129,7 +131,7 @@ func (c *ServeStartCmd) runDetached() error {
 
 	fmt.Fprintf(os.Stderr, "Service started but not accepting connections after 10s.\n")
 	printLogTail(logPath, 10)
-	return fmt.Errorf("serve: background service not ready")
+	return errors.New("serve: background service not ready")
 }
 
 func (c *ServeStartCmd) runForeground(_ *CLI) error {
@@ -146,12 +148,12 @@ func (c *ServeStartCmd) runForeground(_ *CLI) error {
 
 	lf := service.NewLockfile(dataDir)
 	if lf.IsStale() {
-		lf.Release() //nolint:errcheck
+		_ = lf.Release()
 	}
 
-	os.MkdirAll(dataDir, 0o755) //nolint:errcheck
+	_ = os.MkdirAll(dataDir, 0o750)
 	// Remove leftover socket file so Listen succeeds.
-	os.Remove(socketPath) //nolint:errcheck
+	_ = os.Remove(socketPath)
 
 	if err := lf.Acquire(socketPath, "unix"); err != nil {
 		return fmt.Errorf("serve: %w", err)
@@ -159,7 +161,7 @@ func (c *ServeStartCmd) runForeground(_ *CLI) error {
 
 	srv, err := service.NewServer(socketPath, lf, dataDir)
 	if err != nil {
-		lf.Release() //nolint:errcheck
+		_ = lf.Release()
 		return fmt.Errorf("serve: %w", err)
 	}
 	srv.SetBackendFactory(newServerBackendFactory(srv))
@@ -173,7 +175,7 @@ func (c *ServeStartCmd) runForeground(_ *CLI) error {
 	// The server may have fallen back to TCP if unix sockets are
 	// unavailable, so re-acquire with the actual network/address.
 	if srv.Network != "" && srv.Network != "unix" {
-		lf.Release() //nolint:errcheck
+		_ = lf.Release()
 		if err := lf.Acquire(srv.Addr, srv.Network); err != nil {
 			return fmt.Errorf("serve: update lockfile: %w", err)
 		}
@@ -182,7 +184,7 @@ func (c *ServeStartCmd) runForeground(_ *CLI) error {
 	// Start accepting connections immediately so clients don't time out
 	// while repos are loading.
 	if err := srv.Start(); err != nil {
-		srv.Stop() //nolint:errcheck
+		_ = srv.Stop(context.Background())
 		return fmt.Errorf("serve: %w", err)
 	}
 
@@ -223,7 +225,7 @@ func (c *ServeStartCmd) runForeground(_ *CLI) error {
 	case <-srv.Done():
 		fmt.Println("Idle timeout reached, shutting down...")
 	}
-	if err := srv.Stop(); err != nil {
+	if err := srv.Stop(context.Background()); err != nil {
 		return fmt.Errorf("serve: shutdown: %w", err)
 	}
 	fmt.Println("Stopped.")
@@ -241,8 +243,7 @@ func (c *ServeStopCmd) Run(cli *CLI) error {
 
 	pid, _, _, err := lf.ReadFullInfo()
 	if err != nil {
-		fmt.Println("No service is running.")
-		return nil
+		return fmt.Errorf("no service is running: %w", err)
 	}
 	if pid <= 0 {
 		fmt.Println("No service is running (no PID in lockfile).")
@@ -251,16 +252,16 @@ func (c *ServeStopCmd) Run(cli *CLI) error {
 
 	proc, err := os.FindProcess(pid)
 	if err != nil {
-		fmt.Printf("No service is running (PID %d not found).\n", pid)
-		return nil
+		return fmt.Errorf("no service running (PID %d not found): %w", pid, err)
 	}
 
 	// Phase 1: graceful shutdown via SIGTERM (Unix) or Kill (Windows).
 	fmt.Printf("Stopping service (PID %d)...\n", pid)
-	if err := sysutil.SignalTerm(proc); err != nil {
+	_ = sysutil.SignalTerm(proc)
+	if !sysutil.IsProcessRunning(pid) {
 		// Process may already be gone — not an error.
-		fmt.Println("Stopped (process already exited).")
-		lf.Release() //nolint:errcheck
+		fmt.Println("Stopped.")
+		_ = lf.Release()
 		return nil
 	}
 
@@ -293,8 +294,7 @@ func (c *ServeStatusCmd) Run(cli *CLI) error {
 
 	pid, addr, network, err := lf.ReadFullInfo()
 	if err != nil {
-		fmt.Println("Service not running.")
-		return nil
+		return fmt.Errorf("service not running: %w", err)
 	}
 
 	if !sysutil.IsProcessRunning(pid) {
@@ -346,11 +346,11 @@ func tryConnectExisting(dataDir string) *service.Client {
 
 // isAlive checks if a service endpoint is accepting connections.
 func isAlive(network, addr string) bool {
-	conn, err := net.DialTimeout(network, addr, 200*time.Millisecond)
+	conn, err := (&net.Dialer{Timeout: 200 * time.Millisecond}).DialContext(context.Background(), network, addr)
 	if err != nil {
 		return false
 	}
-	conn.Close()
+	_ = conn.Close()
 	return true
 }
 

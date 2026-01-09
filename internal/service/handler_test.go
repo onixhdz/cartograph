@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/cloudprivacylabs/lpg/v2"
+
 	"github.com/realxen/cartograph/internal/search"
 	"github.com/realxen/cartograph/internal/storage"
 )
@@ -23,6 +25,7 @@ func (stubBackend) Query(req QueryRequest) (*QueryResult, error) {
 		Definitions:    []SymbolMatch{},
 	}, nil
 }
+
 func (stubBackend) Context(req ContextRequest) (*ContextResult, error) {
 	return &ContextResult{
 		Symbol:    SymbolMatch{},
@@ -33,12 +36,14 @@ func (stubBackend) Context(req ContextRequest) (*ContextResult, error) {
 		Processes: []SymbolMatch{},
 	}, nil
 }
+
 func (stubBackend) Cypher(req CypherRequest) (*CypherResult, error) {
 	return &CypherResult{
 		Columns: []string{},
 		Rows:    []map[string]any{},
 	}, nil
 }
+
 func (stubBackend) Impact(req ImpactRequest) (*ImpactResult, error) {
 	return &ImpactResult{
 		Target:   SymbolMatch{},
@@ -46,6 +51,7 @@ func (stubBackend) Impact(req ImpactRequest) (*ImpactResult, error) {
 		Depth:    req.Depth,
 	}, nil
 }
+
 func (stubBackend) Schema(req SchemaRequest) (*SchemaResult, error) {
 	return &SchemaResult{
 		NodeLabels: []NodeLabelSummary{},
@@ -114,7 +120,7 @@ func TestWriteJSONAndWriteError(t *testing.T) {
 }
 
 func TestDecodeJSONEmpty(t *testing.T) {
-	req := httptest.NewRequest("POST", "/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/", nil)
 	var v map[string]string
 	if err := decodeJSON(req, &v); err == nil {
 		t.Error("expected error for empty body")
@@ -124,7 +130,7 @@ func TestDecodeJSONEmpty(t *testing.T) {
 func TestHandleQuery(t *testing.T) {
 	s := newTestServer()
 	body := jsonBody(t, QueryRequest{Repo: "testrepo", Text: "hello", Limit: 10})
-	req := httptest.NewRequest("POST", RouteQuery, body)
+	req := httptest.NewRequestWithContext(context.Background(), "POST", RouteQuery, body)
 	rec := httptest.NewRecorder()
 	s.handleQuery(rec, req)
 
@@ -140,7 +146,7 @@ func TestHandleQuery(t *testing.T) {
 func TestHandleQueryRepoNotFound(t *testing.T) {
 	s := newTestServer()
 	body := jsonBody(t, QueryRequest{Repo: "unknown", Text: "x"})
-	req := httptest.NewRequest("POST", RouteQuery, body)
+	req := httptest.NewRequestWithContext(context.Background(), "POST", RouteQuery, body)
 	rec := httptest.NewRecorder()
 	s.handleQuery(rec, req)
 
@@ -155,7 +161,7 @@ func TestHandleQueryRepoNotFound(t *testing.T) {
 
 func TestHandleQueryMethodNotAllowed(t *testing.T) {
 	s := newTestServer()
-	req := httptest.NewRequest("GET", RouteQuery, nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", RouteQuery, nil)
 	rec := httptest.NewRecorder()
 	s.handleQuery(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
@@ -166,7 +172,7 @@ func TestHandleQueryMethodNotAllowed(t *testing.T) {
 func TestHandleContext(t *testing.T) {
 	s := newTestServer()
 	body := jsonBody(t, ContextRequest{Repo: "testrepo", Name: "main"})
-	req := httptest.NewRequest("POST", RouteContext, body)
+	req := httptest.NewRequestWithContext(context.Background(), "POST", RouteContext, body)
 	rec := httptest.NewRecorder()
 	s.handleContext(rec, req)
 
@@ -178,7 +184,7 @@ func TestHandleContext(t *testing.T) {
 func TestHandleCypher(t *testing.T) {
 	s := newTestServer()
 	body := jsonBody(t, CypherRequest{Repo: "testrepo", Query: "MATCH (n) RETURN n LIMIT 1"})
-	req := httptest.NewRequest("POST", RouteCypher, body)
+	req := httptest.NewRequestWithContext(context.Background(), "POST", RouteCypher, body)
 	rec := httptest.NewRecorder()
 	s.handleCypher(rec, req)
 
@@ -200,7 +206,7 @@ func TestHandleCypherBlocksWrite(t *testing.T) {
 	}
 	for _, q := range writeQueries {
 		body := jsonBody(t, CypherRequest{Repo: "testrepo", Query: q})
-		req := httptest.NewRequest("POST", RouteCypher, body)
+		req := httptest.NewRequestWithContext(context.Background(), "POST", RouteCypher, body)
 		rec := httptest.NewRecorder()
 		s.handleCypher(rec, req)
 
@@ -218,7 +224,7 @@ func TestHandleCypherBlocksWrite(t *testing.T) {
 func TestHandleImpact(t *testing.T) {
 	s := newTestServer()
 	body := jsonBody(t, ImpactRequest{Repo: "testrepo", Target: "main", Direction: "downstream", Depth: 3})
-	req := httptest.NewRequest("POST", RouteImpact, body)
+	req := httptest.NewRequestWithContext(context.Background(), "POST", RouteImpact, body)
 	rec := httptest.NewRecorder()
 	s.handleImpact(rec, req)
 
@@ -230,7 +236,7 @@ func TestHandleImpact(t *testing.T) {
 func TestHandleReload(t *testing.T) {
 	s := newTestServer()
 	body := jsonBody(t, ReloadRequest{Repo: "testrepo"})
-	req := httptest.NewRequest("POST", RouteReload, body)
+	req := httptest.NewRequestWithContext(context.Background(), "POST", RouteReload, body)
 	rec := httptest.NewRecorder()
 	s.handleReload(rec, req)
 
@@ -245,7 +251,7 @@ func TestHandleReload(t *testing.T) {
 
 func TestHandleStatus(t *testing.T) {
 	s := newTestServer()
-	req := httptest.NewRequest("GET", RouteStatus, nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", RouteStatus, nil)
 	rec := httptest.NewRecorder()
 	s.handleStatus(rec, req)
 
@@ -261,7 +267,7 @@ func TestHandleStatus(t *testing.T) {
 func TestHandleShutdown(t *testing.T) {
 	s := newTestServer()
 	s.done = make(chan struct{})
-	req := httptest.NewRequest("POST", RouteShutdown, nil)
+	req := httptest.NewRequestWithContext(context.Background(), "POST", RouteShutdown, nil)
 	rec := httptest.NewRecorder()
 	s.handleShutdown(rec, req)
 
@@ -273,7 +279,7 @@ func TestHandleShutdown(t *testing.T) {
 func TestUnknownRoute404(t *testing.T) {
 	s := newTestServer()
 	handler := s.SetupRoutes()
-	req := httptest.NewRequest("GET", "/api/nonexistent", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/nonexistent", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -296,7 +302,7 @@ func TestDecodeJSON_BodyTooLarge(t *testing.T) {
 	for i := range big {
 		big[i] = 'x'
 	}
-	req := httptest.NewRequest("POST", "/", bytes.NewReader(big))
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/", bytes.NewReader(big))
 	var v map[string]string
 	err := decodeJSON(req, &v)
 	if err == nil {
@@ -306,7 +312,7 @@ func TestDecodeJSON_BodyTooLarge(t *testing.T) {
 
 func TestDecodeJSON_WithinLimit(t *testing.T) {
 	payload := `{"repo":"test","text":"hello"}`
-	req := httptest.NewRequest("POST", "/", bytes.NewBufferString(payload))
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/", bytes.NewBufferString(payload))
 	var v QueryRequest
 	if err := decodeJSON(req, &v); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -322,7 +328,7 @@ func TestRecoveryMiddleware_CatchesPanic(t *testing.T) {
 	})
 	handler := recoveryMiddleware(panicker)
 
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -337,11 +343,11 @@ func TestRecoveryMiddleware_CatchesPanic(t *testing.T) {
 func TestRecoveryMiddleware_PassesThrough(t *testing.T) {
 	normal := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok")) //nolint:errcheck
+		_, _ = w.Write([]byte("ok"))
 	})
 	handler := recoveryMiddleware(normal)
 
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -385,7 +391,7 @@ func newTestServerWithRegistry(t *testing.T) *Server {
 func TestHandleQuery_AmbiguousShortName(t *testing.T) {
 	s := newTestServerWithRegistry(t)
 	body := jsonBody(t, QueryRequest{Repo: "sdk", Text: "test"})
-	req := httptest.NewRequest("POST", RouteQuery, body)
+	req := httptest.NewRequestWithContext(context.Background(), "POST", RouteQuery, body)
 	rec := httptest.NewRecorder()
 	s.handleQuery(rec, req)
 
@@ -407,7 +413,7 @@ func TestHandleQuery_AmbiguousShortName(t *testing.T) {
 func TestHandleContext_AmbiguousShortName(t *testing.T) {
 	s := newTestServerWithRegistry(t)
 	body := jsonBody(t, ContextRequest{Repo: "sdk", Name: "main"})
-	req := httptest.NewRequest("POST", RouteContext, body)
+	req := httptest.NewRequestWithContext(context.Background(), "POST", RouteContext, body)
 	rec := httptest.NewRecorder()
 	s.handleContext(rec, req)
 
@@ -423,7 +429,7 @@ func TestHandleContext_AmbiguousShortName(t *testing.T) {
 func TestHandleCypher_AmbiguousShortName(t *testing.T) {
 	s := newTestServerWithRegistry(t)
 	body := jsonBody(t, CypherRequest{Repo: "sdk", Query: "MATCH (n) RETURN n"})
-	req := httptest.NewRequest("POST", RouteCypher, body)
+	req := httptest.NewRequestWithContext(context.Background(), "POST", RouteCypher, body)
 	rec := httptest.NewRecorder()
 	s.handleCypher(rec, req)
 
@@ -439,7 +445,7 @@ func TestHandleCypher_AmbiguousShortName(t *testing.T) {
 func TestHandleImpact_AmbiguousShortName(t *testing.T) {
 	s := newTestServerWithRegistry(t)
 	body := jsonBody(t, ImpactRequest{Repo: "sdk", Target: "main", Depth: 3})
-	req := httptest.NewRequest("POST", RouteImpact, body)
+	req := httptest.NewRequestWithContext(context.Background(), "POST", RouteImpact, body)
 	rec := httptest.NewRecorder()
 	s.handleImpact(rec, req)
 
@@ -455,7 +461,7 @@ func TestHandleImpact_AmbiguousShortName(t *testing.T) {
 func TestHandleSchema_AmbiguousShortName(t *testing.T) {
 	s := newTestServerWithRegistry(t)
 	body := jsonBody(t, SchemaRequest{Repo: "sdk"})
-	req := httptest.NewRequest("POST", RouteSchema, body)
+	req := httptest.NewRequestWithContext(context.Background(), "POST", RouteSchema, body)
 	rec := httptest.NewRecorder()
 	s.handleSchema(rec, req)
 
@@ -471,7 +477,7 @@ func TestHandleSchema_AmbiguousShortName(t *testing.T) {
 func TestHandleReload_AmbiguousShortName(t *testing.T) {
 	s := newTestServerWithRegistry(t)
 	body := jsonBody(t, ReloadRequest{Repo: "sdk"})
-	req := httptest.NewRequest("POST", RouteReload, body)
+	req := httptest.NewRequestWithContext(context.Background(), "POST", RouteReload, body)
 	rec := httptest.NewRecorder()
 	s.handleReload(rec, req)
 
@@ -508,7 +514,7 @@ func TestHandleQuery_ShortNameResolvesViaRegistry(t *testing.T) {
 	}
 
 	body := jsonBody(t, QueryRequest{Repo: "sdk", Text: "test", Limit: 5})
-	req := httptest.NewRequest("POST", RouteQuery, body)
+	req := httptest.NewRequestWithContext(context.Background(), "POST", RouteQuery, body)
 	rec := httptest.NewRecorder()
 	s.handleQuery(rec, req)
 

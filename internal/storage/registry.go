@@ -2,7 +2,9 @@ package storage
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -45,15 +47,15 @@ type RegistryEntry struct {
 // Entries are keyed by Hash; name-based lookups may be ambiguous.
 type Registry struct {
 	path    string
-	flock   *flock.Flock // cross-process file lock for safe read-modify-write
+	flock   *flock.Flock             // cross-process file lock for safe read-modify-write
 	entries map[string]RegistryEntry // keyed by Hash
 	mu      sync.RWMutex
 }
 
 // NewRegistry loads or creates a registry at {dir}/registry.json.
 func NewRegistry(dir string) (*Registry, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return nil, fmt.Errorf("registry: mkdir: %w", err)
 	}
 	regPath := filepath.Join(dir, "registry.json")
 	r := &Registry{
@@ -61,7 +63,7 @@ func NewRegistry(dir string) (*Registry, error) {
 		flock:   flock.New(regPath + ".lock"),
 		entries: make(map[string]RegistryEntry),
 	}
-	if err := r.load(); err != nil && !os.IsNotExist(err) {
+	if err := r.load(); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
 	return r, nil
@@ -75,7 +77,7 @@ func (r *Registry) Add(entry RegistryEntry) error {
 	if err := r.lockAndReload(); err != nil {
 		return err
 	}
-	defer r.flock.Unlock() //nolint:errcheck
+	defer r.flock.Unlock()
 	if prev, ok := r.entries[entry.Hash]; ok {
 		entry.Meta.EmbeddingStatus = prev.Meta.EmbeddingStatus
 		entry.Meta.EmbeddingModel = prev.Meta.EmbeddingModel
@@ -99,7 +101,7 @@ func (r *Registry) Remove(nameOrHash string) error {
 	if err := r.lockAndReload(); err != nil {
 		return err
 	}
-	defer r.flock.Unlock() //nolint:errcheck
+	defer r.flock.Unlock()
 
 	hash := r.resolveToHashLocked(nameOrHash)
 	if hash == "" {
@@ -253,7 +255,7 @@ func (r *Registry) Link(a, b string) error {
 	if err := r.lockAndReload(); err != nil {
 		return err
 	}
-	defer r.flock.Unlock() //nolint:errcheck
+	defer r.flock.Unlock()
 
 	hashA := r.resolveToHashLocked(a)
 	hashB := r.resolveToHashLocked(b)
@@ -264,7 +266,7 @@ func (r *Registry) Link(a, b string) error {
 		return fmt.Errorf("repo %q not found in registry", b)
 	}
 	if hashA == hashB {
-		return fmt.Errorf("cannot link a repo to itself")
+		return errors.New("cannot link a repo to itself")
 	}
 
 	ea := r.entries[hashA]
@@ -288,7 +290,7 @@ func (r *Registry) Unlink(a, b string) error {
 	if err := r.lockAndReload(); err != nil {
 		return err
 	}
-	defer r.flock.Unlock() //nolint:errcheck
+	defer r.flock.Unlock()
 
 	hashA := r.resolveToHashLocked(a)
 	hashB := r.resolveToHashLocked(b)
@@ -347,7 +349,7 @@ func (r *Registry) UpdateEmbedding(nameOrHash string, info EmbeddingInfo) error 
 	if err := r.lockAndReload(); err != nil {
 		return err
 	}
-	defer r.flock.Unlock() //nolint:errcheck
+	defer r.flock.Unlock()
 
 	hash := r.resolveToHashLocked(nameOrHash)
 	if hash == "" {
@@ -409,13 +411,16 @@ func (r *Registry) save() error {
 	}
 	data, err := json.MarshalIndent(list, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("registry: marshal: %w", err)
 	}
 	tmp := r.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return fmt.Errorf("registry: write tmp: %w", err)
 	}
-	return os.Rename(tmp, r.path)
+	if err := os.Rename(tmp, r.path); err != nil {
+		return fmt.Errorf("registry: rename: %w", err)
+	}
+	return nil
 }
 
 // lockAndReload acquires the cross-process file lock and reloads
@@ -428,8 +433,8 @@ func (r *Registry) lockAndReload() error {
 	// Reload from disk so we don't overwrite entries added by another process.
 	fresh := make(map[string]RegistryEntry)
 	r.entries = fresh
-	if err := r.load(); err != nil && !os.IsNotExist(err) {
-		r.flock.Unlock() //nolint:errcheck
+	if err := r.load(); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		_ = r.flock.Unlock()
 		return fmt.Errorf("registry: reload: %w", err)
 	}
 	return nil
@@ -440,7 +445,7 @@ func (r *Registry) lockAndReload() error {
 func (r *Registry) load() error {
 	data, err := os.ReadFile(r.path)
 	if err != nil {
-		return err
+		return fmt.Errorf("registry: read: %w", err)
 	}
 	// Treat empty files as an empty registry (can happen if a previous
 	// write was interrupted or truncated).
@@ -449,7 +454,7 @@ func (r *Registry) load() error {
 	}
 	var list []RegistryEntry
 	if err := json.Unmarshal(data, &list); err != nil {
-		return err
+		return fmt.Errorf("registry: unmarshal: %w", err)
 	}
 	for _, e := range list {
 		if e.Hash != "" {
@@ -659,7 +664,11 @@ func ResolveRepoName(dataDir, name string) (string, error) {
 	}
 	reg, err := NewRegistry(dataDir)
 	if err != nil {
-		return name, nil // registry unavailable — pass through
+		var pathErr *fs.PathError
+		if errors.As(err, &pathErr) {
+			return name, nil
+		}
+		return name, fmt.Errorf("registry unavailable: %w", err)
 	}
 	entry, err := reg.Resolve(name)
 	if err != nil {

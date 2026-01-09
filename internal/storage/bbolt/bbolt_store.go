@@ -3,12 +3,15 @@
 package bbolt
 
 import (
+	"errors"
 	"fmt"
+	"math"
 
 	"github.com/vmihailenco/msgpack/v5"
 	bolt "go.etcd.io/bbolt"
 
 	"github.com/cloudprivacylabs/lpg/v2"
+
 	"github.com/realxen/cartograph/internal/graph"
 	"github.com/realxen/cartograph/internal/storage"
 )
@@ -67,7 +70,7 @@ func (s *Store) SaveGraph(g *lpg.Graph) error {
 		// Count nodes first so we can write a fixed-length array header.
 		graph.ForEachNode(g, func(_ *lpg.Node) bool { nodeCount++; return true })
 
-			nodeBuf = make([]byte, 0, nodeCount*256)
+		nodeBuf = make([]byte, 0, nodeCount*256)
 		w := byteWriter{buf: nodeBuf}
 		enc.Reset(&w)
 		_ = enc.EncodeArrayLen(nodeCount)
@@ -123,7 +126,7 @@ func (s *Store) SaveGraph(g *lpg.Graph) error {
 		return fmt.Errorf("marshal meta: %w", err)
 	}
 
-	return s.db.Update(func(tx *bolt.Tx) error {
+	if err := s.db.Update(func(tx *bolt.Tx) error {
 		for _, name := range [][]byte{bucketNodes, bucketEdges, bucketMeta} {
 			_ = tx.DeleteBucket(name)
 			if _, err := tx.CreateBucket(name); err != nil {
@@ -131,13 +134,16 @@ func (s *Store) SaveGraph(g *lpg.Graph) error {
 			}
 		}
 		if err := tx.Bucket(bucketNodes).Put(keyAll, nodeBuf); err != nil {
-			return err
+			return fmt.Errorf("put nodes: %w", err)
 		}
 		if err := tx.Bucket(bucketEdges).Put(keyAll, edgeBuf); err != nil {
-			return err
+			return fmt.Errorf("put edges: %w", err)
 		}
 		return tx.Bucket(bucketMeta).Put([]byte("info"), metaData)
-	})
+	}); err != nil {
+		return fmt.Errorf("bbolt: save graph: %w", err)
+	}
+	return nil
 }
 
 // LoadGraph deserializes the stored graph from bbolt into a new lpg.Graph.
@@ -148,11 +154,11 @@ func (s *Store) LoadGraph() (*lpg.Graph, error) {
 	err := s.db.View(func(tx *bolt.Tx) error {
 		nodesBkt := tx.Bucket(bucketNodes)
 		if nodesBkt == nil {
-			return fmt.Errorf("bbolt: nodes bucket not found")
+			return errors.New("bbolt: nodes bucket not found")
 		}
 		edgesBkt := tx.Bucket(bucketEdges)
 		if edgesBkt == nil {
-			return fmt.Errorf("bbolt: edges bucket not found")
+			return errors.New("bbolt: edges bucket not found")
 		}
 
 		nodesBlob := nodesBkt.Get(keyAll)
@@ -162,7 +168,7 @@ func (s *Store) LoadGraph() (*lpg.Graph, error) {
 				return fmt.Errorf("unmarshal nodes blob: %w", err)
 			}
 			for _, props := range nodeList {
-				labelsRaw, _ := props["_labels"]
+				labelsRaw := props["_labels"]
 				var labels []string
 				if arr, ok := labelsRaw.([]any); ok {
 					for _, item := range arr {
@@ -208,14 +214,17 @@ func (s *Store) LoadGraph() (*lpg.Graph, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("bbolt: load graph: %w", err)
 	}
 	return g, nil
 }
 
 // Close closes the underlying bbolt database.
 func (s *Store) Close() error {
-	return s.db.Close()
+	if err := s.db.Close(); err != nil {
+		return fmt.Errorf("bbolt: close: %w", err)
+	}
+	return nil
 }
 
 // DB returns the underlying bbolt database. This is used to share the
@@ -245,7 +254,11 @@ func normalizeProps(props map[string]any) {
 		case uint32:
 			props[k] = int(val)
 		case uint64:
-			props[k] = int(val)
+			if val > uint64(math.MaxInt) {
+				props[k] = math.MaxInt
+			} else {
+				props[k] = int(val)
+			}
 		case float32:
 			props[k] = float64(val)
 		}

@@ -2,14 +2,16 @@ package ingestion
 
 import (
 	"fmt"
+	"strconv"
 	"testing"
 
 	"github.com/cloudprivacylabs/lpg/v2"
+
 	"github.com/realxen/cartograph/internal/graph"
 )
 
 // makeClique creates a fully connected set of Function nodes with CALLS edges.
-func makeClique(g *lpg.Graph, prefix string, n int) []*lpg.Node {
+func makeClique(g *lpg.Graph, prefix string, n int) []*lpg.Node { //nolint:unparam
 	nodes := make([]*lpg.Node, n)
 	for i := range n {
 		id := prefix + string(rune('A'+i))
@@ -271,65 +273,105 @@ func TestApplyCommunities_MultipleCommunities(t *testing.T) {
 
 // zacharyKarateClub returns the Zachary Karate Club adjacency list (34 nodes, 78 edges)
 // and ground-truth faction membership.
-func zacharyKarateClub() (AdjacencyList, map[string]int) {
+func zacharyKarateClub() AdjacencyList {
 	// Edge list from Zachary (1977).
 	edges := [][2]int{
-		{1, 2}, {1, 3}, {1, 4}, {1, 5}, {1, 6}, {1, 7}, {1, 8}, {1, 9}, {1, 11}, {1, 12}, {1, 13}, {1, 14}, {1, 18}, {1, 20}, {1, 22}, {1, 32},
-		{2, 3}, {2, 4}, {2, 8}, {2, 14}, {2, 18}, {2, 20}, {2, 22}, {2, 31},
-		{3, 4}, {3, 8}, {3, 9}, {3, 10}, {3, 14}, {3, 28}, {3, 29}, {3, 33},
-		{4, 8}, {4, 13}, {4, 14},
-		{5, 7}, {5, 11},
-		{6, 7}, {6, 11}, {6, 17},
+		{1, 2},
+		{1, 3},
+		{1, 4},
+		{1, 5},
+		{1, 6},
+		{1, 7},
+		{1, 8},
+		{1, 9},
+		{1, 11},
+		{1, 12},
+		{1, 13},
+		{1, 14},
+		{1, 18},
+		{1, 20},
+		{1, 22},
+		{1, 32},
+		{2, 3},
+		{2, 4},
+		{2, 8},
+		{2, 14},
+		{2, 18},
+		{2, 20},
+		{2, 22},
+		{2, 31},
+		{3, 4},
+		{3, 8},
+		{3, 9},
+		{3, 10},
+		{3, 14},
+		{3, 28},
+		{3, 29},
+		{3, 33},
+		{4, 8},
+		{4, 13},
+		{4, 14},
+		{5, 7},
+		{5, 11},
+		{6, 7},
+		{6, 11},
+		{6, 17},
 		{7, 17},
-		{9, 31}, {9, 33}, {9, 34},
+		{9, 31},
+		{9, 33},
+		{9, 34},
 		{10, 34},
 		{14, 34},
-		{15, 33}, {15, 34},
-		{16, 33}, {16, 34},
-		{19, 33}, {19, 34},
+		{15, 33},
+		{15, 34},
+		{16, 33},
+		{16, 34},
+		{19, 33},
+		{19, 34},
 		{20, 34},
-		{21, 33}, {21, 34},
-		{23, 33}, {23, 34},
-		{24, 26}, {24, 28}, {24, 30}, {24, 33}, {24, 34},
-		{25, 26}, {25, 28}, {25, 32},
+		{21, 33},
+		{21, 34},
+		{23, 33},
+		{23, 34},
+		{24, 26},
+		{24, 28},
+		{24, 30},
+		{24, 33},
+		{24, 34},
+		{25, 26},
+		{25, 28},
+		{25, 32},
 		{26, 32},
-		{27, 30}, {27, 34},
+		{27, 30},
+		{27, 34},
 		{28, 34},
-		{29, 32}, {29, 34},
-		{30, 33}, {30, 34},
-		{31, 33}, {31, 34},
-		{32, 33}, {32, 34},
+		{29, 32},
+		{29, 34},
+		{30, 33},
+		{30, 34},
+		{31, 33},
+		{31, 34},
+		{32, 33},
+		{32, 34},
 		{33, 34},
 	}
 
 	adj := make(AdjacencyList, 34)
 	for i := 1; i <= 34; i++ {
-		adj[fmt.Sprintf("%d", i)] = make(map[string]float64)
+		adj[strconv.Itoa(i)] = make(map[string]float64)
 	}
 	for _, e := range edges {
-		a := fmt.Sprintf("%d", e[0])
-		b := fmt.Sprintf("%d", e[1])
+		a := strconv.Itoa(e[0])
+		b := strconv.Itoa(e[1])
 		adj[a][b] = 1.0
 		adj[b][a] = 1.0
 	}
 
-	// Ground truth: the actual factions after the club split.
-	groundTruth := map[string]int{}
-	mrHiFaction := []int{1, 2, 3, 4, 5, 6, 7, 8, 11, 12, 13, 14, 17, 18, 20, 22}
-	officerFaction := []int{9, 10, 15, 16, 19, 21, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34}
-
-	for _, n := range mrHiFaction {
-		groundTruth[fmt.Sprintf("%d", n)] = 0
-	}
-	for _, n := range officerFaction {
-		groundTruth[fmt.Sprintf("%d", n)] = 1
-	}
-
-	return adj, groundTruth
+	return adj
 }
 
 func TestLeiden_KarateClub_Modularity(t *testing.T) {
-	adj, _ := zacharyKarateClub()
+	adj := zacharyKarateClub()
 
 	communities := Leiden(adj)
 
@@ -349,7 +391,7 @@ func TestLeiden_KarateClub_Modularity(t *testing.T) {
 }
 
 func TestLeiden_KarateClub_CommunityCount(t *testing.T) {
-	adj, _ := zacharyKarateClub()
+	adj := zacharyKarateClub()
 
 	communities := Leiden(adj)
 
@@ -371,7 +413,7 @@ func TestLeiden_KarateClub_CommunityCount(t *testing.T) {
 }
 
 func TestLeiden_KarateClub_FactionAlignment(t *testing.T) {
-	adj, _ := zacharyKarateClub()
+	adj := zacharyKarateClub()
 
 	communities := Leiden(adj)
 
@@ -432,7 +474,7 @@ func TestLeiden_KarateClub_FactionAlignment(t *testing.T) {
 }
 
 func TestLeiden_KarateClub_Determinism(t *testing.T) {
-	adj, _ := zacharyKarateClub()
+	adj := zacharyKarateClub()
 
 	// Run Leiden multiple times — it should be deterministic given fixed seed.
 	reference := Leiden(adj)
@@ -505,11 +547,11 @@ func TestLeiden_ChainGraph(t *testing.T) {
 	// Linear chain: 1-2-3-4-5-6-7-8
 	adj := make(AdjacencyList, 8)
 	for i := 1; i <= 8; i++ {
-		adj[fmt.Sprintf("%d", i)] = make(map[string]float64)
+		adj[strconv.Itoa(i)] = make(map[string]float64)
 	}
 	for i := 1; i < 8; i++ {
-		a := fmt.Sprintf("%d", i)
-		b := fmt.Sprintf("%d", i+1)
+		a := strconv.Itoa(i)
+		b := strconv.Itoa(i + 1)
 		adj[a][b] = 1.0
 		adj[b][a] = 1.0
 	}
@@ -601,7 +643,7 @@ func TestLeiden_DisconnectedWithIsolates(t *testing.T) {
 func TestLeiden_DisjointRings(t *testing.T) {
 	g := lpg.NewGraph()
 
-	makeRing := func(prefix string, n int) []*lpg.Node {
+	makeRing := func(prefix string, n int) {
 		nodes := make([]*lpg.Node, n)
 		for i := range n {
 			id := fmt.Sprintf("%s%d", prefix, i)
@@ -615,7 +657,6 @@ func TestLeiden_DisjointRings(t *testing.T) {
 		for i := range n {
 			graph.AddEdge(g, nodes[i], nodes[(i+1)%n], graph.RelCalls, nil)
 		}
-		return nodes
 	}
 
 	makeRing("r1:", 10)

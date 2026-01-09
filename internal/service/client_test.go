@@ -2,17 +2,22 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/cloudprivacylabs/lpg/v2"
+
 	"github.com/realxen/cartograph/internal/search"
 )
 
+const tcpNetwork = "tcp"
+
 // testClientServer returns a Client pointed at an httptest.Server that
 // uses the real Server handler.
-func testClientServer(t *testing.T) (*Client, *httptest.Server) {
+func testClientServer(t *testing.T) *Client {
 	t.Helper()
 	s := &Server{
 		graph:       make(map[string]*lpg.Graph),
@@ -39,7 +44,7 @@ func testClientServer(t *testing.T) (*Client, *httptest.Server) {
 		baseURL: ts.URL,
 	}
 
-	return cl, ts
+	return cl
 }
 
 // testTransport rewrites "http://localhost" to the test server URL.
@@ -51,11 +56,15 @@ type testTransport struct {
 func (t *testTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req.URL.Scheme = "http"
 	req.URL.Host = t.baseURL[len("http://"):]
-	return t.base.RoundTrip(req)
+	resp, err := t.base.RoundTrip(req)
+	if err != nil {
+		return nil, fmt.Errorf("test transport: %w", err)
+	}
+	return resp, nil
 }
 
 func TestClientQuery(t *testing.T) {
-	cl, _ := testClientServer(t)
+	cl := testClientServer(t)
 	res, err := cl.Query(QueryRequest{Repo: "myrepo", Text: "test", Limit: 5})
 	if err != nil {
 		t.Fatalf("query: %v", err)
@@ -66,7 +75,7 @@ func TestClientQuery(t *testing.T) {
 }
 
 func TestClientContext(t *testing.T) {
-	cl, _ := testClientServer(t)
+	cl := testClientServer(t)
 	res, err := cl.Context(ContextRequest{Repo: "myrepo", Name: "main"})
 	if err != nil {
 		t.Fatalf("context: %v", err)
@@ -77,7 +86,7 @@ func TestClientContext(t *testing.T) {
 }
 
 func TestClientCypher(t *testing.T) {
-	cl, _ := testClientServer(t)
+	cl := testClientServer(t)
 	res, err := cl.Cypher(CypherRequest{Repo: "myrepo", Query: "MATCH (n) RETURN n"})
 	if err != nil {
 		t.Fatalf("cypher: %v", err)
@@ -88,7 +97,7 @@ func TestClientCypher(t *testing.T) {
 }
 
 func TestClientCypherWriteBlocked(t *testing.T) {
-	cl, _ := testClientServer(t)
+	cl := testClientServer(t)
 	_, err := cl.Cypher(CypherRequest{Repo: "myrepo", Query: "CREATE (n:Bad)"})
 	if err == nil {
 		t.Fatal("expected error for write query")
@@ -96,7 +105,7 @@ func TestClientCypherWriteBlocked(t *testing.T) {
 }
 
 func TestClientImpact(t *testing.T) {
-	cl, _ := testClientServer(t)
+	cl := testClientServer(t)
 	res, err := cl.Impact(ImpactRequest{Repo: "myrepo", Target: "main", Direction: "downstream", Depth: 2})
 	if err != nil {
 		t.Fatalf("impact: %v", err)
@@ -107,7 +116,7 @@ func TestClientImpact(t *testing.T) {
 }
 
 func TestClientReload(t *testing.T) {
-	cl, _ := testClientServer(t)
+	cl := testClientServer(t)
 	err := cl.Reload(ReloadRequest{Repo: "myrepo"})
 	if err != nil {
 		t.Fatalf("reload: %v", err)
@@ -115,7 +124,7 @@ func TestClientReload(t *testing.T) {
 }
 
 func TestClientStatus(t *testing.T) {
-	cl, _ := testClientServer(t)
+	cl := testClientServer(t)
 	res, err := cl.Status()
 	if err != nil {
 		t.Fatalf("status: %v", err)
@@ -126,7 +135,7 @@ func TestClientStatus(t *testing.T) {
 }
 
 func TestClientShutdown(t *testing.T) {
-	cl, _ := testClientServer(t)
+	cl := testClientServer(t)
 	err := cl.Shutdown()
 	if err != nil {
 		t.Fatalf("shutdown: %v", err)
@@ -134,13 +143,13 @@ func TestClientShutdown(t *testing.T) {
 }
 
 func TestClientErrorPropagation(t *testing.T) {
-	cl, _ := testClientServer(t)
+	cl := testClientServer(t)
 	_, err := cl.Query(QueryRequest{Repo: "nonexistent", Text: "x"})
 	if err == nil {
 		t.Fatal("expected error for nonexistent repo")
 	}
-	apiErr, ok := err.(*APIError)
-	if !ok {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
 		t.Fatalf("expected *APIError, got %T: %v", err, err)
 	}
 	if apiErr.Code != ErrCodeRepoNotFound {
@@ -152,7 +161,7 @@ func TestClientMockHandler(t *testing.T) {
 	// Test with a completely custom mock handler.
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(Response{
+		_ = json.NewEncoder(w).Encode(Response{ //nolint:errchkjson
 			Result: &StatusResult{Running: true, Uptime: "1h0m0s"},
 		})
 	})
@@ -202,7 +211,7 @@ func TestNewAutoClient_TCP(t *testing.T) {
 	if cl == nil {
 		t.Fatal("expected non-nil client")
 	}
-	if cl.network != "tcp" {
+	if cl.network != tcpNetwork {
 		t.Errorf("expected network 'tcp', got %q", cl.network)
 	}
 }
@@ -212,8 +221,8 @@ func TestNewAutoClient_Unix(t *testing.T) {
 	if cl == nil {
 		t.Fatal("expected non-nil client")
 	}
-	if cl.network != "unix" {
-		t.Errorf("expected network 'unix', got %q", cl.network)
+	if cl.network != networkUnix {
+		t.Errorf("expected network %q, got %q", networkUnix, cl.network)
 	}
 }
 
@@ -222,7 +231,7 @@ func TestNewTCPClient(t *testing.T) {
 	if cl == nil {
 		t.Fatal("expected non-nil client")
 	}
-	if cl.network != "tcp" {
+	if cl.network != tcpNetwork {
 		t.Errorf("expected tcp network, got %q", cl.network)
 	}
 	if cl.addr != "localhost:9999" {

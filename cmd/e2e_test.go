@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,11 +25,11 @@ func TestE2E_AnalyzeURL_QuerySource(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", tmpDir)
 
 	dataDir := filepath.Join(tmpDir, "cartograph")
-	os.MkdirAll(dataDir, 0o755) //nolint:errcheck
+	_ = os.MkdirAll(dataDir, 0o750)
 
 	socketPath := filepath.Join(dataDir, "test-e2e.sock")
 	lf := service.NewLockfile(dataDir)
-	t.Cleanup(func() { lf.Release() }) //nolint:errcheck
+	t.Cleanup(func() { _ = lf.Release() })
 
 	if err := lf.Acquire(socketPath, "unix"); err != nil {
 		t.Fatalf("acquire lockfile: %v", err)
@@ -48,7 +49,7 @@ func TestE2E_AnalyzeURL_QuerySource(t *testing.T) {
 	if err := srv.Start(); err != nil {
 		t.Fatalf("start server: %v", err)
 	}
-	t.Cleanup(func() { srv.Stop() }) //nolint:errcheck
+	t.Cleanup(func() { _ = srv.Stop(context.Background()) })
 
 	client := service.NewAutoClient(srv.Addr)
 	cli := &CLI{Client: client}
@@ -201,11 +202,11 @@ func TestE2E_AnalyzeURL_CloneToDisk(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", tmpDir)
 
 	dataDir := filepath.Join(tmpDir, "cartograph")
-	os.MkdirAll(dataDir, 0o755) //nolint:errcheck
+	_ = os.MkdirAll(dataDir, 0o750)
 
 	socketPath := filepath.Join(dataDir, "test-e2e-clone.sock")
 	lf := service.NewLockfile(dataDir)
-	t.Cleanup(func() { lf.Release() }) //nolint:errcheck
+	t.Cleanup(func() { _ = lf.Release() })
 
 	if err := lf.Acquire(socketPath, "unix"); err != nil {
 		t.Fatalf("acquire lockfile: %v", err)
@@ -225,7 +226,7 @@ func TestE2E_AnalyzeURL_CloneToDisk(t *testing.T) {
 	if err := srv.Start(); err != nil {
 		t.Fatalf("start server: %v", err)
 	}
-	t.Cleanup(func() { srv.Stop() }) //nolint:errcheck
+	t.Cleanup(func() { _ = srv.Stop(context.Background()) })
 
 	client := service.NewAutoClient(srv.Addr)
 	cli := &CLI{Client: client}

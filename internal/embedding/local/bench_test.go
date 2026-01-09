@@ -105,7 +105,7 @@ func BenchmarkEmbed_SingleText(b *testing.B) {
 	ctx := context.Background()
 	text := "func handleRequest(w http.ResponseWriter, r *http.Request) { }"
 
-	p.Embed(ctx, []string{text}) //nolint:errcheck
+	_, _ = p.Embed(ctx, []string{text})
 
 	b.ResetTimer()
 	for range b.N {
@@ -133,7 +133,7 @@ func BenchmarkEmbed_Batch4(b *testing.B) {
 		"def train_model(data, epochs=10): pass",
 	}
 
-	p.Embed(ctx, texts[:1]) //nolint:errcheck
+	_, _ = p.Embed(ctx, texts[:1])
 
 	b.ResetTimer()
 	for range b.N {
@@ -153,6 +153,6 @@ func BenchmarkProviderInit(b *testing.B) {
 		if err != nil {
 			b.Fatalf("New: %v", err)
 		}
-		p.Close() //nolint:errcheck
+		_ = p.Close()
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/cloudprivacylabs/lpg/v2"
+
 	"github.com/realxen/cartograph/internal/graph"
 )
 
@@ -140,15 +141,15 @@ func TempDir(t *testing.T, files map[string]string) string {
 	for relPath, content := range files {
 		fullPath := filepath.Join(dir, relPath)
 		if relPath[len(relPath)-1] == '/' {
-			if err := os.MkdirAll(fullPath, 0o755); err != nil {
+			if err := os.MkdirAll(fullPath, 0o750); err != nil {
 				t.Fatalf("TempDir: mkdir %s: %v", relPath, err)
 			}
 			continue
 		}
-		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o750); err != nil {
 			t.Fatalf("TempDir: mkdir parent of %s: %v", relPath, err)
 		}
-		if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
+		if err := os.WriteFile(fullPath, []byte(content), 0o600); err != nil {
 			t.Fatalf("TempDir: write %s: %v", relPath, err)
 		}
 	}

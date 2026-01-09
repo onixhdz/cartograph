@@ -15,7 +15,7 @@ func newTestStore(t *testing.T) *ContentStore {
 	if err != nil {
 		t.Fatalf("NewContentStore: %v", err)
 	}
-	t.Cleanup(func() { cs.Close() })
+	t.Cleanup(func() { _ = cs.Close() })
 	return cs
 }
 
@@ -86,7 +86,9 @@ func TestContentStore_Has(t *testing.T) {
 		t.Error("Has(foo.go) should be false before Put")
 	}
 
-	cs.Put("foo.go", []byte("package foo")) //nolint:errcheck
+	if err := cs.Put("foo.go", []byte("package foo")); err != nil {
+		t.Fatal(err)
+	}
 
 	if !cs.Has("foo.go") {
 		t.Error("Has(foo.go) should be true after Put")
@@ -96,7 +98,9 @@ func TestContentStore_Has(t *testing.T) {
 func TestContentStore_Delete(t *testing.T) {
 	cs := newTestStore(t)
 
-	cs.Put("del.go", []byte("package del")) //nolint:errcheck
+	if err := cs.Put("del.go", []byte("package del")); err != nil {
+		t.Fatal(err)
+	}
 
 	if !cs.Has("del.go") {
 		t.Fatal("expected del.go to exist")
@@ -114,8 +118,12 @@ func TestContentStore_Delete(t *testing.T) {
 func TestContentStore_Overwrite(t *testing.T) {
 	cs := newTestStore(t)
 
-	cs.Put("f.go", []byte("version 1")) //nolint:errcheck
-	cs.Put("f.go", []byte("version 2")) //nolint:errcheck
+	if err := cs.Put("f.go", []byte("version 1")); err != nil {
+		t.Fatal(err)
+	}
+	if err := cs.Put("f.go", []byte("version 2")); err != nil {
+		t.Fatal(err)
+	}
 
 	got, err := cs.Get("f.go")
 	if err != nil {
@@ -134,7 +142,9 @@ func TestContentStore_Paths(t *testing.T) {
 		"b.go":     []byte("b"),
 		"sub/c.go": []byte("c"),
 	}
-	cs.PutBatch(files) //nolint:errcheck
+	if err := cs.PutBatch(files); err != nil {
+		t.Fatal(err)
+	}
 
 	paths := cs.Paths()
 	if len(paths) != 3 {

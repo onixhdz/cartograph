@@ -9,11 +9,13 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/cloudprivacylabs/lpg/v2"
+
 	"github.com/realxen/cartograph/internal/embedding"
 	"github.com/realxen/cartograph/internal/graph"
 	"github.com/realxen/cartograph/internal/search"
@@ -24,6 +26,12 @@ import (
 // DefaultIdleTimeout is the default duration after which the server
 // shuts itself down if no requests are received.
 const DefaultIdleTimeout = 30 * time.Minute
+
+const (
+	networkUnix        = "unix"
+	embedStatusRunning = "running"
+	embedProviderLlama = "llamacpp"
+)
 
 // Server is the background service that holds in-memory graphs and
 // serves the HTTP/JSON API over a unix domain socket (or TCP fallback).
@@ -84,13 +92,14 @@ func NewServer(socketPath string, lockfile *Lockfile, dataDir string) (*Server, 
 	var ln net.Listener
 	var network, addr string
 
+	var lc net.ListenConfig
 	var err error
-	ln, err = net.Listen("unix", socketPath)
+	ln, err = lc.Listen(context.Background(), networkUnix, socketPath)
 	if err == nil {
-		network = "unix"
+		network = networkUnix
 		addr = socketPath
 	} else {
-		ln, err = net.Listen("tcp", "127.0.0.1:0")
+		ln, err = lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
 		if err != nil {
 			return nil, fmt.Errorf("server: listen: %w", err)
 		}
@@ -128,7 +137,7 @@ func NewServer(socketPath string, lockfile *Lockfile, dataDir string) (*Server, 
 // Start begins serving and starts the idle timer.
 func (s *Server) Start() error {
 	s.startTime = time.Now()
-	s.resetIdleTimer()
+	s.resetIdleTimer(context.Background())
 
 	go func() {
 		defer close(s.done)
@@ -142,21 +151,23 @@ func (s *Server) Start() error {
 }
 
 // Stop gracefully shuts down the HTTP server and releases the lockfile.
-func (s *Server) Stop() error {
+func (s *Server) Stop(ctx context.Context) error {
 	var stopErr error
 	s.stopOnce.Do(func() {
 		if s.idleTimer != nil {
 			s.idleTimer.Stop()
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		stopErr = s.httpServer.Shutdown(ctx)
+		if err := s.httpServer.Shutdown(shutdownCtx); err != nil {
+			stopErr = fmt.Errorf("server: shutdown: %w", err)
+		}
 		if s.lockfile != nil {
-			s.lockfile.Release() //nolint:errcheck
+			_ = s.lockfile.Release() // best-effort release
 		}
 		s.queryProviderMu.Lock()
 		if s.queryProvider != nil {
-			s.queryProvider.Close() //nolint:errcheck
+			_ = s.queryProvider.Close() // best-effort close
 			s.queryProvider = nil
 		}
 		s.queryProviderMu.Unlock()
@@ -166,15 +177,15 @@ func (s *Server) Stop() error {
 }
 
 // resetIdleTimer resets (or starts) the idle shutdown timer.
-func (s *Server) resetIdleTimer() {
+func (s *Server) resetIdleTimer(_ context.Context) {
 	if s.idleTimeout == 0 {
 		return
 	}
 	if s.idleTimer != nil {
 		s.idleTimer.Stop()
 	}
-	s.idleTimer = time.AfterFunc(s.idleTimeout, func() {
-		s.Stop() //nolint:errcheck
+	s.idleTimer = time.AfterFunc(s.idleTimeout, func() { //nolint:contextcheck // timer callback has no incoming context
+		_ = s.Stop(context.Background())
 	})
 }
 
@@ -204,13 +215,13 @@ func (s *Server) LoadGraph(repo string, store storage.GraphStore) error {
 		return fmt.Errorf("server: build search index %q: %w", repo, err)
 	}
 	if _, err := idx.IndexGraph(g); err != nil {
-		idx.Close() //nolint:errcheck
+		_ = idx.Close() // best-effort close on index error
 		return fmt.Errorf("server: index graph %q: %w", repo, err)
 	}
 
 	s.mu.Lock()
 	if prev, ok := s.searchIdx[repo]; ok && prev != nil {
-		prev.Close() //nolint:errcheck
+		_ = prev.Close() // best-effort close old index
 	}
 	s.graph[repo] = g
 	s.searchIdx[repo] = idx
@@ -224,7 +235,7 @@ func (s *Server) LoadGraph(repo string, store storage.GraphStore) error {
 func (s *Server) LoadGraphDirect(repo string, g *lpg.Graph, idx *search.Index) {
 	s.mu.Lock()
 	if prev, ok := s.searchIdx[repo]; ok && prev != nil {
-		prev.Close() //nolint:errcheck
+		_ = prev.Close() // best-effort close old index
 	}
 	s.graph[repo] = g
 	s.searchIdx[repo] = idx
@@ -233,7 +244,7 @@ func (s *Server) LoadGraphDirect(repo string, g *lpg.Graph, idx *search.Index) {
 }
 
 // GetRepoResources returns the cached graph and search index for a repo.
-// Returns nil, nil, false if the repo is not loaded.
+// Returns (nil, false) if the repo is not loaded.
 func (s *Server) GetRepoResources(repo string) (*lpg.Graph, *search.Index, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -285,8 +296,11 @@ func (s *Server) QueryEmbed(ctx context.Context, text string) ([]float32, error)
 	}
 
 	vecs, err := p.Embed(ctx, []string{text})
-	if err != nil || len(vecs) == 0 {
-		return nil, err
+	if err != nil {
+		return nil, fmt.Errorf("query embed: %w", err)
+	}
+	if len(vecs) == 0 {
+		return nil, nil
 	}
 	return vecs[0], nil
 }
@@ -322,7 +336,7 @@ func (s *Server) DropGraph(repo string) {
 	s.mu.Lock()
 	delete(s.graph, repo)
 	if idx, ok := s.searchIdx[repo]; ok && idx != nil {
-		idx.Close() //nolint:errcheck
+		_ = idx.Close() // best-effort
 	}
 	delete(s.searchIdx, repo)
 	delete(s.resolvers, repo)
@@ -340,18 +354,18 @@ func (s *Server) ReloadGraph(repo string) error {
 // lazyLoadGraph loads a repo's graph and search index from disk on
 // first access, falling back to an in-memory index rebuild if the
 // persisted Bleve index is unavailable.
-func (s *Server) lazyLoadGraph(repo string) (*lpg.Graph, *search.Index, bool) {
+func (s *Server) lazyLoadGraph(repo string) bool {
 	if s.dataDir == "" {
-		return nil, nil, false
+		return false
 	}
 
 	registry, err := storage.NewRegistry(s.dataDir)
 	if err != nil {
-		return nil, nil, false
+		return false
 	}
 	entry, ok := registry.Get(repo)
 	if !ok {
-		return nil, nil, false
+		return false
 	}
 
 	repoDir := filepath.Join(s.dataDir, entry.Name, entry.Hash)
@@ -359,13 +373,13 @@ func (s *Server) lazyLoadGraph(repo string) (*lpg.Graph, *search.Index, bool) {
 
 	store, err := bbolt.New(dbPath)
 	if err != nil {
-		return nil, nil, false
+		return false
 	}
 
 	g, err := store.LoadGraph()
-	store.Close() //nolint:errcheck
+	_ = store.Close() // best-effort
 	if err != nil {
-		return nil, nil, false
+		return false
 	}
 
 	// Prefer the persisted Bleve index written by analyze.
@@ -375,11 +389,11 @@ func (s *Server) lazyLoadGraph(repo string) (*lpg.Graph, *search.Index, bool) {
 		// Fall back to in-memory index if persisted index is missing or corrupt.
 		idx, err = search.NewMemoryIndex()
 		if err != nil {
-			return nil, nil, false
+			return false
 		}
 		if _, err := idx.IndexGraph(g); err != nil {
-			idx.Close() //nolint:errcheck
-			return nil, nil, false
+			_ = idx.Close() // best-effort
+			return false
 		}
 	}
 
@@ -390,7 +404,7 @@ func (s *Server) lazyLoadGraph(repo string) (*lpg.Graph, *search.Index, bool) {
 	s.mu.Unlock()
 	s.ready.Store(true)
 
-	return g, idx, true
+	return true
 }
 
 // LoadAllFromRegistry scans the on-disk registry and loads every
@@ -419,7 +433,7 @@ func (s *Server) LoadAllFromRegistry() {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			s.lazyLoadGraph(name) //nolint:errcheck
+			s.lazyLoadGraph(name)
 		}(entry.Name)
 	}
 	wg.Wait()
@@ -510,7 +524,11 @@ func (s *Server) resolveRepoName(name string) (string, error) {
 	}
 	s.mu.RUnlock()
 
-	return storage.ResolveRepoName(s.dataDir, name)
+	resolved, err := storage.ResolveRepoName(s.dataDir, name)
+	if err != nil {
+		return "", fmt.Errorf("resolve repo name: %w", err)
+	}
+	return resolved, nil
 }
 
 // getBackend returns a ToolBackend for the given repo via the factory.
@@ -523,7 +541,7 @@ func (s *Server) getBackend(repo string) ToolBackend {
 		}
 	}
 
-	if _, _, ok := s.lazyLoadGraph(repo); ok {
+	if s.lazyLoadGraph(repo) {
 		if s.backendFactory != nil {
 			return s.backendFactory(repo)
 		}
@@ -563,15 +581,15 @@ func (s *Server) GetEmbedJob(repo string) *embedJob {
 
 // StartEmbedJob kicks off a background embedding goroutine for the
 // given repo. If a job is already running, it returns the existing job.
-func (s *Server) StartEmbedJob(req EmbedRequest) *embedJob {
+func (s *Server) StartEmbedJob(ctx context.Context, req EmbedRequest) *embedJob {
 	s.embedMu.Lock()
 	if existing, ok := s.embedJobs[req.Repo]; ok {
-		if existing.Status == "running" || existing.Status == "pending" {
+		if existing.Status == embedStatusRunning || existing.Status == "pending" {
 			s.embedMu.Unlock()
 			return existing
 		}
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	jobCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	job := &embedJob{
 		Repo:     req.Repo,
 		Status:   "pending",
@@ -579,14 +597,14 @@ func (s *Server) StartEmbedJob(req EmbedRequest) *embedJob {
 		Cancel:   cancel,
 	}
 	if job.Provider == "" {
-		job.Provider = "llamacpp"
+		job.Provider = embedProviderLlama
 	}
 	s.embedJobs[req.Repo] = job
 	s.embedMu.Unlock()
 
 	s.persistEmbedState(req.Repo, job)
 
-	go s.runEmbedJob(ctx, job, req)
+	go func() { defer cancel(); s.runEmbedJob(jobCtx, job, req) }()
 	return job
 }
 
@@ -618,11 +636,11 @@ func (s *Server) runEmbedJob(ctx context.Context, job *embedJob, req EmbedReques
 	case s.embedSem <- struct{}{}:
 		defer func() { <-s.embedSem }()
 	case <-ctx.Done():
-		setError("cancelled while pending")
+		setError("canceled while pending")
 		return
 	}
 
-	setStatus("running")
+	setStatus(embedStatusRunning)
 	job.StartedAt = time.Now()
 
 	if s.dataDir == "" {
@@ -650,11 +668,11 @@ func (s *Server) runEmbedJob(ctx context.Context, job *embedJob, req EmbedReques
 
 	g, err := store.LoadGraph()
 	if err != nil {
-		store.Close() //nolint:errcheck
+		_ = store.Close() // best-effort
 		setError(fmt.Sprintf("load graph: %v", err))
 		return
 	}
-	store.Close() //nolint:errcheck
+	_ = store.Close() // best-effort
 
 	var nodes []*lpg.Node
 	for _, label := range embedding.EmbeddableLabels {
@@ -769,7 +787,7 @@ func (s *Server) runEmbedJob(ctx context.Context, job *embedJob, req EmbedReques
 		}
 	}
 
-	provider, err := embedding.NewProviderWithProgress(cfg, downloadProgress)
+	provider, err := embedding.NewProviderWithProgress(cfg, downloadProgress) //nolint:contextcheck
 	if err != nil {
 		setError(fmt.Sprintf("init provider: %v", err))
 		return
@@ -781,7 +799,7 @@ func (s *Server) runEmbedJob(ctx context.Context, job *embedJob, req EmbedReques
 	modelName := req.Model
 	if modelName == "" {
 		switch cfg.Provider {
-		case "llamacpp", "":
+		case embedProviderLlama, "":
 			modelName = embedding.DefaultAlias()
 		default:
 			modelName = provider.Name()
@@ -791,7 +809,7 @@ func (s *Server) runEmbedJob(ctx context.Context, job *embedJob, req EmbedReques
 	s.embedMu.Lock()
 	job.Model = modelName
 	job.Dims = provider.Dimensions()
-	job.Status = "running"
+	job.Status = embedStatusRunning
 	job.DownloadFile = ""
 	job.DownloadPercent = 0
 	s.embedMu.Unlock()
@@ -805,7 +823,7 @@ func (s *Server) runEmbedJob(ctx context.Context, job *embedJob, req EmbedReques
 	for i := 0; i < len(texts); i += batchSize {
 		select {
 		case <-ctx.Done():
-			setError("cancelled")
+			setError("canceled")
 			return
 		default:
 		}
@@ -905,17 +923,17 @@ func (s *Server) RecoverEmbedJobs() {
 		return
 	}
 	for _, entry := range registry.List() {
-		if entry.Meta.EmbeddingStatus != "running" && entry.Meta.EmbeddingStatus != "downloading" {
+		if entry.Meta.EmbeddingStatus != embedStatusRunning && entry.Meta.EmbeddingStatus != "downloading" {
 			continue
 		}
 		provider := entry.Meta.EmbeddingProvider
 		if provider == "" {
-			provider = "llamacpp"
+			provider = embedProviderLlama
 		}
 
 		// Only auto-recover jobs that used the built-in provider —
 		// external providers need credentials we don't have.
-		if provider != "llamacpp" {
+		if provider != embedProviderLlama {
 			log.Printf("[embed] %s: interrupted embed job (provider=%s) — re-run 'cartograph embed' to resume", entry.Name, provider)
 			_ = registry.UpdateEmbedding(entry.Name, storage.EmbeddingInfo{
 				Status:   "interrupted",
@@ -930,7 +948,7 @@ func (s *Server) RecoverEmbedJobs() {
 		}
 
 		log.Printf("[embed] %s: recovering interrupted embed job (%d/%d nodes)", entry.Name, entry.Meta.EmbeddingNodes, entry.Meta.EmbeddingTotal)
-		s.StartEmbedJob(EmbedRequest{
+		s.StartEmbedJob(context.Background(), EmbedRequest{
 			Repo:     entry.Name,
 			Provider: provider,
 			Model:    entry.Meta.EmbeddingModel,
@@ -944,7 +962,8 @@ func recoveryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rv := recover(); rv != nil {
-				log.Printf("panic recovered in %s %s: %v\n%s", r.Method, r.URL.Path, rv, debug.Stack())
+				sanitize := func(s string) string { return strings.NewReplacer("\n", "", "\r", "").Replace(s) }
+				log.Printf("panic recovered in %s %s: %v\n%s", sanitize(r.Method), sanitize(r.URL.Path), rv, debug.Stack()) //nolint:gosec // G706: method and path are sanitized; rv is a panic value not user-controlled
 				http.Error(w, `{"error":{"code":500,"message":"internal server error"}}`, http.StatusInternalServerError)
 			}
 		}()

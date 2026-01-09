@@ -1,12 +1,12 @@
 package ingestion
 
 import (
-	"fmt"
 	"math"
 	"strconv"
 	"testing"
 
 	"github.com/cloudprivacylabs/lpg/v2"
+
 	"github.com/realxen/cartograph/internal/graph"
 )
 
@@ -39,7 +39,7 @@ func buildAdjFromEdges(edges [][2]int, weights []float64) AdjacencyList {
 
 // buildAdjWithNodes creates an AdjacencyList from edges + explicit node count.
 // Ensures nodes 0..n-1 all exist even if they have no edges.
-func buildAdjWithNodes(n int, edges [][2]int, weights []float64) AdjacencyList {
+func buildAdjWithNodes(n int, edges [][2]int, weights []float64) AdjacencyList { //nolint:unparam // weights supports future weighted tests
 	adj := make(AdjacencyList, n)
 	for i := range n {
 		adj[strconv.Itoa(i)] = make(map[string]float64)
@@ -107,13 +107,25 @@ func ints(from, to int) []string {
 // igraph expected: 2 clusters, modularity ~0.45238, {0..4} together, {5..9} together.
 func TestLeiden_igraph_TwoCliquesWithBridge(t *testing.T) {
 	edges := [][2]int{
-		{0, 1}, {0, 2}, {0, 3}, {0, 4},
-		{1, 2}, {1, 3}, {1, 4},
-		{2, 3}, {2, 4},
+		{0, 1},
+		{0, 2},
+		{0, 3},
+		{0, 4},
+		{1, 2},
+		{1, 3},
+		{1, 4},
+		{2, 3},
+		{2, 4},
 		{3, 4},
-		{5, 6}, {5, 7}, {5, 8}, {5, 9},
-		{6, 7}, {6, 8}, {6, 9},
-		{7, 8}, {7, 9},
+		{5, 6},
+		{5, 7},
+		{5, 8},
+		{5, 9},
+		{6, 7},
+		{6, 8},
+		{6, 9},
+		{7, 8},
+		{7, 9},
 		{8, 9},
 		{0, 5}, // bridge
 	}
@@ -143,13 +155,25 @@ func TestLeiden_igraph_TwoCliquesWithBridge(t *testing.T) {
 // IG2: Same as IG1 but with uniform weight=2 on all edges.
 func TestLeiden_igraph_TwoCliquesUniformWeight(t *testing.T) {
 	edges := [][2]int{
-		{0, 1}, {0, 2}, {0, 3}, {0, 4},
-		{1, 2}, {1, 3}, {1, 4},
-		{2, 3}, {2, 4},
+		{0, 1},
+		{0, 2},
+		{0, 3},
+		{0, 4},
+		{1, 2},
+		{1, 3},
+		{1, 4},
+		{2, 3},
+		{2, 4},
 		{3, 4},
-		{5, 6}, {5, 7}, {5, 8}, {5, 9},
-		{6, 7}, {6, 8}, {6, 9},
-		{7, 8}, {7, 9},
+		{5, 6},
+		{5, 7},
+		{5, 8},
+		{5, 9},
+		{6, 7},
+		{6, 8},
+		{6, 9},
+		{7, 8},
+		{7, 9},
 		{8, 9},
 		{0, 5},
 	}
@@ -177,12 +201,12 @@ func TestLeiden_igraph_TwoCliquesUniformWeight(t *testing.T) {
 
 // IG7: Zachary Karate Club — explicit modularity check against igraph's ~0.41979.
 func TestLeiden_igraph_KarateClub(t *testing.T) {
-	adj, _ := zacharyKarateClub()
+	adj := zacharyKarateClub()
 	communities := Leiden(adj)
 
 	mod := Modularity(adj, communities)
 	// igraph gets 0.41979. With shuffled initial vertex order (matching igraph's
-	// random shuffle behaviour) the exploration path differs across seeds.
+	// random shuffle behavior) the exploration path differs across seeds.
 	// A valid Leiden result for Karate Club should achieve >= 0.30.
 	if mod < 0.30 {
 		t.Errorf("modularity %.4f should be >= 0.30 (igraph gets 0.41979)", mod)
@@ -380,7 +404,7 @@ func TestLeiden_RefinementWeakConnection(t *testing.T) {
 
 // TEST-5: Modularity should be non-decreasing across outer iterations.
 func TestLeiden_ModularityNonDecreasing(t *testing.T) {
-	adj, _ := zacharyKarateClub()
+	adj := zacharyKarateClub()
 
 	// We can't easily test across iterations without modifying the function,
 	// but we can verify the final result is at least as good as a trivial
@@ -400,13 +424,25 @@ func TestLeiden_ModularityNonDecreasing(t *testing.T) {
 // TEST-6: All edge weights = 1.0 (unweighted) should work correctly.
 func TestLeiden_AllSameWeight(t *testing.T) {
 	edges := [][2]int{
-		{0, 1}, {0, 2}, {0, 3}, {0, 4},
-		{1, 2}, {1, 3}, {1, 4},
-		{2, 3}, {2, 4},
+		{0, 1},
+		{0, 2},
+		{0, 3},
+		{0, 4},
+		{1, 2},
+		{1, 3},
+		{1, 4},
+		{2, 3},
+		{2, 4},
 		{3, 4},
-		{5, 6}, {5, 7}, {5, 8}, {5, 9},
-		{6, 7}, {6, 8}, {6, 9},
-		{7, 8}, {7, 9},
+		{5, 6},
+		{5, 7},
+		{5, 8},
+		{5, 9},
+		{6, 7},
+		{6, 8},
+		{6, 9},
+		{7, 8},
+		{7, 9},
 		{8, 9},
 		{0, 5},
 	}
@@ -422,7 +458,7 @@ func TestLeiden_AllSameWeight(t *testing.T) {
 // TEST-7: Connected subgraph guarantee — each community should form a
 // connected subgraph in the adjacency list.
 func TestLeiden_ConnectedCommunities(t *testing.T) {
-	adj, _ := zacharyKarateClub()
+	adj := zacharyKarateClub()
 	communities := Leiden(adj)
 
 	// Group nodes by community.
@@ -766,7 +802,7 @@ func TestLeiden_BarbellGraph(t *testing.T) {
 
 // Benchmark for performance regression detection.
 func BenchmarkLeiden_KarateClub(b *testing.B) {
-	adj, _ := zacharyKarateClub()
+	adj := zacharyKarateClub()
 	b.ResetTimer()
 	for range b.N {
 		Leiden(adj)
@@ -776,21 +812,21 @@ func BenchmarkLeiden_KarateClub(b *testing.B) {
 func BenchmarkLeiden_100NodePlanted(b *testing.B) {
 	adj := make(AdjacencyList, 100)
 	for i := range 100 {
-		adj[fmt.Sprintf("%d", i)] = make(map[string]float64)
+		adj[strconv.Itoa(i)] = make(map[string]float64)
 	}
 	for g := range 5 {
 		for i := g * 20; i < (g+1)*20; i++ {
 			for j := i + 1; j < (g+1)*20; j++ {
-				a := fmt.Sprintf("%d", i)
-				b := fmt.Sprintf("%d", j)
+				a := strconv.Itoa(i)
+				b := strconv.Itoa(j)
 				adj[a][b] = 1.0
 				adj[b][a] = 1.0
 			}
 		}
 	}
 	for g := range 4 {
-		a := fmt.Sprintf("%d", g*20)
-		b := fmt.Sprintf("%d", (g+1)*20)
+		a := strconv.Itoa(g * 20)
+		b := strconv.Itoa((g + 1) * 20)
 		adj[a][b] = 0.1
 		adj[b][a] = 0.1
 	}
@@ -806,7 +842,7 @@ func BenchmarkLeiden_100NodePlanted(b *testing.B) {
 
 // FEAT-1: Test configurable resolution parameter.
 func TestLeidenWithOptions_CustomResolution(t *testing.T) {
-	adj, _ := zacharyKarateClub()
+	adj := zacharyKarateClub()
 
 	// Default (resolution=0 → 1/2m).
 	defaultComms := Leiden(adj)
@@ -832,7 +868,7 @@ func TestLeidenWithOptions_CustomResolution(t *testing.T) {
 
 // FEAT-1: LeidenWithOptions with zero options should match Leiden.
 func TestLeidenWithOptions_DefaultMatchesLeiden(t *testing.T) {
-	adj, _ := zacharyKarateClub()
+	adj := zacharyKarateClub()
 
 	direct := Leiden(adj)
 	withOpts := LeidenWithOptions(adj, LeidenOptions{})
@@ -847,7 +883,7 @@ func TestLeidenWithOptions_DefaultMatchesLeiden(t *testing.T) {
 // FEAT-2: Convergence stopping — running until convergence should produce
 // at least as good modularity as 2 iterations.
 func TestLeidenWithOptions_ConvergenceStopping(t *testing.T) {
-	adj, _ := zacharyKarateClub()
+	adj := zacharyKarateClub()
 
 	twoIter := LeidenWithOptions(adj, LeidenOptions{MaxIterations: 2})
 	converge := LeidenWithOptions(adj, LeidenOptions{MaxIterations: -1})
@@ -865,7 +901,7 @@ func TestLeidenWithOptions_ConvergenceStopping(t *testing.T) {
 
 // FEAT-2: MaxIterations=1 should complete without error.
 func TestLeidenWithOptions_SingleIteration(t *testing.T) {
-	adj, _ := zacharyKarateClub()
+	adj := zacharyKarateClub()
 
 	comms := LeidenWithOptions(adj, LeidenOptions{MaxIterations: 1})
 	if len(comms) != 34 {
@@ -1082,13 +1118,25 @@ func TestLeidenCPM_NegativeWeights(t *testing.T) {
 func TestLeidenCPM_TwoCliques(t *testing.T) {
 	// Two 5-cliques connected by a bridge. CPM should detect them.
 	edges := [][2]int{
-		{0, 1}, {0, 2}, {0, 3}, {0, 4},
-		{1, 2}, {1, 3}, {1, 4},
-		{2, 3}, {2, 4},
+		{0, 1},
+		{0, 2},
+		{0, 3},
+		{0, 4},
+		{1, 2},
+		{1, 3},
+		{1, 4},
+		{2, 3},
+		{2, 4},
 		{3, 4},
-		{5, 6}, {5, 7}, {5, 8}, {5, 9},
-		{6, 7}, {6, 8}, {6, 9},
-		{7, 8}, {7, 9},
+		{5, 6},
+		{5, 7},
+		{5, 8},
+		{5, 9},
+		{6, 7},
+		{6, 8},
+		{6, 9},
+		{7, 8},
+		{7, 9},
 		{8, 9},
 		{0, 5}, // bridge
 	}
@@ -1110,7 +1158,7 @@ func TestLeidenCPM_TwoCliques(t *testing.T) {
 }
 
 func TestLeidenCPM_HighResolutionProducesMoreCommunities(t *testing.T) {
-	adj, _ := zacharyKarateClub()
+	adj := zacharyKarateClub()
 
 	commLow := LeidenWithOptions(adj, LeidenOptions{
 		Objective:  ObjectiveCPM,
@@ -1243,7 +1291,7 @@ func TestLeidenWithOptions_StartPartition_MissingNodes(t *testing.T) {
 
 func TestLeidenWithOptions_StartPartition_Nil(t *testing.T) {
 	// nil StartPartition should behave identically to default (singletons).
-	adj, _ := zacharyKarateClub()
+	adj := zacharyKarateClub()
 	commDefault := Leiden(adj)
 	commNilStart := LeidenWithOptions(adj, LeidenOptions{StartPartition: nil})
 
@@ -1262,7 +1310,7 @@ func TestLeidenWithOptions_StartPartition_Nil(t *testing.T) {
 func TestLeiden_ShuffledOrderStillDeterministic(t *testing.T) {
 	// Even with shuffled initial order, the RNG is seeded deterministically,
 	// so results should be reproducible.
-	adj, _ := zacharyKarateClub()
+	adj := zacharyKarateClub()
 
 	reference := Leiden(adj)
 	for i := range 20 {
@@ -1283,8 +1331,26 @@ func TestLeiden_ShuffledOrderStillDeterministic(t *testing.T) {
 func TestLeidenER_TwoCliques(t *testing.T) {
 	// Two 5-cliques connected by a bridge. ER should separate them.
 	adj := buildAdjFromEdges([][2]int{
-		{0, 1}, {0, 2}, {0, 3}, {0, 4}, {1, 2}, {1, 3}, {1, 4}, {2, 3}, {2, 4}, {3, 4},
-		{5, 6}, {5, 7}, {5, 8}, {5, 9}, {6, 7}, {6, 8}, {6, 9}, {7, 8}, {7, 9}, {8, 9},
+		{0, 1},
+		{0, 2},
+		{0, 3},
+		{0, 4},
+		{1, 2},
+		{1, 3},
+		{1, 4},
+		{2, 3},
+		{2, 4},
+		{3, 4},
+		{5, 6},
+		{5, 7},
+		{5, 8},
+		{5, 9},
+		{6, 7},
+		{6, 8},
+		{6, 9},
+		{7, 8},
+		{7, 9},
+		{8, 9},
 		{0, 5},
 	}, nil)
 
@@ -1308,8 +1374,26 @@ func TestLeidenER_TwoCliques(t *testing.T) {
 
 func TestLeidenER_QualityReturned(t *testing.T) {
 	adj := buildAdjFromEdges([][2]int{
-		{0, 1}, {0, 2}, {0, 3}, {0, 4}, {1, 2}, {1, 3}, {1, 4}, {2, 3}, {2, 4}, {3, 4},
-		{5, 6}, {5, 7}, {5, 8}, {5, 9}, {6, 7}, {6, 8}, {6, 9}, {7, 8}, {7, 9}, {8, 9},
+		{0, 1},
+		{0, 2},
+		{0, 3},
+		{0, 4},
+		{1, 2},
+		{1, 3},
+		{1, 4},
+		{2, 3},
+		{2, 4},
+		{3, 4},
+		{5, 6},
+		{5, 7},
+		{5, 8},
+		{5, 9},
+		{6, 7},
+		{6, 8},
+		{6, 9},
+		{7, 8},
+		{7, 9},
+		{8, 9},
 		{0, 5},
 	}, nil)
 
@@ -1348,7 +1432,7 @@ func TestLeidenER_DefaultResolution(t *testing.T) {
 // =============================================================================
 
 func TestLeidenWithOptions_ConfigurableBeta(t *testing.T) {
-	adj, _ := zacharyKarateClub()
+	adj := zacharyKarateClub()
 
 	// Default beta (0.01) should match explicit beta=0.01.
 	resultDefault := LeidenWithOptions(adj, LeidenOptions{})
@@ -1365,8 +1449,26 @@ func TestLeidenWithOptions_ConfigurableBeta(t *testing.T) {
 func TestLeidenWithOptions_HighBeta(t *testing.T) {
 	// Very high beta increases randomness — result should still be valid.
 	adj := buildAdjFromEdges([][2]int{
-		{0, 1}, {0, 2}, {0, 3}, {0, 4}, {1, 2}, {1, 3}, {1, 4}, {2, 3}, {2, 4}, {3, 4},
-		{5, 6}, {5, 7}, {5, 8}, {5, 9}, {6, 7}, {6, 8}, {6, 9}, {7, 8}, {7, 9}, {8, 9},
+		{0, 1},
+		{0, 2},
+		{0, 3},
+		{0, 4},
+		{1, 2},
+		{1, 3},
+		{1, 4},
+		{2, 3},
+		{2, 4},
+		{3, 4},
+		{5, 6},
+		{5, 7},
+		{5, 8},
+		{5, 9},
+		{6, 7},
+		{6, 8},
+		{6, 9},
+		{7, 8},
+		{7, 9},
+		{8, 9},
 		{0, 5},
 	}, nil)
 
@@ -1381,7 +1483,7 @@ func TestLeidenWithOptions_HighBeta(t *testing.T) {
 // =============================================================================
 
 func TestLeidenWithOptions_ConfigurableSeed(t *testing.T) {
-	adj, _ := zacharyKarateClub()
+	adj := zacharyKarateClub()
 
 	// Default seed (42) should match explicit seed=42.
 	resultDefault := LeidenWithOptions(adj, LeidenOptions{})
@@ -1396,7 +1498,7 @@ func TestLeidenWithOptions_ConfigurableSeed(t *testing.T) {
 }
 
 func TestLeidenWithOptions_DifferentSeed(t *testing.T) {
-	adj, _ := zacharyKarateClub()
+	adj := zacharyKarateClub()
 
 	// Different seeds should be deterministic per-seed.
 	result1a := LeidenWithOptions(adj, LeidenOptions{Seed: 100})
@@ -1416,7 +1518,7 @@ func TestLeidenWithOptions_DifferentSeed(t *testing.T) {
 
 func TestQuality_MatchesModularity(t *testing.T) {
 	// Quality with ObjectiveModularity should match Modularity().
-	adj, _ := zacharyKarateClub()
+	adj := zacharyKarateClub()
 	communities := Leiden(adj)
 
 	modOld := Modularity(adj, communities)
@@ -1429,8 +1531,26 @@ func TestQuality_MatchesModularity(t *testing.T) {
 
 func TestQuality_CPM(t *testing.T) {
 	adj := buildAdjFromEdges([][2]int{
-		{0, 1}, {0, 2}, {0, 3}, {0, 4}, {1, 2}, {1, 3}, {1, 4}, {2, 3}, {2, 4}, {3, 4},
-		{5, 6}, {5, 7}, {5, 8}, {5, 9}, {6, 7}, {6, 8}, {6, 9}, {7, 8}, {7, 9}, {8, 9},
+		{0, 1},
+		{0, 2},
+		{0, 3},
+		{0, 4},
+		{1, 2},
+		{1, 3},
+		{1, 4},
+		{2, 3},
+		{2, 4},
+		{3, 4},
+		{5, 6},
+		{5, 7},
+		{5, 8},
+		{5, 9},
+		{6, 7},
+		{6, 8},
+		{6, 9},
+		{7, 8},
+		{7, 9},
+		{8, 9},
 		{0, 5},
 	}, nil)
 
@@ -1444,8 +1564,26 @@ func TestQuality_CPM(t *testing.T) {
 
 func TestQuality_ER(t *testing.T) {
 	adj := buildAdjFromEdges([][2]int{
-		{0, 1}, {0, 2}, {0, 3}, {0, 4}, {1, 2}, {1, 3}, {1, 4}, {2, 3}, {2, 4}, {3, 4},
-		{5, 6}, {5, 7}, {5, 8}, {5, 9}, {6, 7}, {6, 8}, {6, 9}, {7, 8}, {7, 9}, {8, 9},
+		{0, 1},
+		{0, 2},
+		{0, 3},
+		{0, 4},
+		{1, 2},
+		{1, 3},
+		{1, 4},
+		{2, 3},
+		{2, 4},
+		{3, 4},
+		{5, 6},
+		{5, 7},
+		{5, 8},
+		{5, 9},
+		{6, 7},
+		{6, 8},
+		{6, 9},
+		{7, 8},
+		{7, 9},
+		{8, 9},
 		{0, 5},
 	}, nil)
 
@@ -1490,8 +1628,26 @@ func TestModularity_EdgelessReturnsZero(t *testing.T) {
 
 func TestLeidenFull_ReturnsAllFields(t *testing.T) {
 	adj := buildAdjFromEdges([][2]int{
-		{0, 1}, {0, 2}, {0, 3}, {0, 4}, {1, 2}, {1, 3}, {1, 4}, {2, 3}, {2, 4}, {3, 4},
-		{5, 6}, {5, 7}, {5, 8}, {5, 9}, {6, 7}, {6, 8}, {6, 9}, {7, 8}, {7, 9}, {8, 9},
+		{0, 1},
+		{0, 2},
+		{0, 3},
+		{0, 4},
+		{1, 2},
+		{1, 3},
+		{1, 4},
+		{2, 3},
+		{2, 4},
+		{3, 4},
+		{5, 6},
+		{5, 7},
+		{5, 8},
+		{5, 9},
+		{6, 7},
+		{6, 8},
+		{6, 9},
+		{7, 8},
+		{7, 9},
+		{8, 9},
 		{0, 5},
 	}, nil)
 
@@ -1539,7 +1695,7 @@ func TestLeidenFull_EdgelessGraph(t *testing.T) {
 
 func TestLeidenFull_BackwardCompat(t *testing.T) {
 	// LeidenWithOptions should return same membership as LeidenFull.
-	adj, _ := zacharyKarateClub()
+	adj := zacharyKarateClub()
 
 	opts := LeidenOptions{Resolution: 0.05, Objective: ObjectiveCPM}
 	membership := LeidenWithOptions(adj, opts)
@@ -1646,7 +1802,7 @@ func TestCountDistinctCommunities_AllSingletons(t *testing.T) {
 // The Karate Club now matches igraph's exact value of 0.41979.
 // Use a tight check to catch regressions.
 func TestLeiden_KarateClub_ExactModularity(t *testing.T) {
-	adj, _ := zacharyKarateClub()
+	adj := zacharyKarateClub()
 	communities := Leiden(adj)
 
 	mod := Modularity(adj, communities)
@@ -1660,13 +1816,25 @@ func TestLeiden_KarateClub_ExactModularity(t *testing.T) {
 // Two 5-cliques with bridge: analytical optimal Q = 19/42 ≈ 0.45238.
 func TestLeiden_TwoCliques_ExactModularity(t *testing.T) {
 	edges := [][2]int{
-		{0, 1}, {0, 2}, {0, 3}, {0, 4},
-		{1, 2}, {1, 3}, {1, 4},
-		{2, 3}, {2, 4},
+		{0, 1},
+		{0, 2},
+		{0, 3},
+		{0, 4},
+		{1, 2},
+		{1, 3},
+		{1, 4},
+		{2, 3},
+		{2, 4},
 		{3, 4},
-		{5, 6}, {5, 7}, {5, 8}, {5, 9},
-		{6, 7}, {6, 8}, {6, 9},
-		{7, 8}, {7, 9},
+		{5, 6},
+		{5, 7},
+		{5, 8},
+		{5, 9},
+		{6, 7},
+		{6, 8},
+		{6, 9},
+		{7, 8},
+		{7, 9},
 		{8, 9},
 		{0, 5},
 	}
@@ -1784,8 +1952,18 @@ func TestLeidenFull_WithStartPartition(t *testing.T) {
 func TestModularity_TwoK4_ExactValue(t *testing.T) {
 	// Two disconnected K_4: 12 edges, optimal 2-partition Q = 0.5.
 	edges := [][2]int{
-		{0, 1}, {0, 2}, {0, 3}, {1, 2}, {1, 3}, {2, 3},
-		{4, 5}, {4, 6}, {4, 7}, {5, 6}, {5, 7}, {6, 7},
+		{0, 1},
+		{0, 2},
+		{0, 3},
+		{1, 2},
+		{1, 3},
+		{2, 3},
+		{4, 5},
+		{4, 6},
+		{4, 7},
+		{5, 6},
+		{5, 7},
+		{6, 7},
 	}
 	adj := buildAdjFromEdges(edges, nil)
 	communities := map[string]int{

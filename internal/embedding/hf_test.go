@@ -4,11 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 )
 
@@ -20,8 +20,8 @@ func TestDownloadModel_Success(t *testing.T) {
 
 	// Set up test server.
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/models/test-org/test-model", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+	mux.HandleFunc("/api/models/test-org/test-model", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"siblings": []map[string]string{
 				{"rfilename": "model-Q8_0.gguf"},
 				{"rfilename": "model-Q4_K_M.gguf"},
@@ -29,8 +29,8 @@ func TestDownloadModel_Success(t *testing.T) {
 			},
 		})
 	})
-	mux.HandleFunc("/api/models/test-org/test-model/tree/main", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode([]map[string]any{
+	mux.HandleFunc("/api/models/test-org/test-model/tree/main", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode([]map[string]any{
 			{
 				"rfilename": "model-Q8_0.gguf",
 				"oid":       hashHex,
@@ -42,9 +42,9 @@ func TestDownloadModel_Success(t *testing.T) {
 			},
 		})
 	})
-	mux.HandleFunc("/test-org/test-model/resolve/main/model-Q8_0.gguf", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(payload)))
-		w.Write(payload)
+	mux.HandleFunc("/test-org/test-model/resolve/main/model-Q8_0.gguf", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+		_, _ = w.Write(payload)
 	})
 
 	server := httptest.NewServer(mux)
@@ -100,8 +100,8 @@ func TestDownloadModel_SHA256Mismatch(t *testing.T) {
 	payload := []byte("fake-data")
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/test-org/bad-hash/resolve/main/model.gguf", func(w http.ResponseWriter, r *http.Request) {
-		w.Write(payload)
+	mux.HandleFunc("/test-org/bad-hash/resolve/main/model.gguf", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(payload)
 	})
 
 	server := httptest.NewServer(mux)

@@ -22,7 +22,7 @@ type Client struct {
 
 // NewClient creates a Client that talks to the service via a unix socket.
 func NewClient(socketPath string) *Client {
-	return newClient("unix", socketPath)
+	return newClient(networkUnix, socketPath)
 }
 
 // NewTCPClient creates a Client that talks to the service via TCP.
@@ -83,7 +83,7 @@ func (c *Client) do(method, route string, body any, result any) error {
 
 	url := "http://localhost" + route
 
-	req, err := http.NewRequest(method, url, bodyReader)
+	req, err := http.NewRequestWithContext(context.Background(), method, url, bodyReader)
 	if err != nil {
 		return fmt.Errorf("client: new request: %w", err)
 	}

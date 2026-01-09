@@ -10,8 +10,10 @@ package local
 #include <stdlib.h>
 */
 import "C"
+
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -87,10 +89,7 @@ func (w *worker) embedOne(ids []int32, dims int) ([]float32, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	seqLen := len(ids)
-	if seqLen > w.maxSq {
-		seqLen = w.maxSq
-	}
+	seqLen := min(len(ids), w.maxSq)
 
 	inputPtr := C.cg_model_input_ids(w.model)
 	maskPtr := C.cg_model_attn_mask(w.model)
@@ -162,7 +161,7 @@ func New(modelBytes []byte) (*Provider, error) {
 // NewWithWorkers creates a provider with the specified worker count.
 func NewWithWorkers(modelBytes []byte, n int) (*Provider, error) {
 	if len(modelBytes) == 0 {
-		return nil, fmt.Errorf("llamacpp: no model data provided")
+		return nil, errors.New("llamacpp: no model data provided")
 	}
 	if n < 1 {
 		n = 1
@@ -188,10 +187,7 @@ func NewWithWorkers(modelBytes []byte, n int) (*Provider, error) {
 	workers := make([]*worker, 0, n)
 	var dims, maxSeq int
 
-	threadsPerWorker := runtime.NumCPU() / n
-	if threadsPerWorker < 2 {
-		threadsPerWorker = 2
-	}
+	threadsPerWorker := max(runtime.NumCPU()/n, 2)
 
 	cleanup := func() {
 		for _, w := range workers {
@@ -200,7 +196,7 @@ func NewWithWorkers(modelBytes []byte, n int) (*Provider, error) {
 		os.Remove(modelPath)
 	}
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		m := C.cg_model_init(cPath, C.int(threadsPerWorker))
 		if m == nil {
 			cleanup()
@@ -256,15 +252,12 @@ func (p *Provider) Embed(ctx context.Context, texts []string) ([][]float32, erro
 	errs := make([]error, nWorkers)
 	var wg sync.WaitGroup
 
-	for wi := 0; wi < nWorkers; wi++ {
+	for wi := range nWorkers {
 		lo := wi * chunkSize
 		if lo >= len(texts) {
 			break
 		}
-		hi := lo + chunkSize
-		if hi > len(texts) {
-			hi = len(texts)
-		}
+		hi := min(lo+chunkSize, len(texts))
 
 		wg.Add(1)
 		go func(workerIdx, lo, hi int) {

@@ -1,6 +1,7 @@
 package ingestion
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -14,10 +15,10 @@ func TestLocalWalker_ImplementsFileWalker(t *testing.T) {
 
 func TestLocalWalker_Walk(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(dir+"/main.go", []byte("package main\n"), 0644)   //nolint:errcheck
-	os.WriteFile(dir+"/utils.go", []byte("package main\n"), 0644)  //nolint:errcheck
-	os.MkdirAll(dir+"/sub", 0755)                                  //nolint:errcheck
-	os.WriteFile(dir+"/sub/lib.go", []byte("package sub\n"), 0644) //nolint:errcheck
+	os.WriteFile(dir+"/main.go", []byte("package main\n"), 0o600)   //nolint:errcheck,gosec
+	os.WriteFile(dir+"/utils.go", []byte("package main\n"), 0o600)  //nolint:errcheck,gosec
+	os.MkdirAll(dir+"/sub", 0o755)                                  //nolint:errcheck,gosec
+	os.WriteFile(dir+"/sub/lib.go", []byte("package sub\n"), 0o600) //nolint:errcheck,gosec
 
 	w := LocalWalker{}
 	results, err := w.Walk(dir, WalkOptions{})
@@ -46,7 +47,7 @@ func TestOSFileReader_ReadFile(t *testing.T) {
 	dir := t.TempDir()
 	path := dir + "/test.txt"
 	want := "hello world"
-	os.WriteFile(path, []byte(want), 0644) //nolint:errcheck
+	os.WriteFile(path, []byte(want), 0o600) //nolint:errcheck,gosec
 
 	r := OSFileReader{}
 	data, err := r.ReadFile(path)
@@ -117,7 +118,7 @@ func TestPipeline_CustomWalker(t *testing.T) {
 
 func TestPipeline_CustomWalkerError(t *testing.T) {
 	p := NewPipeline("/fake/root", PipelineOptions{})
-	p.Walker = mockWalker{err: fmt.Errorf("mock walk error")}
+	p.Walker = mockWalker{err: errors.New("mock walk error")}
 
 	err := p.Run()
 	if err == nil {

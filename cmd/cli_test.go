@@ -13,6 +13,8 @@ import (
 	"github.com/realxen/cartograph/internal/storage"
 )
 
+const testRepo = "myrepo"
+
 type mockClient struct {
 	queryCalled    bool
 	contextCalled  bool
@@ -140,12 +142,14 @@ func captureStdout(t *testing.T, fn func()) string {
 
 	fn()
 
-	w.Close()
+	_ = w.Close()
 	os.Stdout = origStdout
 
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
-	r.Close()
+	if _, err := io.Copy(&buf, r); err != nil {
+		t.Fatal(err)
+	}
+	_ = r.Close()
 	return buf.String()
 }
 
@@ -155,7 +159,7 @@ func TestQueryCmd(t *testing.T) {
 		cli := &CLI{Client: mc}
 		cmd := &QueryCmd{
 			SearchQuery: "handle request",
-			Repo:        "myrepo",
+			Repo:        testRepo,
 			Limit:       5,
 			Content:     true,
 		}
@@ -169,8 +173,8 @@ func TestQueryCmd(t *testing.T) {
 		if !mc.queryCalled {
 			t.Error("expected Query to be called")
 		}
-		if mc.lastQueryReq.Repo != "myrepo" {
-			t.Errorf("repo: got %q, want %q", mc.lastQueryReq.Repo, "myrepo")
+		if mc.lastQueryReq.Repo != testRepo {
+			t.Errorf("repo: got %q, want %q", mc.lastQueryReq.Repo, testRepo)
 		}
 		if mc.lastQueryReq.Text != "handle request" {
 			t.Errorf("text: got %q, want %q", mc.lastQueryReq.Text, "handle request")
@@ -196,7 +200,7 @@ func TestContextCmd(t *testing.T) {
 		cli := &CLI{Client: mc}
 		cmd := &ContextCmd{
 			Name: "Foo",
-			Repo: "myrepo",
+			Repo: testRepo,
 			File: "foo.go",
 			UID:  "uid-123",
 		}
@@ -210,8 +214,8 @@ func TestContextCmd(t *testing.T) {
 		if !mc.contextCalled {
 			t.Error("expected Context to be called")
 		}
-		if mc.lastContextReq.Repo != "myrepo" {
-			t.Errorf("repo: got %q, want %q", mc.lastContextReq.Repo, "myrepo")
+		if mc.lastContextReq.Repo != testRepo {
+			t.Errorf("repo: got %q, want %q", mc.lastContextReq.Repo, testRepo)
 		}
 		if mc.lastContextReq.Name != "Foo" {
 			t.Errorf("name: got %q, want %q", mc.lastContextReq.Name, "Foo")
@@ -240,7 +244,7 @@ func TestImpactCmd(t *testing.T) {
 		cli := &CLI{Client: mc}
 		cmd := &ImpactCmd{
 			Target:    "Foo",
-			Repo:      "myrepo",
+			Repo:      testRepo,
 			Direction: "downstream",
 			Depth:     3,
 		}
@@ -254,8 +258,8 @@ func TestImpactCmd(t *testing.T) {
 		if !mc.impactCalled {
 			t.Error("expected Impact to be called")
 		}
-		if mc.lastImpactReq.Repo != "myrepo" {
-			t.Errorf("repo: got %q, want %q", mc.lastImpactReq.Repo, "myrepo")
+		if mc.lastImpactReq.Repo != testRepo {
+			t.Errorf("repo: got %q, want %q", mc.lastImpactReq.Repo, testRepo)
 		}
 		if mc.lastImpactReq.Target != "Foo" {
 			t.Errorf("target: got %q, want %q", mc.lastImpactReq.Target, "Foo")
@@ -281,7 +285,7 @@ func TestCypherCmd(t *testing.T) {
 		cli := &CLI{Client: mc}
 		cmd := &CypherCmd{
 			Query: "MATCH (n) RETURN n",
-			Repo:  "myrepo",
+			Repo:  testRepo,
 		}
 
 		out := captureStdout(t, func() {
@@ -293,8 +297,8 @@ func TestCypherCmd(t *testing.T) {
 		if !mc.cypherCalled {
 			t.Error("expected Cypher to be called")
 		}
-		if mc.lastCypherReq.Repo != "myrepo" {
-			t.Errorf("repo: got %q, want %q", mc.lastCypherReq.Repo, "myrepo")
+		if mc.lastCypherReq.Repo != testRepo {
+			t.Errorf("repo: got %q, want %q", mc.lastCypherReq.Repo, testRepo)
 		}
 		if mc.lastCypherReq.Query != "MATCH (n) RETURN n" {
 			t.Errorf("query: got %q, want %q", mc.lastCypherReq.Query, "MATCH (n) RETURN n")
@@ -489,19 +493,19 @@ func TestStatusCmd(t *testing.T) {
 		origXDG := os.Getenv("XDG_DATA_HOME")
 		// DefaultDataDir appends "cartograph" to XDG_DATA_HOME, so point
 		// XDG_DATA_HOME to a parent so that dataDir == DefaultDataDir().
-		os.Setenv("XDG_DATA_HOME", filepath.Dir(dataDir))
-		defer os.Setenv("XDG_DATA_HOME", origXDG)
+		_ = os.Setenv("XDG_DATA_HOME", filepath.Dir(dataDir))
+		defer func() { _ = os.Setenv("XDG_DATA_HOME", origXDG) }()
 
 		// Rename the temp dir's base to "cartograph" to match DefaultDataDir().
 		actualDataDir := DefaultDataDir()
-		os.MkdirAll(actualDataDir, 0o755) //nolint:errcheck
+		_ = os.MkdirAll(actualDataDir, 0o750)
 
 		registry, err := storage.NewRegistry(actualDataDir)
 		if err != nil {
 			t.Fatalf("create registry: %v", err)
 		}
 		entry := storage.RegistryEntry{
-			Name:      "myrepo",
+			Name:      testRepo,
 			Path:      "/fake/path/myrepo",
 			Hash:      "abc12345",
 			IndexedAt: time.Now(),
@@ -517,11 +521,11 @@ func TestStatusCmd(t *testing.T) {
 		}
 
 		// Create repo data dir so status can report artifact sizes.
-		repoDir := filepath.Join(actualDataDir, "myrepo", "abc12345")
-		os.MkdirAll(repoDir, 0o755) //nolint:errcheck
+		repoDir := filepath.Join(actualDataDir, testRepo, "abc12345")
+		_ = os.MkdirAll(repoDir, 0o750)
 
 		cli := &CLI{Client: &mockClient{}}
-		cmd := &StatusCmd{Repo: "myrepo"}
+		cmd := &StatusCmd{Repo: testRepo}
 
 		out := captureStdout(t, func() {
 			if err := cmd.Run(cli); err != nil {
@@ -529,7 +533,7 @@ func TestStatusCmd(t *testing.T) {
 			}
 		})
 
-		for _, want := range []string{"myrepo", "42", "99", "go, python", "1.5s"} {
+		for _, want := range []string{testRepo, "42", "99", "go, python", "1.5s"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("expected output to contain %q, got:\n%s", want, out)
 			}
@@ -539,11 +543,11 @@ func TestStatusCmd(t *testing.T) {
 	t.Run("not indexed repo prints message", func(t *testing.T) {
 		dataDir := t.TempDir()
 		origXDG := os.Getenv("XDG_DATA_HOME")
-		os.Setenv("XDG_DATA_HOME", filepath.Dir(dataDir))
-		defer os.Setenv("XDG_DATA_HOME", origXDG)
+		_ = os.Setenv("XDG_DATA_HOME", filepath.Dir(dataDir))
+		defer func() { _ = os.Setenv("XDG_DATA_HOME", origXDG) }()
 
 		actualDataDir := DefaultDataDir()
-		os.MkdirAll(actualDataDir, 0o755) //nolint:errcheck
+		_ = os.MkdirAll(actualDataDir, 0o750)
 
 		cli := &CLI{Client: &mockClient{}}
 		cmd := &StatusCmd{Repo: "nonexistent"}
@@ -564,7 +568,7 @@ func TestAnalyzeCmd(t *testing.T) {
 	t.Run("analyzes a temp directory", func(t *testing.T) {
 		// Create a temp dir with some Go files.
 		dir := t.TempDir()
-		os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nfunc main() {}\n"), 0o644) //nolint:errcheck
+		_ = os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nfunc main() {}\n"), 0o600)
 
 		mc := &mockClient{}
 		cli := &CLI{Client: mc}
@@ -596,11 +600,11 @@ func TestAnalyzeCmd(t *testing.T) {
 		// Use a temp dir as CWD instead of the whole repo to avoid
 		// heavy ingestion + memory pressure that can crash the container.
 		dir := t.TempDir()
-		os.WriteFile(filepath.Join(dir, "hello.go"), []byte("package hello\nfunc Hello() {}\n"), 0o644) //nolint:errcheck
+		_ = os.WriteFile(filepath.Join(dir, "hello.go"), []byte("package hello\nfunc Hello() {}\n"), 0o600)
 
 		orig, _ := os.Getwd()
-		os.Chdir(dir)                        //nolint:errcheck
-		t.Cleanup(func() { os.Chdir(orig) }) //nolint:errcheck
+		_ = os.Chdir(dir)
+		t.Cleanup(func() { _ = os.Chdir(orig) })
 
 		mc := &mockClient{}
 		cli := &CLI{Client: mc}
@@ -679,9 +683,15 @@ func TestCleanCmd(t *testing.T) {
 
 func TestAnalyzeCmd_MultipleSources(t *testing.T) {
 	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
-	os.WriteFile(filepath.Join(dir, "src", "main.go"), []byte("package main\nfunc main() {}\n"), 0o644)
-	os.WriteFile(filepath.Join(dir, "src", "utils.go"), []byte("package main\nfunc helper() {}\n"), 0o644)
+	if err := os.MkdirAll(filepath.Join(dir, "src"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "src", "main.go"), []byte("package main\nfunc main() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "src", "utils.go"), []byte("package main\nfunc helper() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	mc := &mockClient{}
 	cli := &CLI{Client: mc}

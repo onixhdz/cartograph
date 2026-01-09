@@ -95,7 +95,9 @@ func TestEmbeddingStore_Has(t *testing.T) {
 	}
 	defer s.Close()
 
-	s.Put("x", []float32{1.0}) //nolint:errcheck
+	if err := s.Put("x", []float32{1.0}); err != nil {
+		t.Fatal(err)
+	}
 
 	has, _ := s.Has("x")
 	if !has {
@@ -116,8 +118,12 @@ func TestEmbeddingStore_Delete(t *testing.T) {
 	}
 	defer s.Close()
 
-	s.Put("a", []float32{1.0}) //nolint:errcheck
-	s.Put("b", []float32{2.0}) //nolint:errcheck
+	if err := s.Put("a", []float32{1.0}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Put("b", []float32{2.0}); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := s.Delete([]string{"a"}); err != nil {
 		t.Fatalf("delete: %v", err)
@@ -142,9 +148,15 @@ func TestEmbeddingStore_Scan(t *testing.T) {
 	}
 	defer s.Close()
 
-	s.Put("n1", []float32{0.1}) //nolint:errcheck
-	s.Put("n2", []float32{0.2}) //nolint:errcheck
-	s.Put("n3", []float32{0.3}) //nolint:errcheck
+	if err := s.Put("n1", []float32{0.1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Put("n2", []float32{0.2}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Put("n3", []float32{0.3}); err != nil {
+		t.Fatal(err)
+	}
 
 	var collected []string
 	err = s.Scan(func(nodeID string, _ []float32) bool {
@@ -167,15 +179,23 @@ func TestEmbeddingStore_Scan_StopEarly(t *testing.T) {
 	}
 	defer s.Close()
 
-	s.Put("a", []float32{1.0}) //nolint:errcheck
-	s.Put("b", []float32{2.0}) //nolint:errcheck
-	s.Put("c", []float32{3.0}) //nolint:errcheck
+	if err := s.Put("a", []float32{1.0}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Put("b", []float32{2.0}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Put("c", []float32{3.0}); err != nil {
+		t.Fatal(err)
+	}
 
 	count := 0
-	s.Scan(func(_ string, _ []float32) bool { //nolint:errcheck
+	if err := s.Scan(func(_ string, _ []float32) bool {
 		count++
 		return count < 2 // stop after 2
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if count != 2 {
 		t.Errorf("expected scan to stop after 2, got %d", count)
 	}
@@ -189,8 +209,12 @@ func TestEmbeddingStore_Clear(t *testing.T) {
 	}
 	defer s.Close()
 
-	s.Put("a", []float32{1.0}) //nolint:errcheck
-	s.Put("b", []float32{2.0}) //nolint:errcheck
+	if err := s.Put("a", []float32{1.0}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Put("b", []float32{2.0}); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := s.Clear(); err != nil {
 		t.Fatalf("clear: %v", err)
@@ -210,8 +234,12 @@ func TestEmbeddingStore_Overwrite(t *testing.T) {
 	}
 	defer s.Close()
 
-	s.Put("x", []float32{1.0, 2.0}) //nolint:errcheck
-	s.Put("x", []float32{3.0, 4.0}) //nolint:errcheck
+	if err := s.Put("x", []float32{1.0, 2.0}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Put("x", []float32{3.0, 4.0}); err != nil {
+		t.Fatal(err)
+	}
 
 	got, _ := s.Get("x")
 	if len(got) != 2 || got[0] != 3.0 {

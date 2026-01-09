@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"fmt"
 	"io"
 	"io/fs"
 	"path"
@@ -13,8 +14,8 @@ import (
 )
 
 // MemFSWalker implements ingestion.FileWalker over a go-billy Filesystem.
-// It mirrors the behaviour of the OS-based walker: detects languages,
-// honours .gitignore / .cartographignore, skips hidden dirs, binaries, etc.
+// It mirrors the behavior of the OS-based walker: detects languages,
+// honors .gitignore / .cartographignore, skips hidden dirs, binaries, etc.
 type MemFSWalker struct {
 	FS billy.Filesystem
 }
@@ -39,7 +40,7 @@ func (w MemFSWalker) Walk(root string, opts ingestion.WalkOptions) ([]ingestion.
 func (w MemFSWalker) walkDir(dir, root string, gi *ignore.GitIgnore, opts ingestion.WalkOptions, results *[]ingestion.WalkResult) error {
 	entries, err := w.FS.ReadDir(dir)
 	if err != nil {
-		return err
+		return fmt.Errorf("readdir %s: %w", dir, err)
 	}
 
 	for _, entry := range entries {
@@ -177,7 +178,11 @@ func (r MemFSFileReader) ReadFile(filePath string) ([]byte, error) {
 		return nil, &fs.PathError{Op: "open", Path: filePath, Err: err}
 	}
 	defer f.Close()
-	return io.ReadAll(f)
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", filePath, err)
+	}
+	return data, nil
 }
 
 // Compile-time check that MemFSFileReader implements FileReader.

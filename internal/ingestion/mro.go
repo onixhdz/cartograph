@@ -1,10 +1,12 @@
 package ingestion
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 
 	"github.com/cloudprivacylabs/lpg/v2"
+
 	"github.com/realxen/cartograph/internal/graph"
 )
 
@@ -116,7 +118,7 @@ func c3Merge(seqs [][]string) ([]string, error) {
 		}
 
 		if found == "" {
-			return nil, fmt.Errorf("inconsistent hierarchy: cannot resolve merge order")
+			return nil, errors.New("inconsistent hierarchy: cannot resolve merge order")
 		}
 
 		result = append(result, found)

@@ -33,7 +33,7 @@ func fakeEmbeddingServer(t *testing.T, dims int, wantModel string) *httptest.Ser
 			resp := errorResponse{}
 			resp.Error.Message = "model mismatch: got " + req.Model
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 			return
 		}
 
@@ -64,7 +64,7 @@ func fakeEmbeddingServer(t *testing.T, dims int, wantModel string) *httptest.Ser
 
 		resp := embeddingResponse{Data: data}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 }
 
@@ -126,7 +126,7 @@ func TestOpenAICompat_AuthHeader(t *testing.T) {
 				{Embedding: make([]float32, 8), Index: 0},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer srv.Close()
 
@@ -145,7 +145,7 @@ func TestOpenAICompat_AuthHeader(t *testing.T) {
 func TestOpenAICompat_ServerError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(errorResponse{Error: struct {
+		_ = json.NewEncoder(w).Encode(errorResponse{Error: struct {
 			Message string `json:"message"`
 		}{Message: "model not found"}})
 	}))

@@ -12,6 +12,7 @@ import (
 	"github.com/blevesearch/bleve/v2"
 	"github.com/blevesearch/bleve/v2/search/query"
 	"github.com/cloudprivacylabs/lpg/v2"
+
 	"github.com/realxen/cartograph/internal/graph"
 )
 
@@ -400,17 +401,27 @@ func buildFieldQuery(cleaned, field string) query.Query {
 
 // Close closes the Bleve index.
 func (ix *Index) Close() error {
-	return ix.idx.Close()
+	if err := ix.idx.Close(); err != nil {
+		return fmt.Errorf("search: close index: %w", err)
+	}
+	return nil
 }
 
 // DeleteIndex removes the index directory from disk.
 func DeleteIndex(path string) error {
-	return os.RemoveAll(path)
+	if err := os.RemoveAll(path); err != nil {
+		return fmt.Errorf("search: delete index at %s: %w", path, err)
+	}
+	return nil
 }
 
 // DocCount returns the number of documents in the index.
 func (ix *Index) DocCount() (uint64, error) {
-	return ix.idx.DocCount()
+	count, err := ix.idx.DocCount()
+	if err != nil {
+		return 0, fmt.Errorf("search: doc count: %w", err)
+	}
+	return count, nil
 }
 
 // isSearchable checks if a node should be indexed for FTS.

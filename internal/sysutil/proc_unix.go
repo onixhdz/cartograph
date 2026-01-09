@@ -3,6 +3,7 @@
 package sysutil
 
 import (
+	"fmt"
 	"os"
 	"syscall"
 )
@@ -18,7 +19,10 @@ func DetachProcAttr() *syscall.SysProcAttr {
 
 // SignalTerm sends SIGTERM to the process for a graceful shutdown.
 func SignalTerm(proc *os.Process) error {
-	return proc.Signal(syscall.SIGTERM)
+	if err := proc.Signal(syscall.SIGTERM); err != nil {
+		return fmt.Errorf("signal SIGTERM: %w", err)
+	}
+	return nil
 }
 
 // IsProcessRunning checks if a process with the given PID exists by

@@ -4,6 +4,7 @@ package embedding
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/realxen/cartograph/internal/embedding/local"
@@ -54,13 +55,17 @@ func NewProviderWithProgress(cfg Config, progress func(downloaded, total int64))
 		if err != nil {
 			return nil, err
 		}
-		return local.New(resolved.Bytes)
+		p, err := local.New(resolved.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("embedding: init local provider: %w", err)
+		}
+		return p, nil
 	case "openai_compat":
 		if cfg.Endpoint == "" {
-			return nil, fmt.Errorf("embedding: openai_compat provider requires Endpoint")
+			return nil, errors.New("embedding: openai_compat provider requires Endpoint")
 		}
 		if cfg.Model == "" {
-			return nil, fmt.Errorf("embedding: openai_compat provider requires Model")
+			return nil, errors.New("embedding: openai_compat provider requires Model")
 		}
 		return NewOpenAICompatProvider(cfg.Endpoint, cfg.Model, cfg.APIKey)
 	default:

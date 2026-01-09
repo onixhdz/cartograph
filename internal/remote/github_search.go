@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -41,7 +42,7 @@ func SearchGitHub(ctx context.Context, query, authToken string) ([]GitHubSearchR
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("search github: new request: %w", err)
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	if authToken != "" {
@@ -51,7 +52,7 @@ func SearchGitHub(ctx context.Context, query, authToken string) ([]GitHubSearchR
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("search github: do request: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -61,7 +62,7 @@ func SearchGitHub(ctx context.Context, query, authToken string) ([]GitHubSearchR
 
 	var body gitHubSearchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("search github: decode response: %w", err)
 	}
 
 	results := make([]GitHubSearchResult, 0, len(body.Items))
@@ -82,6 +83,6 @@ func FormatStars(n int) string {
 	case n >= 1000:
 		return fmt.Sprintf("%.1fk", float64(n)/1000)
 	default:
-		return fmt.Sprintf("%d", n)
+		return strconv.Itoa(n)
 	}
 }

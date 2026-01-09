@@ -4,8 +4,11 @@ import (
 	"testing"
 
 	"github.com/cloudprivacylabs/lpg/v2"
+
 	"github.com/realxen/cartograph/internal/graph"
 )
+
+const testMethodFoo = "foo"
 
 func TestC3Linearize_SingleInheritance(t *testing.T) {
 	hierarchy := map[string][]string{
@@ -146,7 +149,7 @@ func TestComputeOverrides_NoMatchingMethod(t *testing.T) {
 		EndLine:       10,
 	})
 	graph.AddSymbolNode(g, graph.LabelMethod, graph.SymbolProps{
-		BaseNodeProps: graph.BaseNodeProps{ID: "method:A.foo", Name: "foo"},
+		BaseNodeProps: graph.BaseNodeProps{ID: "method:A.foo", Name: testMethodFoo},
 		FilePath:      "a.go",
 		StartLine:     3,
 		EndLine:       8,
@@ -254,7 +257,7 @@ func slicesEqual(a, b []string) bool {
 		return false
 	}
 	for i := range a {
-		if a[i] != b[i] {
+		if a[i] != b[i] { //nolint:gosec // G602 — bounds checked by len comparison above //nolint:gosec // G602 — bounds checked by len comparison above
 			return false
 		}
 	}
@@ -284,7 +287,7 @@ func addTestMethod(g *lpg.Graph, className, methodName string, classNode *lpg.No
 	return m
 }
 
-func addTestProperty(g *lpg.Graph, className, propName string, classNode *lpg.Node) *lpg.Node {
+func addTestProperty(g *lpg.Graph, className, propName string, classNode *lpg.Node) {
 	propID := "property:" + className + "." + propName
 	p := graph.AddNode(g, graph.LabelProperty, map[string]any{
 		graph.PropID:       propID,
@@ -292,7 +295,6 @@ func addTestProperty(g *lpg.Graph, className, propName string, classNode *lpg.No
 		graph.PropFilePath: "src/" + className + ".ts",
 	})
 	graph.AddEdge(g, classNode, p, graph.RelHasMethod, nil)
-	return p
 }
 
 func TestComputeMRO_CppDiamond_LeftmostWins(t *testing.T) {
@@ -308,9 +310,9 @@ func TestComputeMRO_CppDiamond_LeftmostWins(t *testing.T) {
 	graph.AddEdge(g, d, b, graph.RelExtends, nil) // B is leftmost
 	graph.AddEdge(g, d, c, graph.RelExtends, nil)
 
-	addTestMethod(g, "A", "foo", a)
-	bFoo := addTestMethod(g, "B", "foo", b)
-	addTestMethod(g, "C", "foo", c)
+	addTestMethod(g, "A", testMethodFoo, a)
+	bFoo := addTestMethod(g, "B", testMethodFoo, b)
+	addTestMethod(g, "C", testMethodFoo, c)
 
 	result := ComputeMRO(g)
 
@@ -330,7 +332,7 @@ func TestComputeMRO_CppDiamond_LeftmostWins(t *testing.T) {
 
 	var fooAmb *MROAmbiguity
 	for i, a := range dEntry.Ambiguities {
-		if a.MethodName == "foo" {
+		if a.MethodName == testMethodFoo {
 			fooAmb = &dEntry.Ambiguities[i]
 			break
 		}
@@ -368,7 +370,7 @@ func TestComputeMRO_CppDiamond_NoAmbiguityWhenOnlyBaseHasMethod(t *testing.T) {
 	graph.AddEdge(g, dNode, c, graph.RelExtends, nil)
 
 	// Only A has foo — no collision since it's the same method node
-	addTestMethod(g, "A", "foo", a)
+	addTestMethod(g, "A", testMethodFoo, a)
 
 	result := ComputeMRO(g)
 
@@ -387,7 +389,7 @@ func TestComputeMRO_CppDiamond_NoAmbiguityWhenOnlyBaseHasMethod(t *testing.T) {
 	// defined in B and C's HAS_METHOD if they have their own. Since B and C don't
 	// have foo, there should be no ambiguity at D's direct parent level.
 	for _, amb := range dEntry.Ambiguities {
-		if amb.MethodName == "foo" {
+		if amb.MethodName == testMethodFoo {
 			t.Error("expected no foo ambiguity when only A defines it")
 		}
 	}
@@ -499,9 +501,9 @@ func TestComputeMRO_Python_C3LeftmostWins(t *testing.T) {
 	graph.AddEdge(g, d, b, graph.RelExtends, nil) // B first
 	graph.AddEdge(g, d, c, graph.RelExtends, nil)
 
-	addTestMethod(g, "A", "foo", a)
-	bFoo := addTestMethod(g, "B", "foo", b)
-	addTestMethod(g, "C", "foo", c)
+	addTestMethod(g, "A", testMethodFoo, a)
+	bFoo := addTestMethod(g, "B", testMethodFoo, b)
+	addTestMethod(g, "C", testMethodFoo, c)
 
 	result := ComputeMRO(g)
 
@@ -518,7 +520,7 @@ func TestComputeMRO_Python_C3LeftmostWins(t *testing.T) {
 
 	var fooAmb *MROAmbiguity
 	for i, a := range dEntry.Ambiguities {
-		if a.MethodName == "foo" {
+		if a.MethodName == testMethodFoo {
 			fooAmb = &dEntry.Ambiguities[i]
 			break
 		}
@@ -698,7 +700,7 @@ func TestComputeMRO_SingleParentNoAmbiguity(t *testing.T) {
 	childNode := graph.FindNodeByID(g, "Class:Child")
 	graph.AddEdge(g, childNode, parent, graph.RelExtends, nil)
 
-	addTestMethod(g, "Parent", "foo", parent)
+	addTestMethod(g, "Parent", testMethodFoo, parent)
 	addTestMethod(g, "Parent", "bar", parent)
 
 	result := ComputeMRO(g)
@@ -749,9 +751,9 @@ func TestComputeMRO_OwnMethodShadowsAncestor(t *testing.T) {
 	graph.AddEdge(g, child, base1, graph.RelExtends, nil)
 	graph.AddEdge(g, child, base2, graph.RelExtends, nil)
 
-	addTestMethod(g, "Base1", "foo", base1)
-	addTestMethod(g, "Base2", "foo", base2)
-	addTestMethod(g, "Child", "foo", child) // own method shadows
+	addTestMethod(g, "Base1", testMethodFoo, base1)
+	addTestMethod(g, "Base2", testMethodFoo, base2)
+	addTestMethod(g, "Child", testMethodFoo, child) // own method shadows
 
 	result := ComputeMRO(g)
 
@@ -767,7 +769,7 @@ func TestComputeMRO_OwnMethodShadowsAncestor(t *testing.T) {
 	}
 	// No ambiguity because Child defines its own foo
 	for _, amb := range entry.Ambiguities {
-		if amb.MethodName == "foo" {
+		if amb.MethodName == testMethodFoo {
 			t.Error("expected no foo ambiguity when child defines its own")
 		}
 	}
@@ -796,8 +798,8 @@ func TestComputeMRO_CyclicInheritance(t *testing.T) {
 	graph.AddEdge(g, a, b, graph.RelExtends, nil)
 	graph.AddEdge(g, b, a, graph.RelExtends, nil)
 
-	addTestMethod(g, "A", "foo", a)
-	addTestMethod(g, "B", "foo", b)
+	addTestMethod(g, "A", testMethodFoo, a)
+	addTestMethod(g, "B", testMethodFoo, b)
 
 	// Should not panic — gracefully handle cycles
 	result := ComputeMRO(g)

@@ -22,7 +22,7 @@ type ModelsListCmd struct{}
 func (c *ModelsListCmd) Run(_ *CLI) error {
 	cacheDir, err := embedding.ModelCacheDir()
 	if err != nil {
-		return err
+		return fmt.Errorf("model cache dir: %w", err)
 	}
 
 	aliases := embedding.ListAliases()
@@ -108,7 +108,7 @@ type ModelsRmCmd struct {
 func (c *ModelsRmCmd) Run(_ *CLI) error {
 	cacheDir, err := embedding.ModelCacheDir()
 	if err != nil {
-		return err
+		return fmt.Errorf("model cache dir: %w", err)
 	}
 
 	model := c.Model

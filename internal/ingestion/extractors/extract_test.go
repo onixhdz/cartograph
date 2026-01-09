@@ -1,12 +1,16 @@
 package extractors
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
 	ts "github.com/odvcencio/gotreesitter"
+
 	"github.com/realxen/cartograph/internal/graph"
 )
+
+const testSymServer = "Server"
 
 // goTestSource is a minimal Go source file for testing extraction.
 const goTestSource = `package main
@@ -60,11 +64,11 @@ func TestExtractFile_Go_Symbols(t *testing.T) {
 
 	// Expected Go symbols.
 	expected := map[string]graph.NodeLabel{
-		"Server":    graph.LabelStruct,
-		"Handler":   graph.LabelInterface,
-		"NewServer": graph.LabelFunction,
-		"Start":     graph.LabelMethod,
-		"main":      graph.LabelFunction,
+		testSymServer: graph.LabelStruct,
+		"Handler":     graph.LabelInterface,
+		"NewServer":   graph.LabelFunction,
+		"Start":       graph.LabelMethod,
+		"main":        graph.LabelFunction,
 	}
 
 	for name, label := range expected {
@@ -208,7 +212,7 @@ func TestExtractFile_Go_ExportedCheck(t *testing.T) {
 
 	for _, sym := range result.Symbols {
 		switch sym.Name {
-		case "Server", "Handler", "NewServer", "Start":
+		case testSymServer, "Handler", "NewServer", "Start":
 			if !sym.IsExported {
 				t.Errorf("expected %q to be exported", sym.Name)
 			}
@@ -286,7 +290,7 @@ func TestExtractFile_Go_TypeAlias(t *testing.T) {
 		t.Errorf("MyInt: expected label TypeAlias, got %q", label)
 	}
 
-	if label, ok := nameToLabel["Server"]; !ok {
+	if label, ok := nameToLabel[testSymServer]; !ok {
 		t.Error("expected Struct symbol Server, not found")
 	} else if label != graph.LabelStruct {
 		t.Errorf("Server: expected label Struct, got %q", label)
@@ -295,7 +299,7 @@ func TestExtractFile_Go_TypeAlias(t *testing.T) {
 	// No duplicates — Server should appear exactly once.
 	count := 0
 	for _, sym := range result.Symbols {
-		if sym.Name == "Server" {
+		if sym.Name == testSymServer {
 			count++
 		}
 	}
@@ -1057,7 +1061,8 @@ class Dog extends Animal with Speaker {
 }
 
 func TestInferredHeritage_Ruby(t *testing.T) {
-	src := `
+	src := "" +
+		`
 class Animal
   def speak
   end
@@ -1113,7 +1118,10 @@ func writeFile(path, content string) error {
 }
 
 func writeFileBytes(path string, data []byte) error {
-	return os.WriteFile(path, data, 0o644)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("writing %s: %w", path, err)
+	}
+	return nil
 }
 
 // Feature Parity Gap Tests — verify all tree-sitter query gaps are fixed.
@@ -1514,7 +1522,8 @@ public class Dog : Animal, ISpeaker {
 
 // GAP-10: Ruby call routing integration (require, include, attr_accessor).
 func TestGapFix_RubyCallRouting(t *testing.T) {
-	src := `require 'json'
+	src := "" +
+		`require 'json'
 require_relative 'helpers'
 
 module Mixable

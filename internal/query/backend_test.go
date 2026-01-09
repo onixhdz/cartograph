@@ -7,9 +7,19 @@ import (
 
 	"github.com/cloudprivacylabs/lpg/v2"
 	"github.com/cloudprivacylabs/opencypher"
+
 	"github.com/realxen/cartograph/internal/graph"
 	"github.com/realxen/cartograph/internal/search"
 	"github.com/realxen/cartograph/internal/service"
+)
+
+const (
+	testFuncHandleRequest = "handleRequest"
+	testFuncMain          = "main"
+	testFuncValidate      = "validate"
+	testFileMainGo        = "main.go"
+	testNameBob           = "bob"
+	testNameCharlie       = "charlie"
 )
 
 // buildTestGraph creates a graph with several symbols and relationships.
@@ -18,21 +28,21 @@ func buildTestGraph() *lpg.Graph {
 
 	// Functions
 	fnMain := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
-		BaseNodeProps: graph.BaseNodeProps{ID: "func:main", Name: "main"},
-		FilePath:      "main.go",
+		BaseNodeProps: graph.BaseNodeProps{ID: "func:main", Name: testFuncMain},
+		FilePath:      testFileMainGo,
 		StartLine:     1,
 		EndLine:       20,
 		Content:       "func main() { handleRequest() }",
 	})
 	fnHandle := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
-		BaseNodeProps: graph.BaseNodeProps{ID: "func:handleRequest", Name: "handleRequest"},
+		BaseNodeProps: graph.BaseNodeProps{ID: "func:handleRequest", Name: testFuncHandleRequest},
 		FilePath:      "server.go",
 		StartLine:     10,
 		EndLine:       30,
 		Content:       "func handleRequest(w http.ResponseWriter, r *http.Request) { validate() }",
 	})
 	fnValidate := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
-		BaseNodeProps: graph.BaseNodeProps{ID: "func:validate", Name: "validate"},
+		BaseNodeProps: graph.BaseNodeProps{ID: "func:validate", Name: testFuncValidate},
 		FilePath:      "auth.go",
 		StartLine:     5,
 		EndLine:       15,
@@ -47,8 +57,8 @@ func buildTestGraph() *lpg.Graph {
 
 	// Files
 	fileMain := graph.AddFileNode(g, graph.FileProps{
-		BaseNodeProps: graph.BaseNodeProps{ID: "file:main.go", Name: "main.go"},
-		FilePath:      "main.go",
+		BaseNodeProps: graph.BaseNodeProps{ID: "file:main.go", Name: testFileMainGo},
+		FilePath:      testFileMainGo,
 		Language:      "go",
 	})
 	fileServer := graph.AddFileNode(g, graph.FileProps{
@@ -91,7 +101,7 @@ func TestQuery_NoIndex_FallbackNameSearch(t *testing.T) {
 	}
 	found := false
 	for _, d := range result.Definitions {
-		if d.Name == "handleRequest" {
+		if d.Name == testFuncHandleRequest {
 			found = true
 		}
 	}
@@ -113,7 +123,7 @@ func TestQuery_DefaultLimit(t *testing.T) {
 func TestQuery_ProcessMembership(t *testing.T) {
 	b := &Backend{Graph: buildTestGraph()}
 
-	result, err := b.Query(service.QueryRequest{Repo: "test", Text: "main", Limit: 10})
+	result, err := b.Query(service.QueryRequest{Repo: "test", Text: testFuncMain, Limit: 10})
 	if err != nil {
 		t.Fatalf("Query: %v", err)
 	}
@@ -137,11 +147,11 @@ func TestQuery_NoResults(t *testing.T) {
 func TestContext_ByName(t *testing.T) {
 	b := &Backend{Graph: buildTestGraph()}
 
-	result, err := b.Context(service.ContextRequest{Repo: "test", Name: "handleRequest"})
+	result, err := b.Context(service.ContextRequest{Repo: "test", Name: testFuncHandleRequest})
 	if err != nil {
 		t.Fatalf("Context: %v", err)
 	}
-	if result.Symbol.Name != "handleRequest" {
+	if result.Symbol.Name != testFuncHandleRequest {
 		t.Errorf("expected symbol name handleRequest, got %q", result.Symbol.Name)
 	}
 	if result.Symbol.FilePath != "server.go" {
@@ -155,14 +165,14 @@ func TestContext_ByName(t *testing.T) {
 func TestContext_Callers(t *testing.T) {
 	b := &Backend{Graph: buildTestGraph()}
 
-	result, err := b.Context(service.ContextRequest{Repo: "test", Name: "handleRequest"})
+	result, err := b.Context(service.ContextRequest{Repo: "test", Name: testFuncHandleRequest})
 	if err != nil {
 		t.Fatalf("Context: %v", err)
 	}
 	if len(result.Callers) != 1 {
 		t.Fatalf("expected 1 caller, got %d", len(result.Callers))
 	}
-	if result.Callers[0].Name != "main" {
+	if result.Callers[0].Name != testFuncMain {
 		t.Errorf("expected caller main, got %q", result.Callers[0].Name)
 	}
 }
@@ -170,14 +180,14 @@ func TestContext_Callers(t *testing.T) {
 func TestContext_Callees(t *testing.T) {
 	b := &Backend{Graph: buildTestGraph()}
 
-	result, err := b.Context(service.ContextRequest{Repo: "test", Name: "handleRequest"})
+	result, err := b.Context(service.ContextRequest{Repo: "test", Name: testFuncHandleRequest})
 	if err != nil {
 		t.Fatalf("Context: %v", err)
 	}
 	if len(result.Callees) != 1 {
 		t.Fatalf("expected 1 callee, got %d", len(result.Callees))
 	}
-	if result.Callees[0].Name != "validate" {
+	if result.Callees[0].Name != testFuncValidate {
 		t.Errorf("expected callee validate, got %q", result.Callees[0].Name)
 	}
 }
@@ -185,7 +195,7 @@ func TestContext_Callees(t *testing.T) {
 func TestContext_ProcessMembership(t *testing.T) {
 	b := &Backend{Graph: buildTestGraph()}
 
-	result, err := b.Context(service.ContextRequest{Repo: "test", Name: "handleRequest"})
+	result, err := b.Context(service.ContextRequest{Repo: "test", Name: testFuncHandleRequest})
 	if err != nil {
 		t.Fatalf("Context: %v", err)
 	}
@@ -201,7 +211,7 @@ func TestContext_ByUID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Context: %v", err)
 	}
-	if result.Symbol.Name != "validate" {
+	if result.Symbol.Name != testFuncValidate {
 		t.Errorf("expected validate (by UID), got %q", result.Symbol.Name)
 	}
 }
@@ -209,11 +219,11 @@ func TestContext_ByUID(t *testing.T) {
 func TestContext_ByFile(t *testing.T) {
 	b := &Backend{Graph: buildTestGraph()}
 
-	result, err := b.Context(service.ContextRequest{Repo: "test", Name: "main", File: "main.go"})
+	result, err := b.Context(service.ContextRequest{Repo: "test", Name: testFuncMain, File: testFileMainGo})
 	if err != nil {
 		t.Fatalf("Context: %v", err)
 	}
-	if result.Symbol.FilePath != "main.go" {
+	if result.Symbol.FilePath != testFileMainGo {
 		t.Errorf("expected main.go, got %q", result.Symbol.FilePath)
 	}
 }
@@ -230,7 +240,7 @@ func TestContext_NotFound(t *testing.T) {
 func TestContext_IncludeContent(t *testing.T) {
 	b := &Backend{Graph: buildTestGraph()}
 
-	result, err := b.Context(service.ContextRequest{Repo: "test", Name: "validate", Content: true})
+	result, err := b.Context(service.ContextRequest{Repo: "test", Name: testFuncValidate, Content: true})
 	if err != nil {
 		t.Fatalf("Context: %v", err)
 	}
@@ -242,7 +252,7 @@ func TestContext_IncludeContent(t *testing.T) {
 func TestContext_ExcludeContent(t *testing.T) {
 	b := &Backend{Graph: buildTestGraph()}
 
-	result, err := b.Context(service.ContextRequest{Repo: "test", Name: "validate", Content: false})
+	result, err := b.Context(service.ContextRequest{Repo: "test", Name: testFuncValidate, Content: false})
 	if err != nil {
 		t.Fatalf("Context: %v", err)
 	}
@@ -254,14 +264,14 @@ func TestContext_ExcludeContent(t *testing.T) {
 func TestContext_Depth1_FlatCallees(t *testing.T) {
 	b := &Backend{Graph: buildTestGraph()}
 
-	result, err := b.Context(service.ContextRequest{Repo: "test", Name: "main", Depth: 1})
+	result, err := b.Context(service.ContextRequest{Repo: "test", Name: testFuncMain, Depth: 1})
 	if err != nil {
 		t.Fatalf("Context: %v", err)
 	}
 	if result.CallTree != nil {
 		t.Error("expected no call tree at depth 1")
 	}
-	if len(result.Callees) != 1 || result.Callees[0].Name != "handleRequest" {
+	if len(result.Callees) != 1 || result.Callees[0].Name != testFuncHandleRequest {
 		t.Errorf("expected 1 callee handleRequest, got %v", result.Callees)
 	}
 }
@@ -269,7 +279,7 @@ func TestContext_Depth1_FlatCallees(t *testing.T) {
 func TestContext_Depth0_DefaultsToDepth1(t *testing.T) {
 	b := &Backend{Graph: buildTestGraph()}
 
-	result, err := b.Context(service.ContextRequest{Repo: "test", Name: "main", Depth: 0})
+	result, err := b.Context(service.ContextRequest{Repo: "test", Name: testFuncMain, Depth: 0})
 	if err != nil {
 		t.Fatalf("Context: %v", err)
 	}
@@ -284,24 +294,24 @@ func TestContext_Depth0_DefaultsToDepth1(t *testing.T) {
 func TestContext_Depth2_CallTree(t *testing.T) {
 	b := &Backend{Graph: buildTestGraph()}
 
-	result, err := b.Context(service.ContextRequest{Repo: "test", Name: "main", Depth: 2})
+	result, err := b.Context(service.ContextRequest{Repo: "test", Name: testFuncMain, Depth: 2})
 	if err != nil {
 		t.Fatalf("Context: %v", err)
 	}
 	if result.CallTree == nil {
 		t.Fatal("expected call tree at depth 2")
 	}
-	if result.CallTree.Symbol.Name != "main" {
+	if result.CallTree.Symbol.Name != testFuncMain {
 		t.Errorf("expected root node main, got %q", result.CallTree.Symbol.Name)
 	}
 	if len(result.CallTree.Children) != 1 {
 		t.Fatalf("expected 1 child, got %d", len(result.CallTree.Children))
 	}
 	child := result.CallTree.Children[0]
-	if child.Symbol.Name != "handleRequest" {
+	if child.Symbol.Name != testFuncHandleRequest {
 		t.Errorf("expected child handleRequest, got %q", child.Symbol.Name)
 	}
-	if len(child.Children) != 1 || child.Children[0].Symbol.Name != "validate" {
+	if len(child.Children) != 1 || child.Children[0].Symbol.Name != testFuncValidate {
 		t.Errorf("expected grandchild validate, got %v", child.Children)
 	}
 }
@@ -339,7 +349,7 @@ func TestContext_Depth3_SpawnsAndDelegates(t *testing.T) {
 	g := lpg.NewGraph()
 	root := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
 		BaseNodeProps: graph.BaseNodeProps{ID: "func:root", Name: "root"},
-		FilePath:      "main.go", StartLine: 1,
+		FilePath:      testFileMainGo, StartLine: 1,
 	})
 	spawned := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
 		BaseNodeProps: graph.BaseNodeProps{ID: "func:worker", Name: "worker"},
@@ -514,22 +524,26 @@ func TestStripOrderBy(t *testing.T) {
 		{
 			"MATCH (n) RETURN n.name ORDER BY n.name",
 			"MATCH (n) RETURN n.name",
-			[]string{"n.name"}, []bool{true},
+			[]string{"n.name"},
+			[]bool{true},
 		},
 		{
 			"MATCH (n) RETURN n.name, n.score ORDER BY n.score DESC",
 			"MATCH (n) RETURN n.name, n.score",
-			[]string{"n.score"}, []bool{false},
+			[]string{"n.score"},
+			[]bool{false},
 		},
 		{
 			"MATCH (n) RETURN n.name ORDER BY n.score DESC LIMIT 10",
 			"MATCH (n) RETURN n.name LIMIT 10",
-			[]string{"n.score"}, []bool{false},
+			[]string{"n.score"},
+			[]bool{false},
 		},
 		{
 			"MATCH (n) RETURN n.name ORDER BY n.a ASC, n.b DESC",
 			"MATCH (n) RETURN n.name",
-			[]string{"n.a", "n.b"}, []bool{true, false},
+			[]string{"n.a", "n.b"},
+			[]bool{true, false},
 		},
 		{
 			"MATCH (n) RETURN n.name",
@@ -563,9 +577,9 @@ func TestCypher_OrderBy(t *testing.T) {
 		name  string
 		score float64
 	}{
-		{"charlie", 3.0},
+		{testNameCharlie, 3.0},
 		{"alice", 1.0},
-		{"bob", 2.0},
+		{testNameBob, 2.0},
 	} {
 		graph.AddNode(g, graph.LabelFunction, map[string]any{
 			graph.PropID:       "func:" + s.name,
@@ -592,7 +606,7 @@ func TestCypher_OrderBy(t *testing.T) {
 		// opencypher uses sequential column names: "1"=f.name, "2"=f.score
 		names[i], _ = row[result.Columns[0]].(string)
 	}
-	if names[0] != "charlie" || names[1] != "bob" || names[2] != "alice" {
+	if names[0] != testNameCharlie || names[1] != testNameBob || names[2] != "alice" {
 		t.Errorf("expected [charlie bob alice], got %v", names)
 	}
 
@@ -609,7 +623,7 @@ func TestCypher_OrderBy(t *testing.T) {
 	}
 	n0, _ := result2.Rows[0][result2.Columns[0]].(string)
 	n1, _ := result2.Rows[1][result2.Columns[0]].(string)
-	if n0 != "charlie" || n1 != "bob" {
+	if n0 != testNameCharlie || n1 != testNameBob {
 		t.Errorf("expected [charlie bob] with ORDER BY DESC LIMIT 2, got [%s %s]", n0, n1)
 	}
 
@@ -625,7 +639,7 @@ func TestCypher_OrderBy(t *testing.T) {
 	for i, row := range result3.Rows {
 		namesAsc[i], _ = row[result3.Columns[0]].(string)
 	}
-	if namesAsc[0] != "alice" || namesAsc[1] != "bob" || namesAsc[2] != "charlie" {
+	if namesAsc[0] != "alice" || namesAsc[1] != testNameBob || namesAsc[2] != testNameCharlie {
 		t.Errorf("expected [alice bob charlie], got %v", namesAsc)
 	}
 }
@@ -763,7 +777,7 @@ func TestFindSymbol_CaseInsensitive(t *testing.T) {
 	g := buildTestGraph()
 
 	// Exact match should work.
-	node := findSymbol(g, "handleRequest", "", "")
+	node := findSymbol(g, testFuncHandleRequest, "", "")
 	if node == nil {
 		t.Fatal("expected to find handleRequest")
 	}
@@ -780,19 +794,19 @@ func TestImpact_Downstream(t *testing.T) {
 
 	result, err := b.Impact(service.ImpactRequest{
 		Repo:      "test",
-		Target:    "handleRequest",
+		Target:    testFuncHandleRequest,
 		Direction: "downstream",
 		Depth:     5,
 	})
 	if err != nil {
 		t.Fatalf("Impact: %v", err)
 	}
-	if result.Target.Name != "handleRequest" {
+	if result.Target.Name != testFuncHandleRequest {
 		t.Errorf("expected target handleRequest, got %q", result.Target.Name)
 	}
 	found := false
 	for _, a := range result.Affected {
-		if a.Name == "main" {
+		if a.Name == testFuncMain {
 			found = true
 		}
 	}
@@ -806,7 +820,7 @@ func TestImpact_Upstream(t *testing.T) {
 
 	result, err := b.Impact(service.ImpactRequest{
 		Repo:      "test",
-		Target:    "handleRequest",
+		Target:    testFuncHandleRequest,
 		Direction: "upstream",
 		Depth:     5,
 	})
@@ -815,7 +829,7 @@ func TestImpact_Upstream(t *testing.T) {
 	}
 	found := false
 	for _, a := range result.Affected {
-		if a.Name == "validate" {
+		if a.Name == testFuncValidate {
 			found = true
 		}
 	}
@@ -829,7 +843,7 @@ func TestImpact_DefaultDepth(t *testing.T) {
 
 	result, err := b.Impact(service.ImpactRequest{
 		Repo:      "test",
-		Target:    "main",
+		Target:    testFuncMain,
 		Direction: "downstream",
 		Depth:     0,
 	})
@@ -860,7 +874,7 @@ func TestImpact_DepthLimits(t *testing.T) {
 
 	result, err := b.Impact(service.ImpactRequest{
 		Repo:      "test",
-		Target:    "validate",
+		Target:    testFuncValidate,
 		Direction: "downstream",
 		Depth:     1,
 	})
@@ -911,18 +925,18 @@ func TestFindSymbol_ByUID(t *testing.T) {
 	if node == nil {
 		t.Fatal("expected to find node by UID")
 	}
-	if graph.GetStringProp(node, graph.PropName) != "validate" {
+	if graph.GetStringProp(node, graph.PropName) != testFuncValidate {
 		t.Error("expected validate")
 	}
 }
 
 func TestFindSymbol_ByNameAndFile(t *testing.T) {
 	g := buildTestGraph()
-	node := findSymbol(g, "main", "main.go", "")
+	node := findSymbol(g, testFuncMain, testFileMainGo, "")
 	if node == nil {
 		t.Fatal("expected to find node")
 	}
-	if graph.GetStringProp(node, graph.PropFilePath) != "main.go" {
+	if graph.GetStringProp(node, graph.PropFilePath) != testFileMainGo {
 		t.Error("expected main.go")
 	}
 }
@@ -1147,7 +1161,7 @@ func TestImpact_ZeroDepthUsesDefault(t *testing.T) {
 
 	result, err := b.Impact(service.ImpactRequest{
 		Repo:      "test",
-		Target:    "validate",
+		Target:    testFuncValidate,
 		Direction: "upstream",
 		Depth:     0,
 	})
@@ -1171,7 +1185,7 @@ func TestImpact_ByNodeID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Impact: %v", err)
 	}
-	if result.Target.Name != "validate" {
+	if result.Target.Name != testFuncValidate {
 		t.Errorf("expected target validate, got %q", result.Target.Name)
 	}
 }
@@ -1343,7 +1357,7 @@ func TestIsTestFile(t *testing.T) {
 func TestQuery_IncludeContent(t *testing.T) {
 	b := &Backend{Graph: buildTestGraph()}
 
-	result, err := b.Query(service.QueryRequest{Repo: "test", Text: "validate", Limit: 5, Content: true})
+	result, err := b.Query(service.QueryRequest{Repo: "test", Text: testFuncValidate, Limit: 5, Content: true})
 	if err != nil {
 		t.Fatalf("Query: %v", err)
 	}
@@ -1352,7 +1366,7 @@ func TestQuery_IncludeContent(t *testing.T) {
 	}
 	found := false
 	for _, d := range result.Definitions {
-		if d.Name == "validate" && d.Content != "" {
+		if d.Name == testFuncValidate && d.Content != "" {
 			found = true
 		}
 	}
@@ -1364,7 +1378,7 @@ func TestQuery_IncludeContent(t *testing.T) {
 func TestQuery_ExcludeContent(t *testing.T) {
 	b := &Backend{Graph: buildTestGraph()}
 
-	result, err := b.Query(service.QueryRequest{Repo: "test", Text: "validate", Limit: 5, Content: false})
+	result, err := b.Query(service.QueryRequest{Repo: "test", Text: testFuncValidate, Limit: 5, Content: false})
 	if err != nil {
 		t.Fatalf("Query: %v", err)
 	}
@@ -1382,7 +1396,7 @@ func TestContext_ImportRelationships(t *testing.T) {
 
 	// server.go imports main.go — look at file-level context.
 	// The context tool is symbol-level, but we can test with the functions.
-	result, err := b.Context(service.ContextRequest{Repo: "test", Name: "main"})
+	result, err := b.Context(service.ContextRequest{Repo: "test", Name: testFuncMain})
 	if err != nil {
 		t.Fatalf("Context: %v", err)
 	}
@@ -1396,11 +1410,11 @@ func TestContext_FileSuffix(t *testing.T) {
 	b := &Backend{Graph: buildTestGraph()}
 
 	// Find by file suffix.
-	result, err := b.Context(service.ContextRequest{Repo: "test", Name: "main", File: "main.go"})
+	result, err := b.Context(service.ContextRequest{Repo: "test", Name: testFuncMain, File: testFileMainGo})
 	if err != nil {
 		t.Fatalf("Context: %v", err)
 	}
-	if result.Symbol.FilePath != "main.go" {
+	if result.Symbol.FilePath != testFileMainGo {
 		t.Errorf("expected main.go, got %q", result.Symbol.FilePath)
 	}
 }
@@ -1413,14 +1427,14 @@ func TestFindSymbolByNameOrID_ByID(t *testing.T) {
 	if node == nil {
 		t.Fatal("expected to find node by ID")
 	}
-	if graph.GetStringProp(node, graph.PropName) != "validate" {
+	if graph.GetStringProp(node, graph.PropName) != testFuncValidate {
 		t.Error("expected validate")
 	}
 }
 
 func TestFindSymbolByNameOrID_ByName(t *testing.T) {
 	g := buildTestGraph()
-	node := findSymbolByNameOrID(g, "validate", "")
+	node := findSymbolByNameOrID(g, testFuncValidate, "")
 	if node == nil {
 		t.Fatal("expected to find node by name")
 	}
@@ -1638,7 +1652,7 @@ func TestQuery_WithIndex_ScoresPropagated(t *testing.T) {
 	}
 	b.Index = ix
 
-	result, err := b.Query(service.QueryRequest{Repo: "test", Text: "handleRequest", Limit: 5})
+	result, err := b.Query(service.QueryRequest{Repo: "test", Text: testFuncHandleRequest, Limit: 5})
 	if err != nil {
 		t.Fatalf("Query: %v", err)
 	}
@@ -1671,7 +1685,7 @@ func TestQuery_WithIndex_ProcessRelevanceWeighted(t *testing.T) {
 	b.Index = ix
 
 	// Search for "handleRequest" — it's step 2 of main-flow.
-	result, err := b.Query(service.QueryRequest{Repo: "test", Text: "handleRequest", Limit: 10})
+	result, err := b.Query(service.QueryRequest{Repo: "test", Text: testFuncHandleRequest, Limit: 10})
 	if err != nil {
 		t.Fatalf("Query: %v", err)
 	}
@@ -1713,7 +1727,7 @@ func TestQuery_WithIndex_MultiFieldFusion(t *testing.T) {
 
 	found := false
 	for _, d := range result.Definitions {
-		if d.Name == "validate" {
+		if d.Name == testFuncValidate {
 			found = true
 			if d.Score <= 0 {
 				t.Errorf("expected positive score for validate, got %.6f", d.Score)
@@ -1756,7 +1770,7 @@ func TestCapPerName(t *testing.T) {
 		{Name: "Allocations", FilePath: "e.go", Score: 0.5},
 		{Name: "StateStore", FilePath: "store.go", Score: 0.4},
 	}
-	result := capPerName(defs, 3)
+	result := capPerName(defs)
 
 	allocCount := 0
 	for _, d := range result {
@@ -1778,7 +1792,7 @@ func TestCapPerName_BelowCap(t *testing.T) {
 		{Name: "Foo", FilePath: "b.go", Score: 0.8},
 		{Name: "Bar", FilePath: "c.go", Score: 0.7},
 	}
-	result := capPerName(defs, 3)
+	result := capPerName(defs)
 	if len(result) != 3 {
 		t.Errorf("expected 3 entries (all below cap), got %d", len(result))
 	}
@@ -2241,7 +2255,7 @@ func TestQuery_ProcessResultsCapped(t *testing.T) {
 	for i := range 20 {
 		name := fmt.Sprintf("entry%d", i)
 		pName := fmt.Sprintf("entry%d-flow", i)
-		pID := fmt.Sprintf("process:%s", pName)
+		pID := "process:" + pName
 
 		fn := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
 			BaseNodeProps: graph.BaseNodeProps{ID: "func:" + name, Name: name},

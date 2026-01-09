@@ -1,7 +1,9 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,7 +20,7 @@ var cypherWriteRE = regexp.MustCompile(`(?i)\b(CREATE|DELETE|SET|MERGE|DROP|ALTE
 
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(Response{Result: v}) //nolint:errcheck
+	_ = json.NewEncoder(w).Encode(Response{Result: v}) //nolint:errchkjson
 }
 
 func writeError(w http.ResponseWriter, code int, msg string) {
@@ -41,7 +43,7 @@ func writeError(w http.ResponseWriter, code int, msg string) {
 		}
 	}
 	w.WriteHeader(httpStatus)
-	json.NewEncoder(w).Encode(Response{ //nolint:errcheck
+	_ = json.NewEncoder(w).Encode(Response{ //nolint:errchkjson
 		Error: &APIError{Code: code, Message: msg},
 	})
 }
@@ -58,7 +60,7 @@ func decodeJSON(r *http.Request, v any) error {
 		return fmt.Errorf("read body: %w", err)
 	}
 	if len(body) == 0 {
-		return fmt.Errorf("empty request body")
+		return errors.New("empty request body")
 	}
 	if err := json.Unmarshal(body, v); err != nil {
 		return fmt.Errorf("decode json: %w", err)
@@ -77,7 +79,7 @@ func requirePOST(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
-	s.resetIdleTimer()
+	s.resetIdleTimer(r.Context())
 	if !requirePOST(w, r) {
 		return
 	}
@@ -113,7 +115,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
-	s.resetIdleTimer()
+	s.resetIdleTimer(r.Context())
 	if !requirePOST(w, r) {
 		return
 	}
@@ -149,7 +151,7 @@ func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCypher(w http.ResponseWriter, r *http.Request) {
-	s.resetIdleTimer()
+	s.resetIdleTimer(r.Context())
 	if !requirePOST(w, r) {
 		return
 	}
@@ -191,7 +193,7 @@ func (s *Server) handleCypher(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleImpact(w http.ResponseWriter, r *http.Request) {
-	s.resetIdleTimer()
+	s.resetIdleTimer(r.Context())
 	if !requirePOST(w, r) {
 		return
 	}
@@ -227,7 +229,7 @@ func (s *Server) handleImpact(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
-	s.resetIdleTimer()
+	s.resetIdleTimer(r.Context())
 	if !requirePOST(w, r) {
 		return
 	}
@@ -301,7 +303,7 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
-	s.resetIdleTimer()
+	s.resetIdleTimer(r.Context())
 	if !requirePOST(w, r) {
 		return
 	}
@@ -330,7 +332,7 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
-	s.resetIdleTimer()
+	s.resetIdleTimer(r.Context())
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed: use GET")
 		return
@@ -373,7 +375,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSchema(w http.ResponseWriter, r *http.Request) {
-	s.resetIdleTimer()
+	s.resetIdleTimer(r.Context())
 	if !requirePOST(w, r) {
 		return
 	}
@@ -409,18 +411,18 @@ func (s *Server) handleSchema(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
-	s.resetIdleTimer()
+	s.resetIdleTimer(r.Context())
 	writeJSON(w, map[string]string{"status": "shutting down"})
 
 	if s.httpServer != nil {
-		go func() {
-			s.Stop() //nolint:errcheck
+		go func() { //nolint:gosec,contextcheck // G118: intentional background context for async shutdown
+			_ = s.Stop(context.Background())
 		}()
 	}
 }
 
 func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
-	s.resetIdleTimer()
+	s.resetIdleTimer(r.Context())
 	if !requirePOST(w, r) {
 		return
 	}
@@ -441,9 +443,9 @@ func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Repo = repo
 
-	job := s.StartEmbedJob(req)
+	job := s.StartEmbedJob(r.Context(), req)
 	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(Response{Result: &EmbedStatusResult{ //nolint:errcheck
+	_ = json.NewEncoder(w).Encode(Response{Result: &EmbedStatusResult{ //nolint:errchkjson
 		Repo:     job.Repo,
 		Status:   job.Status,
 		Progress: job.Progress,
@@ -455,7 +457,7 @@ func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleEmbedStatus(w http.ResponseWriter, r *http.Request) {
-	s.resetIdleTimer()
+	s.resetIdleTimer(r.Context())
 	if !requirePOST(w, r) {
 		return
 	}
@@ -478,7 +480,7 @@ func (s *Server) handleEmbedStatus(w http.ResponseWriter, r *http.Request) {
 
 	job := s.GetEmbedJob(req.Repo)
 	if job == nil {
-			if s.dataDir != "" {
+		if s.dataDir != "" {
 			registry, err := storage.NewRegistry(s.dataDir)
 			if err == nil {
 				if entry, ok := registry.Get(req.Repo); ok && entry.Meta.EmbeddingStatus != "" {

@@ -4,6 +4,8 @@ import (
 	"testing"
 )
 
+const testSymServerContent = "Server"
+
 func TestExtractFile_PopulatesContent(t *testing.T) {
 	source := []byte("package main\n\nfunc Hello() {\n\tfmt.Println(\"hello\")\n}\n\nfunc World() {\n\tfmt.Println(\"world\")\n}\n")
 
@@ -69,7 +71,7 @@ func TestExtractFile_ContentForStruct(t *testing.T) {
 
 	var structContent string
 	for _, sym := range result.Symbols {
-		if sym.Name == "Server" {
+		if sym.Name == testSymServerContent {
 			structContent = sym.Content
 			break
 		}

@@ -118,21 +118,23 @@ func TestVectorSearch_Empty(t *testing.T) {
 	}
 }
 
+const testIDHandleRequest = "func:handleRequest"
+
 func TestHybridSearch_MergesBoth(t *testing.T) {
 	bm25 := []SearchResult{
-		{ID: "func:handleRequest", Score: 5.0},
+		{ID: testIDHandleRequest, Score: 5.0},
 		{ID: "func:parseInput", Score: 3.0},
 	}
 	vector := []VectorResult{
 		{ID: "func:validateUser", Score: 0.95},
-		{ID: "func:handleRequest", Score: 0.80},
+		{ID: testIDHandleRequest, Score: 0.80},
 	}
 	results := HybridSearch(bm25, vector, 10, 1.0)
 	if len(results) == 0 {
 		t.Fatal("expected hybrid results")
 	}
 	// handleRequest should be top because it appears in both lists.
-	if results[0].ID != "func:handleRequest" {
+	if results[0].ID != testIDHandleRequest {
 		t.Errorf("expected top result 'func:handleRequest', got %q", results[0].ID)
 	}
 	// All 3 unique IDs should appear.

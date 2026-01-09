@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: '1'
+      CC: zig cc
+      CXX: zig c++
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+      - uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+      - name: Build native embedding prereqs
+        run: task build:embedding:lib
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.11
+
+  test:
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: '1'
+      CC: zig cc
+      CXX: zig c++
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+      - uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+      - name: Build native embedding prereqs
+        run: task build:embedding:lib
+      - run: go test -short ./...

@@ -83,7 +83,7 @@ func HybridSearch(bm25Results []SearchResult, vectorResults []VectorResult, limi
 
 	vecSR := make([]SearchResult, len(vectorResults))
 	for i, vr := range vectorResults {
-		vecSR[i] = SearchResult{ID: vr.ID, Score: vr.Score}
+		vecSR[i] = SearchResult(vr)
 	}
 
 	fused := WeightedRRFMerge(

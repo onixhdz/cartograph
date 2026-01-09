@@ -57,7 +57,7 @@ const (
 // Retries transient failures with exponential backoff; falls back to refs/tags/ if needed.
 func CloneToMemory(ctx context.Context, opts CloneOptions) (*CloneResult, error) {
 	if opts.URL == "" {
-		return nil, fmt.Errorf("clone: URL is required")
+		return nil, errors.New("clone: URL is required")
 	}
 	if opts.Depth <= 0 {
 		opts.Depth = 1
@@ -70,7 +70,7 @@ func CloneToMemory(ctx context.Context, opts CloneOptions) (*CloneResult, error)
 		fs := memfs.New()
 		repo, err := git.CloneContext(ctx, stor, fs, co)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("clone to memory: %w", err)
 		}
 		return buildResult(repo, fs, "")
 	}
@@ -86,7 +86,7 @@ func CloneToMemory(ctx context.Context, opts CloneOptions) (*CloneResult, error)
 // Retries transient failures with exponential backoff; falls back to refs/tags/ if needed.
 func CloneToDisk(ctx context.Context, destDir string, opts CloneOptions) (*CloneResult, error) {
 	if opts.URL == "" {
-		return nil, fmt.Errorf("clone: URL is required")
+		return nil, errors.New("clone: URL is required")
 	}
 
 	cloneOpts := buildCloneOptions(opts)
@@ -94,7 +94,7 @@ func CloneToDisk(ctx context.Context, destDir string, opts CloneOptions) (*Clone
 	doClone := func(co *git.CloneOptions) (*CloneResult, error) {
 		repo, err := git.PlainCloneContext(ctx, destDir, co)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("plain clone: %w", err)
 		}
 		return buildResult(repo, nil, destDir)
 	}
@@ -150,7 +150,7 @@ func cloneWithRetry(
 		delay := time.Duration(retryBaseMs*(1<<attempt)) * time.Millisecond
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, fmt.Errorf("clone retry: %w", ctx.Err())
 		case <-time.After(delay):
 		}
 	}
@@ -174,7 +174,7 @@ func isTransient(err error) bool {
 	if err == nil {
 		return false
 	}
-	// Context errors mean the caller cancelled — don't retry.
+	// Context errors mean the caller canceled — don't retry.
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
@@ -197,7 +197,7 @@ func isTransient(err error) bool {
 // If branch is non-empty, returns the SHA for that branch (or tag).
 func LsRemote(ctx context.Context, opts CloneOptions) (string, error) {
 	if opts.URL == "" {
-		return "", fmt.Errorf("ls-remote: URL is required")
+		return "", errors.New("ls-remote: URL is required")
 	}
 
 	rem := git.NewRemote(memory.NewStorage(), &config.RemoteConfig{

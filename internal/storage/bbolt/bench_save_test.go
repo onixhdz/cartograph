@@ -8,8 +8,9 @@ import (
 	"time"
 
 	"github.com/cloudprivacylabs/lpg/v2"
-	"github.com/realxen/cartograph/internal/graph"
 	"github.com/vmihailenco/msgpack/v5"
+
+	"github.com/realxen/cartograph/internal/graph"
 )
 
 func buildBenchGraph(nodeCount, edgesPerNode int) *lpg.Graph {
@@ -46,7 +47,7 @@ func BenchmarkSaveGraph(b *testing.B) {
 				if err := store.SaveGraph(g); err != nil {
 					b.Fatal(err)
 				}
-				store.Close()
+				_ = store.Close()
 			}
 		})
 	}
@@ -74,7 +75,7 @@ func TestSaveGraphProfile(t *testing.T) {
 			})
 			props["_labels"] = node.GetLabels().Slice()
 			props["_id"] = props[graph.PropID]
-			msgpack.Marshal(props)
+			_, _ = msgpack.Marshal(props)
 			return true
 		})
 		graph.ForEachEdge(g, func(edge *lpg.Edge) bool {
@@ -86,7 +87,7 @@ func TestSaveGraphProfile(t *testing.T) {
 			props["_from"] = graph.GetStringProp(edge.GetFrom(), graph.PropID)
 			props["_to"] = graph.GetStringProp(edge.GetTo(), graph.PropID)
 			props["_label"] = edge.GetLabel()
-			msgpack.Marshal(props)
+			_, _ = msgpack.Marshal(props)
 			return true
 		})
 		serializeTime := time.Since(start)
@@ -103,7 +104,7 @@ func TestSaveGraphProfile(t *testing.T) {
 		saveTime := time.Since(start)
 		fi, _ := os.Stat(dbPath)
 		dbSize := fi.Size()
-		store.Close()
+		_ = store.Close()
 
 		bboltTime := saveTime - serializeTime
 		t.Logf("size=%d  nodes=%d edges=%d  db=%.1fKB", size, nc, ec, float64(dbSize)/1024)

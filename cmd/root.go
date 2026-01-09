@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net"
@@ -11,12 +12,15 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/alecthomas/kong"
 	"github.com/cloudprivacylabs/lpg/v2"
 	"github.com/go-git/go-billy/v6"
+	"golang.org/x/term"
+
 	"github.com/realxen/cartograph/internal/graph"
 	"github.com/realxen/cartograph/internal/ingestion"
 	"github.com/realxen/cartograph/internal/remote"
@@ -25,7 +29,14 @@ import (
 	"github.com/realxen/cartograph/internal/storage"
 	"github.com/realxen/cartograph/internal/storage/bbolt"
 	"github.com/realxen/cartograph/internal/sysutil"
-	"golang.org/x/term"
+)
+
+const (
+	embedOff       = "off"
+	statusComplete = "complete"
+	statusFailed   = "failed"
+	statusPending  = "pending"
+	answerYes      = "yes"
 )
 
 // CLI is the top-level kong command structure for cartograph.
@@ -70,7 +81,7 @@ func resolveRepo(explicit string) (string, error) {
 	if err != nil {
 		// If the name is ambiguous, surface the error immediately.
 		if strings.Contains(err.Error(), "ambiguous") {
-			return "", err
+			return "", fmt.Errorf("resolve repo name: %w", err)
 		}
 		// Not found — return the raw name so the downstream service call
 		// can produce its own "not found" message.
@@ -109,7 +120,7 @@ func (c *CloneCmd) Run(cli *CLI) error {
 		return nil
 	}
 
-	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+	if err := os.MkdirAll(repoDir, 0o750); err != nil {
 		return fmt.Errorf("clone: create dir: %w", err)
 	}
 
@@ -317,7 +328,7 @@ func (c *AnalyzeCmd) suggestFromGitHub(name string) string {
 		clearWinner = runnerUpStars == 0 || results[0].Stars > 3*runnerUpStars
 	}
 
-	if clearWinner && term.IsTerminal(int(os.Stdin.Fd())) {
+	if clearWinner && term.IsTerminal(int(os.Stdin.Fd())) { //nolint:gosec // G115: fd is a small integer
 		// Interactive + high-confidence match: prompt for confirmation.
 		desc := results[0].Description
 		if len(desc) > 60 {
@@ -332,7 +343,7 @@ func (c *AnalyzeCmd) suggestFromGitHub(name string) string {
 		reader := bufio.NewReader(os.Stdin)
 		answer, _ := reader.ReadString('\n')
 		answer = strings.TrimSpace(strings.ToLower(answer))
-		if answer == "" || answer == "y" || answer == "yes" {
+		if answer == "" || answer == "y" || answer == answerYes {
 			return "https://github.com/" + topName
 		}
 		return ""
@@ -348,10 +359,10 @@ func (c *AnalyzeCmd) suggestFromGitHub(name string) string {
 		if len(desc) > 50 {
 			desc = desc[:47] + "..."
 		}
-		line := fmt.Sprintf("  cartograph analyze github.com/%s", r.FullName)
-		line += fmt.Sprintf("  (★ %s)", remote.FormatStars(r.Stars))
+		line := "  cartograph analyze github.com/" + r.FullName
+		line += "  (★ " + remote.FormatStars(r.Stars) + ")"
 		if desc != "" {
-			line += fmt.Sprintf("  %s", desc)
+			line += "  " + desc
 		}
 		fmt.Println(line)
 	}
@@ -359,7 +370,7 @@ func (c *AnalyzeCmd) suggestFromGitHub(name string) string {
 	return ""
 }
 
-// runLocal handles local path analysis (existing behaviour).
+// runLocal handles local path analysis (existing behavior).
 func (c *AnalyzeCmd) runLocal(cli *CLI, target string) error {
 	abs, err := filepath.Abs(target)
 	if err != nil {
@@ -396,7 +407,7 @@ func (c *AnalyzeCmd) runLocal(cli *CLI, target string) error {
 	repoHash := shortHash(abs)
 	repoDir := filepath.Join(dataDir, repoName, repoHash)
 
-	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+	if err := os.MkdirAll(repoDir, 0o750); err != nil {
 		return fmt.Errorf("analyze: create dir: %w", err)
 	}
 	dbPath := filepath.Join(repoDir, "graph.db")
@@ -408,11 +419,11 @@ func (c *AnalyzeCmd) runLocal(cli *CLI, target string) error {
 		return fmt.Errorf("analyze: open store: %w", err)
 	}
 	if err := store.SaveGraph(g); err != nil {
-		store.Close() //nolint:errcheck
+		store.Close() //nolint:gosec
 		spGraph.StopWithFailure("Failed to persist graph")
 		return fmt.Errorf("analyze: save graph: %w", err)
 	}
-	store.Close() //nolint:errcheck
+	store.Close() //nolint:gosec
 	spGraph.StopWithSuccess("Graph persisted")
 
 	blevePath := filepath.Join(repoDir, "search.bleve")
@@ -421,7 +432,7 @@ func (c *AnalyzeCmd) runLocal(cli *CLI, target string) error {
 		// NOTE: embeddings.db is intentionally preserved — embedding is
 		// expensive and node IDs are deterministic, so existing vectors
 		// remain valid. Orphaned vectors are cleaned on next embed run.
-		os.RemoveAll(blevePath) //nolint:errcheck
+		os.RemoveAll(blevePath) //nolint:gosec
 	}
 	spSearch := newSpinner("Building search index...")
 	spSearch.Start()
@@ -432,11 +443,11 @@ func (c *AnalyzeCmd) runLocal(cli *CLI, target string) error {
 	}
 	indexed, err := idx.IndexGraph(g)
 	if err != nil {
-		idx.Close() //nolint:errcheck
+		idx.Close() //nolint:gosec
 		spSearch.StopWithFailure("Failed to index graph")
 		return fmt.Errorf("analyze: index graph: %w", err)
 	}
-	idx.Close() //nolint:errcheck
+	idx.Close() //nolint:gosec
 	spSearch.StopWithSuccess(fmt.Sprintf("Search index: %d documents", indexed))
 
 	langs := collectLanguages(g)
@@ -468,7 +479,7 @@ func (c *AnalyzeCmd) runLocal(cli *CLI, target string) error {
 	}
 
 	// Embedding in sync mode blocks until complete.
-	if c.Embed != "off" {
+	if c.Embed != embedOff {
 		// Release the search index file lock so the background service
 		// can open it. The MC is no longer needed after this point.
 		if mc, ok := cli.Client.(*service.MemoryClient); ok {
@@ -525,7 +536,7 @@ func (c *AnalyzeCmd) runRemote(cli *CLI, url string) error {
 
 					// Graph is current — forward embed request to server
 					// (handles model changes, incomplete state, no-ops).
-					if c.Embed != "off" {
+					if c.Embed != embedOff {
 						fmt.Println("Graph up to date. Triggering embedding...")
 						if cli.Client != nil {
 							if mc, ok := cli.Client.(*service.MemoryClient); ok {
@@ -569,7 +580,7 @@ func (c *AnalyzeCmd) runRemote(cli *CLI, url string) error {
 			if needsRefresh {
 				// Remote has new commits — pull updates.
 				fmt.Printf("Updating clone at %s...\n", srcDir)
-				pullCmd := exec.Command("git", "-C", srcDir, "pull", "--ff-only")
+				pullCmd := exec.CommandContext(context.Background(), "git", "-C", srcDir, "pull", "--ff-only")
 				if c.AuthToken != "" {
 					// Inject token for private repos via credential helper.
 					pullCmd.Env = append(os.Environ(),
@@ -651,7 +662,7 @@ func (c *AnalyzeCmd) runCloneToMemory(
 	edgeCount := graph.EdgeCount(g)
 	fmt.Printf("  Graph: %d nodes, %d edges\n", nodeCount, edgeCount)
 
-	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+	if err := os.MkdirAll(repoDir, 0o750); err != nil {
 		return fmt.Errorf("analyze: create dir: %w", err)
 	}
 	dbPath := filepath.Join(repoDir, "graph.db")
@@ -663,7 +674,7 @@ func (c *AnalyzeCmd) runCloneToMemory(
 		return fmt.Errorf("analyze: open store: %w", err)
 	}
 	if err := store.SaveGraph(g); err != nil {
-		store.Close() //nolint:errcheck
+		store.Close() //nolint:gosec
 		spPersist.StopWithFailure("Failed to persist graph")
 		return fmt.Errorf("analyze: save graph: %w", err)
 	}
@@ -671,19 +682,19 @@ func (c *AnalyzeCmd) runCloneToMemory(
 	// Populate content bucket — source won't be on disk.
 	cs, err := bbolt.NewContentStoreFromDB(store.DB())
 	if err != nil {
-		store.Close() //nolint:errcheck
+		store.Close() //nolint:gosec
 		spPersist.StopWithFailure("Failed to init content store")
 		return fmt.Errorf("analyze: init content store: %w", err)
 	}
 	fileCount, err := populateContentBucket(cs, result.FS)
 	if err != nil {
-		cs.Close()    //nolint:errcheck
-		store.Close() //nolint:errcheck
+		cs.Close()    //nolint:gosec
+		store.Close() //nolint:gosec
 		spPersist.StopWithFailure("Failed to populate content")
 		return fmt.Errorf("analyze: populate content: %w", err)
 	}
-	cs.Close()    //nolint:errcheck
-	store.Close() //nolint:errcheck
+	cs.Close()    //nolint:gosec
+	store.Close() //nolint:gosec
 	spPersist.StopWithSuccess(fmt.Sprintf("Graph persisted, content stored: %d files", fileCount))
 
 	blevePath := filepath.Join(repoDir, "search.bleve")
@@ -692,7 +703,7 @@ func (c *AnalyzeCmd) runCloneToMemory(
 		// NOTE: embeddings.db is intentionally preserved — embedding is
 		// expensive and node IDs are deterministic, so existing vectors
 		// remain valid. Orphaned vectors are cleaned on next embed run.
-		os.RemoveAll(blevePath) //nolint:errcheck
+		os.RemoveAll(blevePath) //nolint:gosec
 	}
 	spSearch := newSpinner("Building search index...")
 	spSearch.Start()
@@ -703,11 +714,11 @@ func (c *AnalyzeCmd) runCloneToMemory(
 	}
 	indexed, err := idx.IndexGraph(g)
 	if err != nil {
-		idx.Close() //nolint:errcheck
+		idx.Close() //nolint:gosec
 		spSearch.StopWithFailure("Failed to index graph")
 		return fmt.Errorf("analyze: index graph: %w", err)
 	}
-	idx.Close() //nolint:errcheck
+	idx.Close() //nolint:gosec
 	spSearch.StopWithSuccess(fmt.Sprintf("Search index: %d documents", indexed))
 
 	langs := collectLanguages(g)
@@ -740,7 +751,7 @@ func (c *AnalyzeCmd) runCloneToMemory(
 	}
 
 	// Embedding in sync mode blocks until complete.
-	if c.Embed != "off" {
+	if c.Embed != embedOff {
 		if mc, ok := cli.Client.(*service.MemoryClient); ok {
 			mc.ReleaseSearchIndex(repoName)
 		}
@@ -760,7 +771,7 @@ func (c *AnalyzeCmd) runCloneToDisk(
 	start := time.Now()
 
 	srcDir := filepath.Join(repoDir, "src")
-	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+	if err := os.MkdirAll(repoDir, 0o750); err != nil {
 		return fmt.Errorf("analyze: create dir: %w", err)
 	}
 
@@ -818,11 +829,11 @@ func (c *AnalyzeCmd) runCloneToDisk(
 		return fmt.Errorf("analyze: open store: %w", err)
 	}
 	if err := store.SaveGraph(g); err != nil {
-		store.Close() //nolint:errcheck
+		store.Close() //nolint:gosec
 		spGraph.StopWithFailure("Failed to persist graph")
 		return fmt.Errorf("analyze: save graph: %w", err)
 	}
-	store.Close() //nolint:errcheck
+	store.Close() //nolint:gosec
 	spGraph.StopWithSuccess("Graph persisted")
 
 	blevePath := filepath.Join(repoDir, "search.bleve")
@@ -831,7 +842,7 @@ func (c *AnalyzeCmd) runCloneToDisk(
 		// NOTE: embeddings.db is intentionally preserved — embedding is
 		// expensive and node IDs are deterministic, so existing vectors
 		// remain valid. Orphaned vectors are cleaned on next embed run.
-		os.RemoveAll(blevePath) //nolint:errcheck
+		os.RemoveAll(blevePath) //nolint:gosec
 	}
 	spSearch := newSpinner("Building search index...")
 	spSearch.Start()
@@ -842,11 +853,11 @@ func (c *AnalyzeCmd) runCloneToDisk(
 	}
 	indexed, err := idx.IndexGraph(g)
 	if err != nil {
-		idx.Close() //nolint:errcheck
+		idx.Close() //nolint:gosec
 		spSearch.StopWithFailure("Failed to index graph")
 		return fmt.Errorf("analyze: index graph: %w", err)
 	}
-	idx.Close() //nolint:errcheck
+	idx.Close() //nolint:gosec
 	spSearch.StopWithSuccess(fmt.Sprintf("Search index: %d documents", indexed))
 
 	langs := collectLanguages(g)
@@ -879,7 +890,7 @@ func (c *AnalyzeCmd) runCloneToDisk(
 	}
 
 	// Embedding in sync mode blocks until complete.
-	if c.Embed != "off" {
+	if c.Embed != embedOff {
 		if mc, ok := cli.Client.(*service.MemoryClient); ok {
 			mc.ReleaseSearchIndex(repoName)
 		}
@@ -930,14 +941,14 @@ func (c *AnalyzeCmd) requestEmbedding(repoName string) {
 			return
 		}
 		switch st.Status {
-		case "complete":
+		case statusComplete:
 			sp.StopWithSuccess(fmt.Sprintf("Embedded %d nodes (%s / %dd)", st.Progress, st.Model, st.Dims))
 			return
-		case "failed":
-			sp.StopWithFailure(fmt.Sprintf("Embedding failed: %s", st.Error))
+		case statusFailed:
+			sp.StopWithFailure("Embedding failed: " + st.Error)
 			return
 		default:
-			if st.Status == "pending" {
+			if st.Status == statusPending {
 				sp.Update("Waiting for another embedding job to finish...")
 			} else if st.Total > 0 {
 				sp.Update(fmt.Sprintf("Embedding symbols (%d/%d)...", st.Progress, st.Total))
@@ -959,7 +970,7 @@ func connectOrStartService(dataDir string) *service.Client {
 
 	// Clean up stale lockfile so the new service can acquire it.
 	if lf.IsStale() {
-		lf.Release() //nolint:errcheck
+		lf.Release() //nolint:errcheck,gosec
 	}
 
 	exe, err := os.Executable()
@@ -968,14 +979,14 @@ func connectOrStartService(dataDir string) *service.Client {
 	}
 
 	// Log child output so spawn failures are debuggable.
-	os.MkdirAll(dataDir, 0o755) //nolint:errcheck
+	os.MkdirAll(dataDir, 0o750) //nolint:errcheck,gosec
 	logPath := DefaultLogPath()
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		logFile = nil // fall back to discard
 	}
 
-	cmd := exec.Command(exe, "serve", "start", "--no-idle")
+	cmd := exec.CommandContext(context.Background(), exe, "serve", "start", "--no-idle")
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.Stdin = nil
@@ -983,14 +994,14 @@ func connectOrStartService(dataDir string) *service.Client {
 	cmd.SysProcAttr = sysutil.DetachProcAttr()
 	if err := cmd.Start(); err != nil {
 		if logFile != nil {
-			logFile.Close()
+			logFile.Close() //nolint:gosec
 		}
 		return nil
 	}
 	// Release the child process immediately so we don't accumulate zombies.
 	_ = cmd.Process.Release()
 	if logFile != nil {
-		logFile.Close()
+		logFile.Close() //nolint:gosec
 	}
 
 	// Phase 1: wait for the PID file to appear (process started).
@@ -1029,11 +1040,11 @@ func connectOrStartService(dataDir string) *service.Client {
 
 // isServiceAlive checks if a service endpoint is accepting connections.
 func isServiceAlive(network, addr string) bool {
-	conn, err := net.DialTimeout(network, addr, 200*time.Millisecond)
+	conn, err := (&net.Dialer{Timeout: 200 * time.Millisecond}).DialContext(context.Background(), network, addr)
 	if err != nil {
 		return false
 	}
-	conn.Close()
+	conn.Close() //nolint:gosec
 	return true
 }
 
@@ -1064,7 +1075,7 @@ func populateContentBucket(cs *bbolt.ContentStore, fs billy.Filesystem) (int, er
 		return 0, nil
 	}
 	if err := cs.PutBatch(files); err != nil {
-		return 0, err
+		return 0, fmt.Errorf("put batch: %w", err)
 	}
 	return len(files), nil
 }
@@ -1073,7 +1084,7 @@ func populateContentBucket(cs *bbolt.ContentStore, fs billy.Filesystem) (int, er
 func collectFiles(fs billy.Filesystem, dir string, files map[string][]byte) error {
 	entries, err := fs.ReadDir(dir)
 	if err != nil {
-		return err
+		return fmt.Errorf("read dir %s: %w", dir, err)
 	}
 	for _, entry := range entries {
 		name := entry.Name()
@@ -1100,7 +1111,7 @@ func collectFiles(fs billy.Filesystem, dir string, files map[string][]byte) erro
 			continue
 		}
 		data, err := io.ReadAll(f)
-		f.Close() //nolint:errcheck
+		f.Close() //nolint:gosec
 		if err != nil {
 			continue
 		}
@@ -1112,13 +1123,13 @@ func collectFiles(fs billy.Filesystem, dir string, files map[string][]byte) erro
 // shortHash returns a short hash of the path for storage directory naming.
 func shortHash(path string) string {
 	h := sha256.Sum256([]byte(path))
-	return fmt.Sprintf("%x", h[:8])
+	return hex.EncodeToString(h[:8])
 }
 
 // gitHeadHash returns the current HEAD commit hash for the repo at dir,
 // or an empty string if git is unavailable.
 func gitHeadHash(dir string) string {
-	cmd := exec.Command("git", "-C", dir, "rev-parse", "HEAD")
+	cmd := exec.CommandContext(context.Background(), "git", "-C", dir, "rev-parse", "HEAD")
 	out, err := cmd.Output()
 	if err != nil {
 		return ""
@@ -1129,7 +1140,7 @@ func gitHeadHash(dir string) string {
 // gitCurrentBranch returns the short name of the current branch for the
 // repo at dir. Returns "" if git is unavailable or HEAD is detached.
 func gitCurrentBranch(dir string) string {
-	cmd := exec.Command("git", "-C", dir, "rev-parse", "--abbrev-ref", "HEAD")
+	cmd := exec.CommandContext(context.Background(), "git", "-C", dir, "rev-parse", "--abbrev-ref", "HEAD")
 	out, err := cmd.Output()
 	if err != nil {
 		return ""
@@ -1183,8 +1194,8 @@ func (c *ListCmd) Run(cli *CLI) error {
 			hashLabel,
 			typeLabel,
 			timeAgo(e.IndexedAt),
-			fmt.Sprintf("%d", e.NodeCount),
-			fmt.Sprintf("%d", e.EdgeCount),
+			strconv.Itoa(e.NodeCount),
+			strconv.Itoa(e.EdgeCount),
 			embedLabel,
 		})
 	}
@@ -1195,7 +1206,7 @@ func (c *ListCmd) Run(cli *CLI) error {
 // embedStatusLabel returns a compact human-readable embedding status string.
 func embedStatusLabel(status string, progress, total int, duration, errMsg string) string {
 	switch status {
-	case "complete":
+	case statusComplete:
 		if duration != "" {
 			return fmt.Sprintf("complete (%d nodes, %s)", total, duration)
 		}
@@ -1206,15 +1217,15 @@ func embedStatusLabel(status string, progress, total int, duration, errMsg strin
 			return fmt.Sprintf("running (%d/%d, %d%%)", progress, total, pct)
 		}
 		return "running"
-	case "pending":
-		return "pending"
+	case statusPending:
+		return statusPending
 	case "downloading":
 		return "downloading"
-	case "failed":
+	case statusFailed:
 		if errMsg != "" {
 			return fmt.Sprintf("failed (%s)", errMsg)
 		}
-		return "failed"
+		return statusFailed
 	default:
 		return "none"
 	}
@@ -1264,7 +1275,7 @@ func (c *StatusCmd) Run(cli *CLI) error {
 // watchStatus polls and redraws status until embedding reaches a terminal
 // state (complete, failed, none) or the user presses Ctrl+C.
 func (c *StatusCmd) watchStatus(cli *CLI, repo string) error {
-	isTTY := term.IsTerminal(int(os.Stdout.Fd()))
+	isTTY := term.IsTerminal(int(os.Stdout.Fd())) //nolint:gosec // G115: fd is a small integer
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1302,7 +1313,7 @@ func (c *StatusCmd) watchStatus(cli *CLI, repo string) error {
 		write(buf.String())
 
 		switch embedStatus {
-		case "complete", "failed", "":
+		case statusComplete, statusFailed, "":
 			return true, nil
 		}
 		return false, nil
@@ -1429,7 +1440,10 @@ func (c *StatusCmd) writeStatus(w io.Writer, cli *CLI, repo string) (string, err
 			if info.IsDir() {
 				var total int64
 				_ = filepath.WalkDir(p, func(_ string, d os.DirEntry, err error) error {
-					if err != nil || d.IsDir() {
+					if err != nil {
+						return err
+					}
+					if d.IsDir() {
 						return nil
 					}
 					if fi, err := d.Info(); err == nil {
@@ -1489,8 +1503,8 @@ func (c *CleanCmd) Run(cli *CLI) error {
 		}
 		for _, entry := range registry.List() {
 			repoDir := filepath.Join(dataDir, entry.Name, entry.Hash)
-			os.RemoveAll(repoDir)       //nolint:errcheck
-			registry.Remove(entry.Hash) //nolint:errcheck
+			_ = os.RemoveAll(repoDir)
+			_ = registry.Remove(entry.Hash)
 			fmt.Printf("  Removed %s\n", entry.Name)
 		}
 		if cli.Client != nil {
@@ -1527,8 +1541,8 @@ func (c *CleanCmd) Run(cli *CLI) error {
 	}
 
 	repoDir := filepath.Join(dataDir, entry.Name, entry.Hash)
-	os.RemoveAll(repoDir)       //nolint:errcheck
-	registry.Remove(entry.Hash) //nolint:errcheck
+	_ = os.RemoveAll(repoDir)
+	_ = registry.Remove(entry.Hash)
 
 	if cli.Client != nil {
 		_ = cli.Client.Reload(service.ReloadRequest{Repo: entry.Name})
@@ -1591,7 +1605,7 @@ func (c *SourceCmd) Run(cli *CLI) error {
 		lines := strings.Split(f.Content, "\n")
 		startLine := 1
 		if c.Lines != "" {
-			fmt.Sscanf(c.Lines, "%d-", &startLine) //nolint:errcheck
+			_, _ = fmt.Sscanf(c.Lines, "%d-", &startLine)
 		}
 		for j, line := range lines {
 			// Skip trailing empty line from split.
@@ -1909,7 +1923,7 @@ func (c *SchemaCmd) Run(cli *CLI) error {
 		headers := []string{"Label", "Count"}
 		rows := make([][]string, 0, len(result.NodeLabels))
 		for _, nl := range result.NodeLabels {
-			rows = append(rows, []string{nl.Label, fmt.Sprintf("%d", nl.Count)})
+			rows = append(rows, []string{nl.Label, strconv.Itoa(nl.Count)})
 		}
 		fmt.Print(formatTable(headers, rows))
 		fmt.Println()
@@ -1920,7 +1934,7 @@ func (c *SchemaCmd) Run(cli *CLI) error {
 		headers := []string{"Type", "Count"}
 		rows := make([][]string, 0, len(result.RelTypes))
 		for _, rt := range result.RelTypes {
-			rows = append(rows, []string{rt.Type, fmt.Sprintf("%d", rt.Count)})
+			rows = append(rows, []string{rt.Type, strconv.Itoa(rt.Count)})
 		}
 		fmt.Print(formatTable(headers, rows))
 		fmt.Println()

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/cloudprivacylabs/lpg/v2"
+
 	"github.com/realxen/cartograph/internal/graph"
 )
 
@@ -243,7 +244,7 @@ func TestNewIndexOnDisk(t *testing.T) {
 	if indexed != 6 {
 		t.Errorf("expected 6 indexed, got %d", indexed)
 	}
-	ix.Close()
+	ix.Close() //nolint:gosec // best-effort close before reopen
 
 	ix2, err := NewIndex(path)
 	if err != nil {
@@ -276,7 +277,7 @@ func TestDeleteIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIndex: %v", err)
 	}
-	ix.Close()
+	ix.Close() //nolint:gosec // best-effort close before delete
 
 	if err := DeleteIndex(path); err != nil {
 		t.Fatalf("DeleteIndex: %v", err)
@@ -702,7 +703,7 @@ func TestNewReadOnlyIndex(t *testing.T) {
 	if _, err := ix.IndexGraph(g); err != nil {
 		t.Fatalf("IndexGraph: %v", err)
 	}
-	ix.Close()
+	ix.Close() //nolint:gosec // best-effort close before read-only reopen
 
 	// Open read-only — should be searchable.
 	ro, err := NewReadOnlyIndex(path)
@@ -732,7 +733,7 @@ func TestReadOnlyIndex_ConcurrentOpen(t *testing.T) {
 	if _, err := ix.IndexGraph(g); err != nil {
 		t.Fatalf("IndexGraph: %v", err)
 	}
-	ix.Close()
+	ix.Close() //nolint:gosec // best-effort close before concurrent reopen
 
 	// Two read-only opens should not block each other.
 	ro1, err := NewReadOnlyIndex(path)

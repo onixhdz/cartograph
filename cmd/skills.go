@@ -83,7 +83,7 @@ func (c *SkillsInstallCmd) Run(cli *CLI) error {
 	if len(c.Agent) > 0 {
 		targets := resolveAgentTargets(c.Agent)
 		if len(targets) == 0 {
-			return fmt.Errorf("no valid agent targets specified (use 'cartograph skills list' to see options)")
+			return errors.New("no valid agent targets specified (use 'cartograph skills list' to see options)")
 		}
 		return doInstall(targets, c.Global)
 	}
@@ -117,7 +117,7 @@ func (c *SkillsInstallCmd) Run(cli *CLI) error {
 				Value(&selected).
 				Validate(func(s []string) error {
 					if len(s) == 0 {
-						return fmt.Errorf("select at least one agent")
+						return errors.New("select at least one agent")
 					}
 					return nil
 				}),
@@ -125,7 +125,7 @@ func (c *SkillsInstallCmd) Run(cli *CLI) error {
 	).Run()
 	if err != nil {
 		if errors.Is(err, huh.ErrUserAborted) {
-			fmt.Println("Installation cancelled.")
+			fmt.Println("Installation canceled.")
 			return nil
 		}
 		return fmt.Errorf("prompt: %w", err)
@@ -196,7 +196,7 @@ func (c *SkillsUninstallCmd) Run(cli *CLI) error {
 	if len(c.Agent) > 0 {
 		targets := resolveAgentTargets(c.Agent)
 		if len(targets) == 0 {
-			return fmt.Errorf("no valid agent targets specified (use 'cartograph skills list' to see options)")
+			return errors.New("no valid agent targets specified (use 'cartograph skills list' to see options)")
 		}
 		return doUninstall(targets, c.Global)
 	}
@@ -234,7 +234,7 @@ func (c *SkillsUninstallCmd) Run(cli *CLI) error {
 				Value(&selected).
 				Validate(func(s []string) error {
 					if len(s) == 0 {
-						return fmt.Errorf("select at least one agent")
+						return errors.New("select at least one agent")
 					}
 					return nil
 				}),
@@ -242,7 +242,7 @@ func (c *SkillsUninstallCmd) Run(cli *CLI) error {
 	).Run()
 	if err != nil {
 		if errors.Is(err, huh.ErrUserAborted) {
-			fmt.Println("Uninstall cancelled.")
+			fmt.Println("Uninstall canceled.")
 			return nil
 		}
 		return fmt.Errorf("prompt: %w", err)
@@ -313,7 +313,7 @@ func (c *SkillsListCmd) Run(cli *CLI) error {
 		installed := "no"
 		skillDir := filepath.Join(dir, "cartograph")
 		if _, err := os.Stat(filepath.Join(skillDir, "SKILL.md")); err == nil {
-			installed = "yes"
+			installed = answerYes
 		}
 		rows = append(rows, []string{t.ID, t.Name, t.GlobalDir, installed})
 	}
@@ -354,7 +354,7 @@ func resolveAgentTargets(agents []string) []agentTarget {
 // installSkillFiles copies the embedded skill files into the given base directory.
 // The resulting structure is: <baseDir>/cartograph/SKILL.md + references/*.md
 func installSkillFiles(baseDir string) error {
-	return fs.WalkDir(skillsFS, skillsFSRoot, func(path string, d fs.DirEntry, err error) error {
+	if err := fs.WalkDir(skillsFS, skillsFSRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -365,7 +365,7 @@ func installSkillFiles(baseDir string) error {
 		target := filepath.Join(baseDir, rel)
 
 		if d.IsDir() {
-			return os.MkdirAll(target, 0o755)
+			return os.MkdirAll(target, 0o750)
 		}
 
 		data, err := skillsFS.ReadFile(path)
@@ -373,12 +373,15 @@ func installSkillFiles(baseDir string) error {
 			return fmt.Errorf("read embedded %s: %w", path, err)
 		}
 
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
 			return fmt.Errorf("mkdir %s: %w", filepath.Dir(target), err)
 		}
 
-		return os.WriteFile(target, data, 0o644)
-	})
+		return os.WriteFile(target, data, 0o600)
+	}); err != nil {
+		return fmt.Errorf("install skill files: %w", err)
+	}
+	return nil
 }
 
 // uninstallSkillFiles removes the cartograph skill directory from the given base dir.
@@ -387,7 +390,10 @@ func uninstallSkillFiles(baseDir string) error {
 	if _, err := os.Stat(skillDir); os.IsNotExist(err) {
 		return nil // nothing to remove
 	}
-	return os.RemoveAll(skillDir)
+	if err := os.RemoveAll(skillDir); err != nil {
+		return fmt.Errorf("uninstall skill files: %w", err)
+	}
+	return nil
 }
 
 // expandHome replaces a leading ~ with the user's home directory.
@@ -415,7 +421,10 @@ func homeDir() string {
 func countFiles(dir string) int {
 	n := 0
 	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
 			return nil
 		}
 		n++
@@ -427,7 +436,7 @@ func countFiles(dir string) int {
 // offerShellCompletion prompts the user to set up shell tab-completion
 // if it isn't already configured. Skipped in non-interactive contexts.
 func offerShellCompletion() {
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
+	if !term.IsTerminal(int(os.Stdin.Fd())) { //nolint:gosec // G115: fd is a small integer
 		return
 	}
 
@@ -445,7 +454,7 @@ func offerShellCompletion() {
 	reader := bufio.NewReader(os.Stdin)
 	answer, _ := reader.ReadString('\n')
 	answer = strings.TrimSpace(strings.ToLower(answer))
-	if answer != "" && answer != "y" && answer != "yes" {
+	if answer != "" && answer != "y" && answer != answerYes {
 		return
 	}
 
@@ -482,14 +491,16 @@ func completionShellLine(shell string) string {
 
 // appendToFile appends a line to a file, creating it if needed.
 func appendToFile(path, line string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return fmt.Errorf("create dir for %s: %w", path, err)
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
-		return err
+		return fmt.Errorf("open %s: %w", path, err)
 	}
 	defer f.Close()
-	_, err = fmt.Fprintf(f, "\n# cartograph tab-completion\n%s\n", line)
-	return err
+	if _, err = fmt.Fprintf(f, "\n# cartograph tab-completion\n%s\n", line); err != nil {
+		return fmt.Errorf("write to %s: %w", path, err)
+	}
+	return nil
 }

@@ -4,10 +4,13 @@ import (
 	"testing"
 
 	"github.com/cloudprivacylabs/lpg/v2"
+
 	"github.com/realxen/cartograph/internal/graph"
 	"github.com/realxen/cartograph/internal/ingestion/extractors"
 	"github.com/realxen/cartograph/internal/testutil"
 )
+
+const testSrcFolder = "src"
 
 func TestPipeline_BasicRun(t *testing.T) {
 	dir := testutil.TempDir(t, map[string]string{
@@ -210,7 +213,7 @@ func TestPipeline_DeduplicatesSharedFolders(t *testing.T) {
 
 	srcCount := 0
 	for _, n := range graph.FindNodesByLabel(g, graph.LabelFolder) {
-		if graph.GetStringProp(n, graph.PropName) == "src" {
+		if graph.GetStringProp(n, graph.PropName) == testSrcFolder {
 			srcCount++
 		}
 	}

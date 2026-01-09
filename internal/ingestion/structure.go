@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/cloudprivacylabs/lpg/v2"
+
 	"github.com/realxen/cartograph/internal/graph"
 )
 
@@ -15,17 +16,17 @@ import (
 func ProcessStructure(g *lpg.Graph, results []WalkResult) error {
 	folderNodes := make(map[string]*lpg.Node)
 
-	ensureFolder := func(relPath string) *lpg.Node {
+	ensureFolder := func(relPath string) {
 		if relPath == "" || relPath == "." {
-			return nil
+			return
 		}
-		if n, ok := folderNodes[relPath]; ok {
-			return n
+		if _, ok := folderNodes[relPath]; ok {
+			return
 		}
 		id := "folder:" + relPath
 		if existing := graph.FindNodeByID(g, id); existing != nil {
 			folderNodes[relPath] = existing
-			return existing
+			return
 		}
 		name := path.Base(relPath)
 		n := graph.AddFolderNode(g, graph.FolderProps{
@@ -33,7 +34,6 @@ func ProcessStructure(g *lpg.Graph, results []WalkResult) error {
 			FilePath:      relPath,
 		})
 		folderNodes[relPath] = n
-		return n
 	}
 
 	// First pass: create folder nodes for all directories and intermediate paths.

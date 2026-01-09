@@ -2,7 +2,7 @@ package remote
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -195,10 +195,10 @@ func TestIsRefNotFound(t *testing.T) {
 		want bool
 	}{
 		{nil, false},
-		{fmt.Errorf("reference not found"), true},
-		{fmt.Errorf("couldn't find remote ref refs/heads/missing"), true},
-		{fmt.Errorf("connection refused"), false},
-		{fmt.Errorf("authentication required"), false},
+		{errors.New("reference not found"), true},
+		{errors.New("couldn't find remote ref refs/heads/missing"), true},
+		{errors.New("connection refused"), false},
+		{errors.New("authentication required"), false},
 	}
 	for _, tt := range tests {
 		got := isRefNotFound(tt.err)
@@ -214,14 +214,14 @@ func TestIsTransient(t *testing.T) {
 		want bool
 	}{
 		{nil, false},
-		{fmt.Errorf("connection refused"), true},
-		{fmt.Errorf("EOF"), true},
-		{fmt.Errorf("timeout waiting for response"), true},
-		{fmt.Errorf("authentication required"), false},
-		{fmt.Errorf("authorization failed"), false},
-		{fmt.Errorf("repository not found"), false},
-		{fmt.Errorf("reference not found"), false},
-		{fmt.Errorf("403 Forbidden"), false},
+		{errors.New("connection refused"), true},
+		{errors.New("EOF"), true},
+		{errors.New("timeout waiting for response"), true},
+		{errors.New("authentication required"), false},
+		{errors.New("authorization failed"), false},
+		{errors.New("repository not found"), false},
+		{errors.New("reference not found"), false},
+		{errors.New("403 Forbidden"), false},
 		{context.Canceled, false},
 		{context.DeadlineExceeded, false},
 	}

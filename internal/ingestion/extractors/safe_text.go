@@ -11,7 +11,7 @@ func safeNodeText(n *ts.Node, source []byte) string {
 	}
 	start := n.StartByte()
 	end := n.EndByte()
-	srcLen := uint32(len(source))
+	srcLen := uint32(len(source)) //nolint:gosec // G115
 	if start >= srcLen {
 		return ""
 	}

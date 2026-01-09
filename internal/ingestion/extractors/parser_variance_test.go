@@ -752,7 +752,7 @@ func TestTreeSitter_PerGoroutineQuery_Variance(t *testing.T) {
 				}
 
 				// Borrow a query from the pool — each goroutine gets its own.
-				q := queryPool.Get().(*ts.Query)
+				q, _ := queryPool.Get().(*ts.Query)
 				defer queryPool.Put(q)
 
 				matches := q.Execute(tree)
@@ -812,7 +812,7 @@ func TestTreeSitter_RealRepoFiles_Variance(t *testing.T) {
 		var wg sync.WaitGroup
 		for _, name := range keys {
 			wg.Add(1)
-			go func(fname string, src []byte) {
+			go func(_ string, src []byte) {
 				defer func() {
 					if r := recover(); r != nil {
 						mu.Lock()
@@ -857,7 +857,7 @@ func TestTreeSitter_RealRepoFiles_Variance(t *testing.T) {
 	t.Logf("RealRepo (%d files): %d/%d runs matched serial baseline", len(repoSources), runs-variantRuns, runs)
 	if variantRuns > 0 {
 		// Log only — this documents the upstream gotreesitter bug.
-		// Our production code serialises Parse via parseMu (validated by Test 11).
+		// Our production code serializes Parse via parseMu (validated by Test 11).
 		t.Logf("UPSTREAM BUG: %d/%d raw concurrent runs produced different results (gotreesitter global sync.Pool race)", variantRuns, runs)
 	}
 }
@@ -995,7 +995,7 @@ func (p *Processor%d) Process() error { return nil }
 		var wg sync.WaitGroup
 		for _, name := range keys {
 			wg.Add(1)
-			go func(fname string, src []byte) {
+			go func(_ string, src []byte) {
 				defer func() {
 					if r := recover(); r != nil {
 						mu.Lock()
@@ -1091,7 +1091,7 @@ func TestTreeSitter_RealRepo_SerialParseConcurrentExecute(t *testing.T) {
 				continue
 			}
 			wg.Add(1)
-			go func(fname string, tr *ts.Tree) {
+			go func(_ string, tr *ts.Tree) {
 				defer func() {
 					if r := recover(); r != nil {
 						mu.Lock()
@@ -1316,7 +1316,7 @@ func TestTreeSitter_VarianceSummary(t *testing.T) {
 				max = m
 			}
 		}
-		consistent := min == max && min == baseline
+		consistent := min == max && max == baseline
 
 		status := "OK"
 		if !consistent {
@@ -1352,7 +1352,7 @@ func countNodes(n *ts.Node) int {
 		return 0
 	}
 	count := 1
-	for i := 0; i < int(n.ChildCount()); i++ {
+	for i := range n.ChildCount() {
 		count += countNodes(n.Child(i))
 	}
 	return count
@@ -1365,7 +1365,7 @@ func collectRepoGoFiles(t *testing.T) map[string]string {
 	root := filepath.Join("..", "..", "..", "..") // back up to repo root from extractors pkg
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil // skip errors
+			return err // skip errors
 		}
 		if info.IsDir() {
 			base := info.Name()
@@ -1375,9 +1375,9 @@ func collectRepoGoFiles(t *testing.T) map[string]string {
 			return nil
 		}
 		if strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go") {
-			data, err := os.ReadFile(path)
+			data, err := os.ReadFile(path) //nolint:gosec // G122
 			if err != nil {
-				return nil
+				return fmt.Errorf("reading %s: %w", path, err)
 			}
 			// Use relative path as key for readable output.
 			rel, _ := filepath.Rel(root, path)

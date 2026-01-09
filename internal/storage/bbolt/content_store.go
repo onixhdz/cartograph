@@ -4,6 +4,7 @@
 package bbolt
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/klauspost/compress/zstd"
@@ -26,7 +27,10 @@ type ContentStore struct {
 func initStore(db *bolt.DB, ownsDB bool) (*ContentStore, error) {
 	if err := db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(bucketContent)
-		return err
+		if err != nil {
+			return fmt.Errorf("create content bucket: %w", err)
+		}
+		return nil
 	}); err != nil {
 		return nil, fmt.Errorf("content store: create bucket: %w", err)
 	}
@@ -38,7 +42,7 @@ func initStore(db *bolt.DB, ownsDB bool) (*ContentStore, error) {
 
 	dec, err := zstd.NewReader(nil)
 	if err != nil {
-		enc.Close()
+		_ = enc.Close()
 		return nil, fmt.Errorf("content store: zstd decoder: %w", err)
 	}
 
@@ -55,7 +59,7 @@ func NewContentStore(path string) (*ContentStore, error) {
 
 	cs, err := initStore(db, true)
 	if err != nil {
-		db.Close() //nolint:errcheck
+		_ = db.Close()
 		return nil, err
 	}
 	return cs, nil
@@ -72,22 +76,25 @@ func NewContentStoreFromDB(db *bolt.DB) (*ContentStore, error) {
 // zstd-compressed before writing.
 func (cs *ContentStore) Put(path string, data []byte) error {
 	compressed := cs.enc.EncodeAll(data, nil)
-	return cs.db.Update(func(tx *bolt.Tx) error {
+	if err := cs.db.Update(func(tx *bolt.Tx) error {
 		bkt := tx.Bucket(bucketContent)
 		if bkt == nil {
-			return fmt.Errorf("content store: bucket not found")
+			return errors.New("content store: bucket not found")
 		}
 		return bkt.Put([]byte(path), compressed)
-	})
+	}); err != nil {
+		return fmt.Errorf("content store: put %q: %w", path, err)
+	}
+	return nil
 }
 
 // PutBatch stores multiple files in a single BBolt transaction.
 // This is significantly faster than calling Put in a loop.
 func (cs *ContentStore) PutBatch(files map[string][]byte) error {
-	return cs.db.Update(func(tx *bolt.Tx) error {
+	if err := cs.db.Update(func(tx *bolt.Tx) error {
 		bkt := tx.Bucket(bucketContent)
 		if bkt == nil {
-			return fmt.Errorf("content store: bucket not found")
+			return errors.New("content store: bucket not found")
 		}
 		for path, data := range files {
 			compressed := cs.enc.EncodeAll(data, nil)
@@ -96,7 +103,10 @@ func (cs *ContentStore) PutBatch(files map[string][]byte) error {
 			}
 		}
 		return nil
-	})
+	}); err != nil {
+		return fmt.Errorf("content store: put batch: %w", err)
+	}
+	return nil
 }
 
 // Get retrieves and decompresses file content for the given path.
@@ -106,7 +116,7 @@ func (cs *ContentStore) Get(path string) ([]byte, error) {
 	err := cs.db.View(func(tx *bolt.Tx) error {
 		bkt := tx.Bucket(bucketContent)
 		if bkt == nil {
-			return fmt.Errorf("content store: bucket not found")
+			return errors.New("content store: bucket not found")
 		}
 		compressed := bkt.Get([]byte(path))
 		if compressed == nil {
@@ -114,9 +124,15 @@ func (cs *ContentStore) Get(path string) ([]byte, error) {
 		}
 		var err error
 		result, err = cs.dec.DecodeAll(compressed, nil)
-		return err
+		if err != nil {
+			return fmt.Errorf("content store: decompress %q: %w", path, err)
+		}
+		return nil
 	})
-	return result, err
+	if err != nil {
+		return nil, fmt.Errorf("content store: get: %w", err)
+	}
+	return result, nil
 }
 
 // Has reports whether the content store contains data for the given path.
@@ -135,13 +151,16 @@ func (cs *ContentStore) Has(path string) bool {
 
 // Delete removes the content for the given path.
 func (cs *ContentStore) Delete(path string) error {
-	return cs.db.Update(func(tx *bolt.Tx) error {
+	if err := cs.db.Update(func(tx *bolt.Tx) error {
 		bkt := tx.Bucket(bucketContent)
 		if bkt == nil {
 			return nil
 		}
 		return bkt.Delete([]byte(path))
-	})
+	}); err != nil {
+		return fmt.Errorf("content store: delete: %w", err)
+	}
+	return nil
 }
 
 // Count returns the number of files stored in the content bucket.
@@ -178,10 +197,12 @@ func (cs *ContentStore) Paths() []string {
 // (created via NewContentStore), it also closes the DB. If created
 // via NewContentStoreFromDB, the DB is left open.
 func (cs *ContentStore) Close() error {
-	cs.enc.Close()
+	_ = cs.enc.Close()
 	cs.dec.Close()
 	if cs.ownsDB {
-		return cs.db.Close()
+		if err := cs.db.Close(); err != nil {
+			return fmt.Errorf("content store: close: %w", err)
+		}
 	}
 	return nil
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/cloudprivacylabs/lpg/v2"
 	"github.com/cloudprivacylabs/opencypher"
+
 	"github.com/realxen/cartograph/internal/graph"
 	"github.com/realxen/cartograph/internal/testutil"
 )
@@ -145,7 +146,7 @@ func TestCloseAndReopen(t *testing.T) {
 	if err := store.SaveGraph(orig); err != nil {
 		t.Fatalf("SaveGraph: %v", err)
 	}
-	store.Close()
+	_ = store.Close()
 
 	store2, err := New(dbPath)
 	if err != nil {
@@ -241,7 +242,10 @@ func TestRoundTrip_CypherAfterLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Cypher label filter: %v", err)
 	}
-	rs2 := resVal2.Get().(opencypher.ResultSet)
+	rs2, ok := resVal2.Get().(opencypher.ResultSet)
+	if !ok {
+		t.Fatalf("expected ResultSet, got %T", resVal2.Get())
+	}
 	if len(rs2.Rows) != 2 {
 		t.Errorf("expected 2 Function nodes, got %d", len(rs2.Rows))
 	}
@@ -251,7 +255,10 @@ func TestRoundTrip_CypherAfterLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Cypher relationship traversal: %v", err)
 	}
-	rs3 := resVal3.Get().(opencypher.ResultSet)
+	rs3, ok := resVal3.Get().(opencypher.ResultSet)
+	if !ok {
+		t.Fatalf("expected ResultSet, got %T", resVal3.Get())
+	}
 	t.Logf("Relationship traversal on loaded graph: %d rows", len(rs3.Rows))
 	for i, row := range rs3.Rows {
 		if i < 5 {

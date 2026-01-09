@@ -67,15 +67,22 @@ func TestResponseOmitsNilFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	var raw map[string]any
-	json.Unmarshal(data, &raw)
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 	if _, ok := raw["result"]; ok {
 		t.Error("expected result to be omitted when nil")
 	}
 
 	resp2 := Response{Result: "ok"}
-	data2, _ := json.Marshal(resp2)
+	data2, err := json.Marshal(resp2)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
 	var raw2 map[string]any
-	json.Unmarshal(data2, &raw2)
+	if err := json.Unmarshal(data2, &raw2); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 	if _, ok := raw2["error"]; ok {
 		t.Error("expected error to be omitted when nil")
 	}
@@ -391,7 +398,9 @@ func TestQueryResultOmitsEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 	var raw map[string]any
-	json.Unmarshal(data, &raw)
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 	for _, key := range []string{"processes", "process_symbols", "definitions"} {
 		if _, ok := raw[key]; !ok {
 			t.Errorf("expected key %q in JSON output", key)
@@ -406,7 +415,9 @@ func TestSymbolMatchOmitsOptional(t *testing.T) {
 		t.Fatal(err)
 	}
 	var raw map[string]any
-	json.Unmarshal(data, &raw)
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 	for _, key := range []string{"startLine", "endLine", "processName", "content", "repo"} {
 		if _, ok := raw[key]; ok {
 			t.Errorf("expected key %q to be omitted when zero", key)
@@ -421,7 +432,9 @@ func TestSymbolMatchRepoField(t *testing.T) {
 		t.Fatal(err)
 	}
 	var raw map[string]any
-	json.Unmarshal(data, &raw)
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 	if v, ok := raw["repo"]; !ok {
 		t.Error("expected 'repo' in JSON output when set")
 	} else if v != "my-service" {
@@ -472,9 +485,14 @@ func TestQueryRequestCrossRepoJSON(t *testing.T) {
 
 func TestCrossRepoFieldsOmittedWhenFalse(t *testing.T) {
 	req := ImpactRequest{Repo: "r", Target: "t", Direction: "downstream", Depth: 1}
-	data, _ := json.Marshal(req)
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
 	var raw map[string]any
-	json.Unmarshal(data, &raw)
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 	if _, ok := raw["crossRepo"]; ok {
 		t.Error("expected crossRepo to be omitted when false")
 	}
