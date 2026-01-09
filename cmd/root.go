@@ -54,10 +54,10 @@ type CLI struct {
 	Impact     ImpactCmd        `cmd:"" help:"Blast radius: what breaks if you change a symbol."`
 	Cypher     CypherCmd        `cmd:"" help:"Execute raw Cypher query against the knowledge graph."`
 	Schema     SchemaCmd        `cmd:"" help:"Show graph schema (node labels, edge types, properties) to assist Cypher queries."`
-	Serve      ServeCmd         `cmd:"" help:"Manage the long-running HTTP service (for MCP / editor integrations)."`
+	Serve      ServeCmd         `cmd:"" help:"Manage the long-running HTTP service (for MCP / editor integrations)." needs-client:"false"`
 	Skills     SkillsCmd        `cmd:"" help:"Install/manage cartograph skills for AI coding agents."`
 	Models     ModelsCmd        `cmd:"" help:"Manage embedding models (download, list, remove)."`
-	Completion completionCmd    `cmd:"" help:"Set up shell tab-completion (bash, zsh, fish)."`
+	Completion completionCmd    `cmd:"" help:"Set up shell tab-completion (bash, zsh, fish)." needs-client:"false"`
 	Version    kong.VersionFlag `help:"Print version and exit." short:"v"`
 
 	// Client is the service client used by subcommands. It is hidden

@@ -45,10 +45,9 @@ func main() {
 	ctx, err := parser.Parse(os.Args[1:])
 	parser.FatalIfErrorf(err)
 
-	// The serve command manages its own server lifecycle — skip
-	// MemoryClient setup so it doesn't compete for the socket/lockfile
-	// or waste time loading repos that the server will load itself.
-	if isUnderNode(ctx, "serve") {
+	// Commands that don't need repo access bypass client setup so they
+	// can run in restricted environments such as Homebrew formula installs.
+	if !commandNeedsClient(ctx) {
 		err := ctx.Run(&cli)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -77,7 +76,7 @@ func main() {
 		}
 	}
 
-	// No running service — use in-process MemoryClient.
+	// Fall back to an in-process MemoryClient when no service is reachable.
 	mc := service.NewMemoryClient(dataDir)
 	mc.SetBackendFactory(newMemoryBackendFactory(mc))
 	_ = mc.LoadAllFromRegistry() // best-effort preload
@@ -91,7 +90,6 @@ func main() {
 	}
 }
 
-// newMemoryBackendFactory returns a BackendFactory for a MemoryClient.
 func newMemoryBackendFactory(mc *service.MemoryClient) service.BackendFactory {
 	return func(repo string) service.ToolBackend {
 		g, idx, ok := mc.GetRepoResources(repo)
@@ -107,13 +105,18 @@ func newMemoryBackendFactory(mc *service.MemoryClient) service.BackendFactory {
 	}
 }
 
-// isUnderNode is more robust than ctx.Command() string matching,
-// which breaks when subcommands are renamed.
-func isUnderNode(ctx *kong.Context, name string) bool {
+// commandNeedsClient reads the selected command branch for an explicit
+// needs-client override and defaults to true when absent.
+func commandNeedsClient(ctx *kong.Context) bool {
 	for n := ctx.Selected(); n != nil; n = n.Parent {
-		if n.Name == name {
+		if n.Tag == nil || !n.Tag.Has("needs-client") {
+			continue
+		}
+		needsClient, err := n.Tag.GetBool("needs-client")
+		if err != nil {
 			return true
 		}
+		return needsClient
 	}
-	return false
+	return true
 }
