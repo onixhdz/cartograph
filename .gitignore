@@ -16,6 +16,7 @@
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
+tmp/
 
 # Go workspace file
 go.work
@@ -23,5 +24,15 @@ go.work.sum
 
 # env file
 .env
+.local.*
 .DS_Store
-cartograph-*-*
+/cartograph
+/cartograph-*-*
+
+# local cgo build artifacts
+internal/embedding/local/zig-out/
+internal/embedding/local/.zig-cache/
+internal/embedding/local/.zig-target.stamp
+
+# Task runner cache
+.task/

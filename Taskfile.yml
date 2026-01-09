@@ -1,0 +1,197 @@
+version: '3'
+dotenv:
+  - .local.env
+vars:
+  GO_LDFLAGS: '-s -w'
+  EMBEDDING_LIB_DIR: internal/embedding/local
+tasks:
+  test:
+    desc: Run unit tests (skip network/integration)
+    cmds:
+      - go test -short ./...
+
+  test:integration:
+    desc: Run all tests including network/integration
+    cmds:
+      - go test -count=1 ./...
+
+  lint:
+    desc: Run golangci-lint
+    cmds:
+      - go tool golangci-lint run ./...
+
+  build:
+    desc: Build cartograph for all supported platforms (native CGO)
+    cmds:
+      - task: build:target:linux
+      - task: build:target:mac
+      - task: build:target:windows
+
+  # ── Zig native library ──────────────────────────────────────────────
+
+  build:embedding:lib:
+    desc: Build libinference.a via Zig (host or cross with TARGET=)
+    dir: '{{.EMBEDDING_LIB_DIR}}'
+    status:
+      - test -f zig-out/lib/libinference.a
+      - test -f .zig-target.stamp
+      - test "$(cat .zig-target.stamp)" = "{{.TARGET}}"
+    cmds:
+      - rm -rf zig-out
+      - zig build native -Doptimize=ReleaseFast {{if .TARGET}}-Dtarget={{.TARGET}}{{end}}
+      - echo "{{.TARGET}}" > .zig-target.stamp
+      - echo "✓ libinference.a [{{.TARGET}}] ($(du -h zig-out/lib/libinference.a | cut -f1))"
+
+  # ── Dev build (auto-detect host) ────────────────────────────────────
+
+  build:dev:
+    desc: Build cartograph for the current host OS/arch
+    vars:
+      ZIG_TARGET:
+        sh: |
+          os=$(go env GOOS); arch=$(go env GOARCH)
+          case "${os}-${arch}" in
+            linux-amd64)  echo "x86_64-linux-musl"  ;;
+            linux-arm64)  echo "aarch64-linux-musl"  ;;
+            darwin-arm64) echo "aarch64-macos"       ;;
+            *) echo "unsupported: ${os}-${arch}" >&2; exit 1 ;;
+          esac
+      BIN_NAME:
+        sh: echo "cartograph-$(go env GOOS)-$(go env GOARCH)"
+      EXTRA_LDFLAGS:
+        sh: |
+          case "$(go env GOOS)" in
+            linux)  echo "-linkmode external -extldflags '-static'" ;;
+            darwin) echo "-extldflags '-undefined dynamic_lookup'"  ;;
+          esac
+    deps:
+      - task: build:embedding:lib
+        vars: { TARGET: '{{.ZIG_TARGET}}' }
+    env:
+      CGO_ENABLED: '1'
+      CC: 'zig cc -target {{.ZIG_TARGET}}'
+      CXX: 'zig c++ -target {{.ZIG_TARGET}}'
+    sources:
+      - ./**/*.go
+      - go.mod
+      - '{{.EMBEDDING_LIB_DIR}}/zig-out/lib/libinference.a'
+    generates:
+      - '{{.BIN_NAME}}'
+    cmds:
+      - >
+        go build -trimpath
+        -ldflags "{{.GO_LDFLAGS}} {{.EXTRA_LDFLAGS}}"
+        -o {{.BIN_NAME}}
+      - echo "✓ {{.BIN_NAME}} ($(du -h {{.BIN_NAME}} | cut -f1))"
+
+  # ── Dev symlink ─────────────────────────────────────────────────────
+
+  ln:
+    desc: Symlink the host-matching binary to /usr/local/bin/cartograph
+    vars:
+      BIN:
+        sh: echo "$(pwd)/cartograph-$(go env GOOS)-$(go env GOARCH)"
+    cmds:
+      - sudo ln -sf {{.BIN}} /usr/local/bin/cartograph
+      - echo "✓ /usr/local/bin/cartograph → {{.BIN}}"
+
+  # ── Platform targets (all native CGO) ───────────────────────────────
+
+  build:target:linux:amd64:
+    desc: Build cartograph for Linux (x86_64) — native CGO, static (musl)
+    deps:
+      - task: build:embedding:lib
+        vars: { TARGET: 'x86_64-linux-musl' }
+    env:
+      CGO_ENABLED: '1'
+      CC: 'zig cc -target x86_64-linux-musl'
+      CXX: 'zig c++ -target x86_64-linux-musl'
+      GOOS: linux
+      GOARCH: amd64
+    sources:
+      - ./**/*.go
+      - go.mod
+      - '{{.EMBEDDING_LIB_DIR}}/zig-out/lib/libinference.a'
+    generates:
+      - cartograph-linux-amd64
+    cmds:
+      - >
+        go build -trimpath
+        -ldflags "{{.GO_LDFLAGS}} -linkmode external -extldflags '-static'"
+        -o cartograph-linux-amd64
+
+  build:target:linux:arm64:
+    desc: Build cartograph for Linux (aarch64) — native CGO, static (musl)
+    deps:
+      - task: build:embedding:lib
+        vars: { TARGET: 'aarch64-linux-musl' }
+    env:
+      CGO_ENABLED: '1'
+      CC: 'zig cc -target aarch64-linux-musl'
+      CXX: 'zig c++ -target aarch64-linux-musl'
+      GOOS: linux
+      GOARCH: arm64
+    sources:
+      - ./**/*.go
+      - go.mod
+      - '{{.EMBEDDING_LIB_DIR}}/zig-out/lib/libinference.a'
+    generates:
+      - cartograph-linux-arm64
+    cmds:
+      - >
+        go build -trimpath
+        -ldflags "{{.GO_LDFLAGS}} -linkmode external -extldflags '-static'"
+        -o cartograph-linux-arm64
+
+  build:target:mac:
+    desc: Build cartograph for macOS (Apple Silicon) — native CGO
+    deps:
+      - task: build:embedding:lib
+        vars: { TARGET: 'aarch64-macos' }
+    env:
+      CGO_ENABLED: '1'
+      CC: 'zig cc -target aarch64-macos'
+      CXX: 'zig c++ -target aarch64-macos'
+      GOOS: darwin
+      GOARCH: arm64
+    sources:
+      - ./**/*.go
+      - go.mod
+      - '{{.EMBEDDING_LIB_DIR}}/zig-out/lib/libinference.a'
+    generates:
+      - cartograph-darwin-arm64
+    cmds:
+      - >
+        go build -trimpath
+        -ldflags "{{.GO_LDFLAGS}} -extldflags '-undefined dynamic_lookup'"
+        -o cartograph-darwin-arm64
+      - |
+        if command -v codesign >/dev/null 2>&1; then
+          codesign --force --sign - cartograph-darwin-arm64
+          echo "✓ Ad-hoc signed cartograph-darwin-arm64"
+        else
+          echo "⚠ codesign not available (not on macOS) — skip signing"
+        fi
+
+  build:target:windows:
+    desc: Build cartograph for Windows (x86_64) — native CGO
+    deps:
+      - task: build:embedding:lib
+        vars: { TARGET: 'x86_64-windows-gnu' }
+    env:
+      CGO_ENABLED: '1'
+      CC: 'zig cc -target x86_64-windows-gnu'
+      CXX: 'zig c++ -target x86_64-windows-gnu'
+      GOOS: windows
+      GOARCH: amd64
+    sources:
+      - ./**/*.go
+      - go.mod
+      - '{{.EMBEDDING_LIB_DIR}}/zig-out/lib/libinference.a'
+    generates:
+      - cartograph-windows-amd64.exe
+    cmds:
+      - >
+        go build -trimpath
+        -ldflags "{{.GO_LDFLAGS}}"
+        -o cartograph-windows-amd64.exe

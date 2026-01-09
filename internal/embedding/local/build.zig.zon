@@ -1,0 +1,16 @@
+.{
+    .name = .cartograph_inference,
+    .version = "0.2.0",
+    .fingerprint = 0xe3f1483572d173ba,
+    .dependencies = .{
+        .llama_cpp = .{
+            .url = "https://github.com/ggml-org/llama.cpp/archive/refs/tags/b8658.tar.gz",
+            .hash = "N-V-__8AAAt-0QdJfNWUYt1nv11kIMkrU38vuIvyS_gXnXua",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
