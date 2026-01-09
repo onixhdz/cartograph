@@ -26,24 +26,25 @@ Most structural code questions (blast radius, call chains, process ownership, su
 | 2   | MCP Protocol                | 🔲 Planned | High     | Implement MCP over the existing service; expose graph tools as structured MCP tool calls                                                         |
 | 3   | Cross-Language Parity       | 🔲 Planned | High     | Python and TypeScript extractor quality on par with Go; validated against LLM agent baselines                                                    |
 | 4   | Model2Vec Static Embeddings | 🔲 Planned | High     | CGO-free embedding path; static lookup table (~30MB); two-stage: instant static, GGML upgrade in background                                      |
-| 5   | Incremental Re-Indexing     | 🔲 Planned | High     | Diff-based re-index; only re-parse changed files (10–100× speedup)                                                                               |
-| 6   | PR Context Generation       | 🔲 Planned | High     | Blast radius + suggested reviewers + risk score from diff                                                                                        |
-| 7   | Git History Intelligence    | 🔲 Planned | High     | Overlay churn, change coupling, and ownership onto graph nodes                                                                                   |
-| 8   | Cross-Repo Analysis         | 🔲 Planned | High     | Federate multiple repo graphs; trace call chains across service boundaries                                                                       |
-| 9   | CloudGraph                  | 🔲 Planned | High     | Plugin-based cloud/infra data sources (AWS, GitHub, k8s, SaaS) ingested into the knowledge graph; query infrastructure alongside code via Cypher |
-| 10  | Schema Versioning           | 🔲 Planned | Medium   | Detect stale indexes on binary upgrade; migrate or prompt re-index; version stored in meta                                                       |
-| 11  | Trigram Regex Search        | 🔲 Planned | Medium   | `google/codesearch` trigram index; `query --regex`; MCP `regex_search` tool                                                                      |
-| 12  | Package Architecture Map    | 🔲 Planned | Medium   | Aggregate IMPORTS into package-level graph; DOT/Mermaid/JSON output                                                                              |
-| 13  | Architecture Summary        | 🔲 Planned | Medium   | Auto-generate subsystem overview from community + centrality + entry points                                                                      |
-| 14  | Dead Code Detection         | 🔲 Planned | Medium   | Reachability BFS from entry points; transitive dead code detection                                                                               |
-| 15  | Watch Mode                  | 🔲 Planned | Medium   | `fsnotify` + incremental re-index; graph stays current while you code                                                                            |
-| 16  | Architecture Guardrails     | 🔲 Planned | Medium   | Cypher-defined rules enforced in CI; exit 1 on violations                                                                                        |
-| 17  | Test Coverage Overlay       | 🔲 Planned | Medium   | Import lcov/go cover; risk-weighted gaps = coverage × churn × fan-in                                                                             |
-| 18  | Vulnerability Surface       | 🔲 Planned | Medium   | Map CVEs to IMPORTS edges; flag only reachable vulnerabilities                                                                                   |
-| 19  | Stale Index Detection       | 🔲 Planned | Medium   | Detect when remote index lags upstream HEAD; `cartograph update` to refresh                                                                      |
-| 20  | TUI Explorer                | 🔲 Planned | Medium   | `bubbletea` graph walker, process viewer, Cypher REPL                                                                                            |
-| 21  | Plugin System               | 🔲 Planned | Low      | Exec/WASM plugins for custom extractors; file extension → plugin mapping                                                                         |
-| 22  | Web UI                      | 🔲 Planned | Low      | Browser-based graph visualization; node/edge explorer, process flows, Cypher query runner                                                        |
+| 5   | Binary Quantization         | 🔲 Planned | High     | Asymmetric binary doc embeddings (1 bit/dim) with float32 queries; ~32× storage reduction; popcount search for large repos                       |
+| 6   | Incremental Re-Indexing     | 🔲 Planned | High     | Diff-based re-index; only re-parse changed files (10–100× speedup)                                                                               |
+| 7   | PR Context Generation       | 🔲 Planned | High     | Blast radius + suggested reviewers + risk score from diff                                                                                        |
+| 8   | Git History Intelligence    | 🔲 Planned | High     | Overlay churn, change coupling, and ownership onto graph nodes                                                                                   |
+| 9   | Cross-Repo Analysis         | 🔲 Planned | High     | Federate multiple repo graphs; trace call chains across service boundaries                                                                       |
+| 10  | CloudGraph                  | 🔲 Planned | High     | Plugin-based cloud/infra data sources (AWS, GitHub, k8s, SaaS) ingested into the knowledge graph; query infrastructure alongside code via Cypher |
+| 11  | Schema Versioning           | 🔲 Planned | Medium   | Detect stale indexes on binary upgrade; migrate or prompt re-index; version stored in meta                                                       |
+| 12  | Trigram Regex Search        | 🔲 Planned | Medium   | `google/codesearch` trigram index; `query --regex`; MCP `regex_search` tool                                                                      |
+| 13  | Package Architecture Map    | 🔲 Planned | Medium   | Aggregate IMPORTS into package-level graph; DOT/Mermaid/JSON output                                                                              |
+| 14  | Architecture Summary        | 🔲 Planned | Medium   | Auto-generate subsystem overview from community + centrality + entry points                                                                      |
+| 15  | Dead Code Detection         | 🔲 Planned | Medium   | Reachability BFS from entry points; transitive dead code detection                                                                               |
+| 16  | Watch Mode                  | 🔲 Planned | Medium   | `fsnotify` + incremental re-index; graph stays current while you code                                                                            |
+| 17  | Architecture Guardrails     | 🔲 Planned | Medium   | Cypher-defined rules enforced in CI; exit 1 on violations                                                                                        |
+| 18  | Test Coverage Overlay       | 🔲 Planned | Medium   | Import lcov/go cover; risk-weighted gaps = coverage × churn × fan-in                                                                             |
+| 19  | Vulnerability Surface       | 🔲 Planned | Medium   | Map CVEs to IMPORTS edges; flag only reachable vulnerabilities                                                                                   |
+| 20  | Stale Index Detection       | 🔲 Planned | Medium   | Detect when remote index lags upstream HEAD; `cartograph update` to refresh                                                                      |
+| 21  | TUI Explorer                | 🔲 Planned | Medium   | `bubbletea` graph walker, process viewer, Cypher REPL                                                                                            |
+| 22  | Plugin System               | 🔲 Planned | Low      | Exec/WASM plugins for custom extractors; file extension → plugin mapping                                                                         |
+| 23  | Web UI                      | 🔲 Planned | Low      | Browser-based graph visualization; node/edge explorer, process flows, Cypher query runner                                                        |
 
 ---
 
@@ -57,6 +58,7 @@ MVP
  ├─► 19: Schema Versioning           → safe binary upgrades
  ├─► 18: Cross-Language Parity       → Python + TS quality matches Go
  ├─► 12: Model2Vec Static Embeddings → CGO-free embed path; instant analyze
+ │    └─► 5: Binary Quantization     → 32× smaller vectors; scales to large repos
  ├─► 3:  Incremental Re-Indexing     → unlocks speed
  │    └─► 5: Watch Mode              → zero-friction re-index
  ├─► 2:  Git History Intelligence    → structural + historical queries

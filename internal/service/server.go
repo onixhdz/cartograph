@@ -21,6 +21,7 @@ import (
 	"github.com/realxen/cartograph/internal/search"
 	"github.com/realxen/cartograph/internal/storage"
 	"github.com/realxen/cartograph/internal/storage/bbolt"
+	"github.com/realxen/cartograph/internal/version"
 )
 
 // DefaultIdleTimeout is the default duration after which the server
@@ -354,18 +355,31 @@ func (s *Server) ReloadGraph(repo string) error {
 // lazyLoadGraph loads a repo's graph and search index from disk on
 // first access, falling back to an in-memory index rebuild if the
 // persisted Bleve index is unavailable.
-func (s *Server) lazyLoadGraph(repo string) bool {
+// Returns nil if the repo is not found (not an error — just absent).
+// Returns a non-nil error for version incompatibilities.
+func (s *Server) lazyLoadGraph(repo string) error {
 	if s.dataDir == "" {
-		return false
+		return nil
 	}
 
 	registry, err := storage.NewRegistry(s.dataDir)
 	if err != nil {
-		return false
+		return nil //nolint:nilerr // registry unavailable — repo simply not loaded
 	}
 	entry, ok := registry.Get(repo)
 	if !ok {
-		return false
+		return nil
+	}
+
+	sv, av, ev := entry.Meta.Versions()
+	if sv != "" {
+		if err := version.CheckCompatibility(version.VersionInfo{
+			SchemaVersion:        sv,
+			AlgorithmVersion:     av,
+			EmbeddingTextVersion: ev,
+		}); err != nil {
+			return fmt.Errorf("repo %s: %w", repo, err)
+		}
 	}
 
 	repoDir := filepath.Join(s.dataDir, entry.Name, entry.Hash)
@@ -373,13 +387,13 @@ func (s *Server) lazyLoadGraph(repo string) bool {
 
 	store, err := bbolt.New(dbPath)
 	if err != nil {
-		return false
+		return nil //nolint:nilerr // db open failure — repo not loadable
 	}
 
 	g, err := store.LoadGraph()
 	_ = store.Close() // best-effort
 	if err != nil {
-		return false
+		return nil //nolint:nilerr // corrupt graph — skip this repo
 	}
 
 	// Prefer the persisted Bleve index written by analyze.
@@ -389,11 +403,11 @@ func (s *Server) lazyLoadGraph(repo string) bool {
 		// Fall back to in-memory index if persisted index is missing or corrupt.
 		idx, err = search.NewMemoryIndex()
 		if err != nil {
-			return false
+			return nil //nolint:nilerr // memory index alloc failure — skip
 		}
 		if _, err := idx.IndexGraph(g); err != nil {
 			_ = idx.Close() // best-effort
-			return false
+			return nil      //nolint:nilerr // index build failure — skip
 		}
 	}
 
@@ -404,7 +418,7 @@ func (s *Server) lazyLoadGraph(repo string) bool {
 	s.mu.Unlock()
 	s.ready.Store(true)
 
-	return true
+	return nil
 }
 
 // LoadAllFromRegistry scans the on-disk registry and loads every
@@ -433,7 +447,9 @@ func (s *Server) LoadAllFromRegistry() {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			s.lazyLoadGraph(name)
+			if err := s.lazyLoadGraph(name); err != nil {
+				log.Printf("[preload] %s: %v", name, err)
+			}
 		}(entry.Name)
 	}
 	wg.Wait()
@@ -533,20 +549,25 @@ func (s *Server) resolveRepoName(name string) (string, error) {
 
 // getBackend returns a ToolBackend for the given repo via the factory.
 // If the graph is not yet loaded, it triggers a lazy load from disk.
-func (s *Server) getBackend(repo string) ToolBackend {
+// Returns a non-nil error for version incompatibilities that should be
+// surfaced to the user (distinct from "not found" which returns nil, nil).
+func (s *Server) getBackend(repo string) (ToolBackend, error) {
 	if s.backendFactory != nil {
 		be := s.backendFactory(repo)
 		if be != nil {
-			return be
+			return be, nil
 		}
 	}
 
-	if s.lazyLoadGraph(repo) {
-		if s.backendFactory != nil {
-			return s.backendFactory(repo)
+	if err := s.lazyLoadGraph(repo); err != nil {
+		return nil, err
+	}
+	if s.backendFactory != nil {
+		if be := s.backendFactory(repo); be != nil {
+			return be, nil
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 // SetupRoutes creates and returns the http.ServeMux with all API routes,
@@ -557,7 +578,7 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc(RouteContext, s.handleContext)
 	mux.HandleFunc(RouteCypher, s.handleCypher)
 	mux.HandleFunc(RouteImpact, s.handleImpact)
-	mux.HandleFunc(RouteSource, s.handleSource)
+	mux.HandleFunc(RouteCat, s.handleCat)
 	mux.HandleFunc(RouteReload, s.handleReload)
 	mux.HandleFunc(RouteStatus, s.handleStatus)
 	mux.HandleFunc(RouteSchema, s.handleSchema)
@@ -707,6 +728,18 @@ func (s *Server) runEmbedJob(ctx context.Context, job *embedJob, req EmbedReques
 	storedModel := entry.Meta.EmbeddingModel
 	if storedModel != "" && storedModel != requestedModel {
 		log.Printf("[embed] %s: model changed (%s → %s), clearing embeddings", req.Repo, storedModel, requestedModel)
+		if err := embStore.Clear(); err != nil {
+			setError(fmt.Sprintf("clear embeddings: %v", err))
+			return
+		}
+	}
+
+	// Embedding text version changed — vectors are semantically stale.
+	if version.CheckEmbeddingCompatibility(version.VersionInfo{
+		EmbeddingTextVersion: entry.Meta.EmbeddingTextVersion,
+	}) == "full-reembed" {
+		log.Printf("[embed] %s: embedding text format changed (v%s → v%s), clearing embeddings",
+			req.Repo, entry.Meta.EmbeddingTextVersion, version.EmbeddingTextVersion)
 		if err := embStore.Clear(); err != nil {
 			setError(fmt.Sprintf("clear embeddings: %v", err))
 			return

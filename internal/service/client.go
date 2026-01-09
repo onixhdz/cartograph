@@ -159,10 +159,10 @@ func (c *Client) Impact(req ImpactRequest) (*ImpactResult, error) {
 	return &res, nil
 }
 
-// Source retrieves file content from an indexed repository.
-func (c *Client) Source(req SourceRequest) (*SourceResult, error) {
-	var res SourceResult
-	if err := c.do(http.MethodPost, RouteSource, req, &res); err != nil {
+// Cat retrieves file content from an indexed repository.
+func (c *Client) Cat(req CatRequest) (*CatResult, error) {
+	var res CatResult
+	if err := c.do(http.MethodPost, RouteCat, req, &res); err != nil {
 		return nil, err
 	}
 	return &res, nil

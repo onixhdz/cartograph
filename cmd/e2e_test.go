@@ -12,9 +12,9 @@ import (
 	"github.com/realxen/cartograph/internal/storage"
 )
 
-// TestE2E_AnalyzeURL_QuerySource exercises analyze→query→source end-to-end.
+// TestE2E_AnalyzeURL_QueryCat exercises analyze→query→cat end-to-end.
 // Requires network access; skipped in short mode.
-func TestE2E_AnalyzeURL_QuerySource(t *testing.T) {
+func TestE2E_AnalyzeURL_QueryCat(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping E2E network test in short mode")
 	}
@@ -135,19 +135,19 @@ func TestE2E_AnalyzeURL_QuerySource(t *testing.T) {
 
 	t.Log("Step 3: retrieving source for fs.go...")
 
-	sourceResult, err := client.Source(service.SourceRequest{
+	catResult, err := client.Cat(service.CatRequest{
 		Repo:  "go-git/go-billy",
 		Files: []string{"fs.go"},
 	})
 	if err != nil {
-		t.Fatalf("source: %v", err)
+		t.Fatalf("cat: %v", err)
 	}
-	if len(sourceResult.Files) == 0 {
-		t.Fatal("expected at least one file in source result")
+	if len(catResult.Files) == 0 {
+		t.Fatal("expected at least one file in cat result")
 	}
-	f := sourceResult.Files[0]
+	f := catResult.Files[0]
 	if f.Error != "" {
-		t.Fatalf("source error for fs.go: %s", f.Error)
+		t.Fatalf("cat error for fs.go: %s", f.Error)
 	}
 	if f.LineCount == 0 {
 		t.Error("expected non-zero line count for fs.go")
@@ -155,7 +155,7 @@ func TestE2E_AnalyzeURL_QuerySource(t *testing.T) {
 	if !strings.Contains(f.Content, "package billy") {
 		t.Error("expected 'package billy' in fs.go content")
 	}
-	t.Logf("Source: fs.go = %d lines", f.LineCount)
+	t.Logf("Cat: fs.go = %d lines", f.LineCount)
 
 	// ── Step 4: Idempotency — re-analyze should skip ───────────────
 
@@ -189,7 +189,7 @@ func TestE2E_AnalyzeURL_QuerySource(t *testing.T) {
 	}
 	t.Log(out3)
 
-	t.Log("✓ E2E test passed: analyze → query → source → idempotency → list")
+	t.Log("✓ E2E test passed: analyze → query → cat → idempotency → list")
 }
 
 // TestE2E_AnalyzeURL_CloneToDisk exercises the --clone mode.
@@ -287,19 +287,19 @@ func TestE2E_AnalyzeURL_CloneToDisk(t *testing.T) {
 		t.Error("expected query results after clone-to-disk analyze")
 	}
 
-	// Source should work (reads from disk, not content bucket).
-	sourceResult, err := client.Source(service.SourceRequest{
+	// Cat should work (reads from disk, not content bucket).
+	catResult, err := client.Cat(service.CatRequest{
 		Repo:  "go-git/go-billy",
 		Files: []string{"fs.go"},
 	})
 	if err != nil {
-		t.Fatalf("source: %v", err)
+		t.Fatalf("cat: %v", err)
 	}
-	if len(sourceResult.Files) > 0 && sourceResult.Files[0].Error != "" {
-		t.Errorf("source error: %s", sourceResult.Files[0].Error)
+	if len(catResult.Files) > 0 && catResult.Files[0].Error != "" {
+		t.Errorf("cat error: %s", catResult.Files[0].Error)
 	}
-	if len(sourceResult.Files) > 0 && !strings.Contains(sourceResult.Files[0].Content, "package billy") {
-		t.Error("expected 'package billy' in source content")
+	if len(catResult.Files) > 0 && !strings.Contains(catResult.Files[0].Content, "package billy") {
+		t.Error("expected 'package billy' in cat content")
 	}
 
 	t.Log("✓ E2E clone-to-disk test passed")

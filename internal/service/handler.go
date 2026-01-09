@@ -31,6 +31,8 @@ func writeError(w http.ResponseWriter, code int, msg string) {
 		httpStatus = http.StatusNotFound
 	case ErrCodeQueryBlocked:
 		httpStatus = http.StatusForbidden
+	case ErrCodeIncompatible:
+		httpStatus = http.StatusConflict
 	case ErrCodeMethodUnknown:
 		httpStatus = http.StatusNotFound
 	case ErrCodeInvalidParams:
@@ -100,7 +102,11 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Repo = repo
 
-	backend := s.getBackend(req.Repo)
+	backend, err := s.getBackend(req.Repo)
+	if err != nil {
+		writeError(w, ErrCodeIncompatible, err.Error())
+		return
+	}
 	if backend == nil {
 		writeError(w, ErrCodeRepoNotFound, fmt.Sprintf("repository %q not indexed", req.Repo))
 		return
@@ -136,7 +142,11 @@ func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Repo = repo
 
-	backend := s.getBackend(req.Repo)
+	backend, err := s.getBackend(req.Repo)
+	if err != nil {
+		writeError(w, ErrCodeIncompatible, err.Error())
+		return
+	}
 	if backend == nil {
 		writeError(w, ErrCodeRepoNotFound, fmt.Sprintf("repository %q not indexed", req.Repo))
 		return
@@ -178,7 +188,11 @@ func (s *Server) handleCypher(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	backend := s.getBackend(req.Repo)
+	backend, err := s.getBackend(req.Repo)
+	if err != nil {
+		writeError(w, ErrCodeIncompatible, err.Error())
+		return
+	}
 	if backend == nil {
 		writeError(w, ErrCodeRepoNotFound, fmt.Sprintf("repository %q not indexed", req.Repo))
 		return
@@ -214,7 +228,11 @@ func (s *Server) handleImpact(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Repo = repo
 
-	backend := s.getBackend(req.Repo)
+	backend, err := s.getBackend(req.Repo)
+	if err != nil {
+		writeError(w, ErrCodeIncompatible, err.Error())
+		return
+	}
 	if backend == nil {
 		writeError(w, ErrCodeRepoNotFound, fmt.Sprintf("repository %q not indexed", req.Repo))
 		return
@@ -228,12 +246,12 @@ func (s *Server) handleImpact(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, result)
 }
 
-func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleCat(w http.ResponseWriter, r *http.Request) {
 	s.resetIdleTimer(r.Context())
 	if !requirePOST(w, r) {
 		return
 	}
-	var req SourceRequest
+	var req CatRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -266,11 +284,11 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := SourceResult{Files: make([]SourceFile, 0, len(req.Files))}
+	result := CatResult{Files: make([]CatFile, 0, len(req.Files))}
 	for _, path := range req.Files {
 		data, err := cr.ReadFile(path)
 		if err != nil {
-			result.Files = append(result.Files, SourceFile{
+			result.Files = append(result.Files, CatFile{
 				Path:  path,
 				Error: err.Error(),
 			})
@@ -293,7 +311,7 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 			content = strings.Join(lines[lineStart-1:lineEnd], "\n")
 		}
 
-		result.Files = append(result.Files, SourceFile{
+		result.Files = append(result.Files, CatFile{
 			Path:      path,
 			Content:   content,
 			LineCount: lineCount,
@@ -396,7 +414,11 @@ func (s *Server) handleSchema(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Repo = repo
 
-	backend := s.getBackend(req.Repo)
+	backend, err := s.getBackend(req.Repo)
+	if err != nil {
+		writeError(w, ErrCodeIncompatible, err.Error())
+		return
+	}
 	if backend == nil {
 		writeError(w, ErrCodeRepoNotFound, fmt.Sprintf("repository %q not indexed", req.Repo))
 		return

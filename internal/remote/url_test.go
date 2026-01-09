@@ -335,6 +335,56 @@ func TestIsBareProjectName(t *testing.T) {
 	}
 }
 
+func TestSplitRef(t *testing.T) {
+	tests := []struct {
+		input    string
+		wantBase string
+		wantRef  string
+	}{
+		// GitHub shorthand with ref.
+		{"hashicorp/nomad@v1.8.0", "hashicorp/nomad", "v1.8.0"},
+		{"gorilla/mux@feature/v2", "gorilla/mux", "feature/v2"},
+		{"org/repo@develop", "org/repo", "develop"},
+
+		// Host-prefixed URL with ref.
+		{"github.com/hashicorp/nomad@v1.8.0", "github.com/hashicorp/nomad", "v1.8.0"},
+		{"gitlab.com/group/project@main", "gitlab.com/group/project", "main"},
+
+		// Bare project name with ref.
+		{"nomad@v1.8.0", "nomad", "v1.8.0"},
+		{"temporal@release-1.25", "temporal", "release-1.25"},
+
+		// No ref — returns target unchanged.
+		{"hashicorp/nomad", "hashicorp/nomad", ""},
+		{"github.com/hashicorp/nomad", "github.com/hashicorp/nomad", ""},
+		{"nomad", "nomad", ""},
+		{".", ".", ""},
+		{"", "", ""},
+
+		// Trailing @ with no ref — no split.
+		{"hashicorp/nomad@", "hashicorp/nomad@", ""},
+
+		// Git SSH URLs — @ is auth syntax, don't split.
+		{"git@github.com:org/repo.git", "git@github.com:org/repo.git", ""},
+
+		// Scheme-based URLs — @ may be auth, don't split.
+		{"https://github.com/org/repo", "https://github.com/org/repo", ""},
+		{"ssh://git@gitlab.com/g/p", "ssh://git@gitlab.com/g/p", ""},
+		{"http://user@host.com/repo", "http://user@host.com/repo", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			base, ref := SplitRef(tt.input)
+			if base != tt.wantBase {
+				t.Errorf("SplitRef(%q) base = %q, want %q", tt.input, base, tt.wantBase)
+			}
+			if ref != tt.wantRef {
+				t.Errorf("SplitRef(%q) ref = %q, want %q", tt.input, ref, tt.wantRef)
+			}
+		})
+	}
+}
+
 func TestFormatStars(t *testing.T) {
 	tests := []struct {
 		input int

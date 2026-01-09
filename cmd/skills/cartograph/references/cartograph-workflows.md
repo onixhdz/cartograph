@@ -64,7 +64,7 @@ cartograph cypher "MATCH (caller)-[:CALLS]->(target:Function {name: 'parseConfig
 cartograph cypher "MATCH path = (entry)-[:CALLS*1..5]->(target:Function {name: 'parseConfig'}) RETURN [n IN nodes(path) | n.name] AS chain"
 
 # Read source at specific lines
-cartograph source src/config/parser.go -l 40-80
+cartograph cat src/config/parser.go -l 40-80
 ```
 
 **Tip:** Use `context --depth 3` for downstream tracing (what does this call?) and `impact --direction upstream` for upstream tracing (what leads to this?).
@@ -154,7 +154,7 @@ cartograph context handleAuth --depth 3
 #     - Cross-package hops (file paths change directories = architectural boundary)
 
 # Step 3: READ SOURCE — only for the 2-3 functions that need source-level detail
-cartograph source src/auth/middleware.go -l 40-80
+cartograph cat src/auth/middleware.go -l 40-80
 # → Or use: cartograph context handleAuth --content (includes inline source)
 
 # Step 4: REPEAT — each context output reveals new symbols to trace

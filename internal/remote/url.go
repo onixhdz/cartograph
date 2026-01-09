@@ -81,6 +81,22 @@ func IsBareProjectName(input string) bool {
 	return reBareProjectName.MatchString(input)
 }
 
+// SplitRef extracts an inline @ref suffix from a target string,
+// following Go module style: "owner/repo@v1.0" → ("owner/repo", "v1.0").
+// Returns the original target unchanged when no ref is present or when
+// the @ belongs to URL auth syntax (git@host, scheme://user@host).
+func SplitRef(target string) (base, ref string) {
+	// Scheme-based and SSH URLs use @ for auth — don't split.
+	if strings.HasPrefix(target, "git@") ||
+		strings.Contains(target, "://") {
+		return target, ""
+	}
+	if idx := strings.LastIndex(target, "@"); idx > 0 && idx < len(target)-1 {
+		return target[:idx], target[idx+1:]
+	}
+	return target, ""
+}
+
 // RepoIdentity holds the parsed identity of a remote repository,
 // following Go-module-style canonical paths.
 type RepoIdentity struct {

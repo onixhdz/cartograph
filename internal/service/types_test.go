@@ -101,7 +101,7 @@ func TestAllMethodsComplete(t *testing.T) {
 		MethodContext:     true,
 		MethodCypher:      true,
 		MethodImpact:      true,
-		MethodSource:      true,
+		MethodCat:         true,
 		MethodReload:      true,
 		MethodStatus:      true,
 		MethodShutdown:    true,

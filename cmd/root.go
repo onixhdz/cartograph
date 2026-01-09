@@ -29,6 +29,7 @@ import (
 	"github.com/realxen/cartograph/internal/storage"
 	"github.com/realxen/cartograph/internal/storage/bbolt"
 	"github.com/realxen/cartograph/internal/sysutil"
+	"github.com/realxen/cartograph/internal/version"
 )
 
 const (
@@ -43,7 +44,7 @@ const (
 type CLI struct {
 	Analyze    AnalyzeCmd       `cmd:"" help:"Index a repository (full analysis)."`
 	Clone      CloneCmd         `cmd:"" help:"Clone a remote repository to disk without indexing."`
-	Source     SourceCmd        `cmd:"" aliases:"src" help:"Retrieve full file source code from an indexed repository."`
+	Cat        CatCmd           `cmd:"" help:"Print file contents from an indexed repository."`
 	List       ListCmd          `cmd:"" help:"List all indexed repositories."`
 	Status     StatusCmd        `cmd:"" help:"Show index status for a repository (defaults to current directory)."`
 	Clean      CleanCmd         `cmd:"" help:"Delete index for a repository (defaults to current directory)."`
@@ -53,10 +54,10 @@ type CLI struct {
 	Impact     ImpactCmd        `cmd:"" help:"Blast radius: what breaks if you change a symbol."`
 	Cypher     CypherCmd        `cmd:"" help:"Execute raw Cypher query against the knowledge graph."`
 	Schema     SchemaCmd        `cmd:"" help:"Show graph schema (node labels, edge types, properties) to assist Cypher queries."`
-	Serve      ServeCmd         `cmd:"" help:"Manage the long-running HTTP service (for MCP / editor integrations)."`
+	Serve      ServeCmd         `cmd:"" help:"Manage the long-running HTTP service (for MCP / editor integrations)." needs-client:"false"`
 	Skills     SkillsCmd        `cmd:"" help:"Install/manage cartograph skills for AI coding agents."`
 	Models     ModelsCmd        `cmd:"" help:"Manage embedding models (download, list, remove)."`
-	Completion completionCmd    `cmd:"" help:"Set up shell tab-completion (bash, zsh, fish)."`
+	Completion completionCmd    `cmd:"" help:"Set up shell tab-completion (bash, zsh, fish)." needs-client:"false"`
 	Version    kong.VersionFlag `help:"Print version and exit." short:"v"`
 
 	// Client is the service client used by subcommands. It is hidden
@@ -219,6 +220,17 @@ func (c *AnalyzeCmd) Run(cli *CLI) error {
 }
 
 func (c *AnalyzeCmd) runOne(cli *CLI, target string) error {
+	// Extract inline @ref (Go module style): owner/repo@v1.0 → owner/repo + branch "v1.0".
+	if base, ref := remote.SplitRef(target); ref != "" {
+		if c.Branch != "" {
+			return fmt.Errorf("cannot use both inline @ref (%s) and --branch flag (%s)", ref, c.Branch)
+		}
+		target = base
+		origBranch := c.Branch
+		c.Branch = ref
+		defer func() { c.Branch = origBranch }()
+	}
+
 	if remote.IsGitURL(target) {
 		return c.runRemote(cli, target)
 	}
@@ -380,6 +392,42 @@ func (c *AnalyzeCmd) runLocal(cli *CLI, target string) error {
 	repoName := filepath.Base(abs)
 	write(fmt.Sprintf("Analyzing %s\n", abs))
 
+	dataDir := DefaultDataDir()
+	repoHash := shortHash(abs)
+
+	// Check if re-analyzing with changed versions — force cleanup of
+	// stale derived state (search index) if schema or algorithm changed.
+	if !c.Force {
+		if reg, err := storage.NewRegistry(dataDir); err == nil {
+			if prev, ok := reg.Get(repoName); ok && prev.Hash == repoHash {
+				sv, av, _ := prev.Meta.Versions()
+				if reason, needed := version.ShouldReindexOnAnalyze(version.VersionInfo{
+					SchemaVersion:    sv,
+					AlgorithmVersion: av,
+				}); needed {
+					fmt.Printf("  ℹ %s. Rebuilding...\n", reason)
+					c.Force = true
+				}
+
+				// Idempotency: skip re-analysis if HEAD hasn't changed.
+				if !c.Force {
+					if currentSHA := gitHeadHash(abs); currentSHA != "" && currentSHA == prev.Meta.CommitHash {
+						fmt.Printf("  Up to date (commit %s). ", currentSHA[:min(12, len(currentSHA))])
+
+						if c.Embed != embedOff {
+							fmt.Println("Triggering embedding...")
+							c.requestEmbedding(repoName)
+							return nil
+						}
+
+						fmt.Println("Use --force to re-analyze.")
+						return nil
+					}
+				}
+			}
+		}
+	}
+
 	start := time.Now()
 	spPipeline := newSpinner("Walking repository...")
 	spPipeline.Start()
@@ -403,8 +451,6 @@ func (c *AnalyzeCmd) runLocal(cli *CLI, target string) error {
 	edgeCount := graph.EdgeCount(g)
 	fmt.Printf("  Graph: %d nodes, %d edges\n", nodeCount, edgeCount)
 
-	dataDir := DefaultDataDir()
-	repoHash := shortHash(abs)
 	repoDir := filepath.Join(dataDir, repoName, repoHash)
 
 	if err := os.MkdirAll(repoDir, 0o750); err != nil {
@@ -465,10 +511,14 @@ func (c *AnalyzeCmd) runLocal(cli *CLI, target string) error {
 		NodeCount: nodeCount,
 		EdgeCount: edgeCount,
 		Meta: storage.Meta{
-			CommitHash: gitHeadHash(abs),
-			Languages:  langs,
-			Duration:   duration.Round(time.Millisecond).String(),
-			SourcePath: abs,
+			CommitHash:           gitHeadHash(abs),
+			Languages:            langs,
+			Duration:             duration.Round(time.Millisecond).String(),
+			SourcePath:           abs,
+			SchemaVersion:        version.SchemaVersion,
+			AlgorithmVersion:     version.AlgorithmVersion,
+			EmbeddingTextVersion: version.EmbeddingTextVersion,
+			BinaryVersion:        version.BuildVersion,
 		},
 	}); err != nil {
 		return fmt.Errorf("analyze: update registry: %w", err)
@@ -736,11 +786,15 @@ func (c *AnalyzeCmd) runCloneToMemory(
 		EdgeCount: edgeCount,
 		URL:       identity.Canonical,
 		Meta: storage.Meta{
-			CommitHash:       result.HeadSHA,
-			Languages:        langs,
-			Duration:         duration.Round(time.Millisecond).String(),
-			Branch:           result.Branch,
-			HasContentBucket: true,
+			CommitHash:           result.HeadSHA,
+			Languages:            langs,
+			Duration:             duration.Round(time.Millisecond).String(),
+			Branch:               result.Branch,
+			HasContentBucket:     true,
+			SchemaVersion:        version.SchemaVersion,
+			AlgorithmVersion:     version.AlgorithmVersion,
+			EmbeddingTextVersion: version.EmbeddingTextVersion,
+			BinaryVersion:        version.BuildVersion,
 		},
 	}); err != nil {
 		return fmt.Errorf("analyze: update registry: %w", err)
@@ -875,11 +929,15 @@ func (c *AnalyzeCmd) runCloneToDisk(
 		EdgeCount: edgeCount,
 		URL:       identity.Canonical,
 		Meta: storage.Meta{
-			CommitHash: headSHA,
-			Languages:  langs,
-			Duration:   duration.Round(time.Millisecond).String(),
-			SourcePath: srcDir,
-			Branch:     branch,
+			CommitHash:           headSHA,
+			Languages:            langs,
+			Duration:             duration.Round(time.Millisecond).String(),
+			SourcePath:           srcDir,
+			Branch:               branch,
+			SchemaVersion:        version.SchemaVersion,
+			AlgorithmVersion:     version.AlgorithmVersion,
+			EmbeddingTextVersion: version.EmbeddingTextVersion,
+			BinaryVersion:        version.BuildVersion,
 		},
 	}); err != nil {
 		return fmt.Errorf("analyze: update registry: %w", err)
@@ -1168,7 +1226,7 @@ func (c *ListCmd) Run(cli *CLI) error {
 		return nil
 	}
 
-	headers := []string{"Name", "Hash", "Type", "Analyzed", "Nodes", "Edges", "Embedding"}
+	headers := []string{"Name", "Hash", "Type", "Analyzed", "Nodes", "Edges", "Built With", "Embedding"}
 	rows := make([][]string, 0, len(entries))
 	for _, e := range entries {
 		typeLabel := "local"
@@ -1189,6 +1247,11 @@ func (c *ListCmd) Run(cli *CLI) error {
 		m := e.Meta
 		embedLabel := embedStatusLabel(m.EmbeddingStatus, m.EmbeddingNodes, m.EmbeddingTotal, m.EmbeddingDuration, m.EmbeddingError)
 
+		builtWith := m.BinaryVersion
+		if builtWith == "" {
+			builtWith = "-"
+		}
+
 		rows = append(rows, []string{
 			e.Name,
 			hashLabel,
@@ -1196,6 +1259,7 @@ func (c *ListCmd) Run(cli *CLI) error {
 			timeAgo(e.IndexedAt),
 			strconv.Itoa(e.NodeCount),
 			strconv.Itoa(e.EdgeCount),
+			builtWith,
 			embedLabel,
 		})
 	}
@@ -1564,14 +1628,14 @@ func (c *WikiCmd) Run(cli *CLI) error {
 	return nil
 }
 
-// SourceCmd retrieves file source code from an indexed repository.
-type SourceCmd struct {
+// CatCmd retrieves file source code from an indexed repository.
+type CatCmd struct {
 	Files []string `arg:"" required:"" help:"File path(s) relative to repo root."`
 	Repo  string   `help:"Repository name." short:"r"`
 	Lines string   `help:"Line range (e.g. 40-60)." short:"l"`
 }
 
-func (c *SourceCmd) Run(cli *CLI) error {
+func (c *CatCmd) Run(cli *CLI) error {
 	if cli.Client == nil {
 		fmt.Println(errNoService)
 		return nil
@@ -1582,14 +1646,28 @@ func (c *SourceCmd) Run(cli *CLI) error {
 		return err
 	}
 
-	req := service.SourceRequest{
-		Repo:  repo,
-		Files: c.Files,
-		Lines: c.Lines,
+	// Support inline line range syntax: file.go:40-80
+	files := c.Files
+	lines := c.Lines
+	if lines == "" && len(files) == 1 {
+		if idx := strings.LastIndex(files[0], ":"); idx > 0 {
+			suffix := files[0][idx+1:]
+			// Check if suffix looks like a line range (digits and dash).
+			if len(suffix) > 0 && suffix[0] >= '0' && suffix[0] <= '9' {
+				lines = suffix
+				files = []string{files[0][:idx]}
+			}
+		}
 	}
-	result, err := cli.Client.Source(req)
+
+	req := service.CatRequest{
+		Repo:  repo,
+		Files: files,
+		Lines: lines,
+	}
+	result, err := cli.Client.Cat(req)
 	if err != nil {
-		return fmt.Errorf("source: %w", err)
+		return fmt.Errorf("cat: %w", err)
 	}
 
 	for i, f := range result.Files {
@@ -1602,14 +1680,14 @@ func (c *SourceCmd) Run(cli *CLI) error {
 			fmt.Printf("── %s (%d lines) ──\n", f.Path, f.LineCount)
 		}
 
-		lines := strings.Split(f.Content, "\n")
+		contentLines := strings.Split(f.Content, "\n")
 		startLine := 1
-		if c.Lines != "" {
-			_, _ = fmt.Sscanf(c.Lines, "%d-", &startLine)
+		if lines != "" {
+			_, _ = fmt.Sscanf(lines, "%d-", &startLine)
 		}
-		for j, line := range lines {
+		for j, line := range contentLines {
 			// Skip trailing empty line from split.
-			if j == len(lines)-1 && line == "" {
+			if j == len(contentLines)-1 && line == "" {
 				continue
 			}
 			fmt.Printf("%4d | %s\n", startLine+j, line)

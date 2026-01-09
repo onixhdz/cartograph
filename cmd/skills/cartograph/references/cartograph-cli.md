@@ -38,6 +38,11 @@ cartograph analyze https://github.com/org/repo
 # GitHub shorthand — auto-expands to https://github.com/hashicorp/nomad
 cartograph analyze hashicorp/nomad
 
+# Index a specific tag or branch (Go module style: target@ref)
+cartograph analyze hashicorp/nomad@v1.8.0
+cartograph analyze hashicorp/nomad@release/1.7.x
+cartograph analyze github.com/gorilla/mux@v1.8.0
+
 # Host-prefixed URL — auto-expands to https://github.com/org/repo
 cartograph analyze github.com/org/repo
 
@@ -197,9 +202,9 @@ cartograph cypher "MATCH (p:Process)-[:STEP_IN_PROCESS]->(s) RETURN p.name, s.na
 cartograph cypher "MATCH (p:Process) RETURN p.name, p.importance, p.stepCount, p.callerCount ORDER BY p.importance DESC LIMIT 10"
 ```
 
-### `cartograph source <file...>`
+### `cartograph cat <file...>`
 
-Retrieve full source code from an indexed repository.
+Print file contents from an indexed repository.
 
 **Arguments:**
 - `file` — File path(s) relative to repo root (required, multiple allowed)
@@ -211,13 +216,13 @@ Retrieve full source code from an indexed repository.
 **Examples:**
 ```bash
 # Get full file
-cartograph source src/handler.go
+cartograph cat src/handler.go
 
 # Get specific lines
-cartograph source src/handler.go -l 40-60
+cartograph cat src/handler.go -l 40-60
 
 # Multiple files
-cartograph source src/handler.go src/router.go
+cartograph cat src/handler.go src/router.go
 ```
 
 ### `cartograph clone <url>`

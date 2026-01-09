@@ -17,6 +17,7 @@ import (
 	"github.com/realxen/cartograph/internal/search"
 	"github.com/realxen/cartograph/internal/storage"
 	"github.com/realxen/cartograph/internal/storage/bbolt"
+	"github.com/realxen/cartograph/internal/version"
 )
 
 // MemoryClient is an in-process implementation of the service API that
@@ -236,8 +237,8 @@ func (mc *MemoryClient) Impact(req ImpactRequest) (*ImpactResult, error) {
 	return res, nil
 }
 
-// Source retrieves file content from an indexed repository.
-func (mc *MemoryClient) Source(req SourceRequest) (*SourceResult, error) {
+// Cat retrieves file content from an indexed repository.
+func (mc *MemoryClient) Cat(req CatRequest) (*CatResult, error) {
 	if req.Repo == "" {
 		return nil, errors.New("memory client: missing repo")
 	}
@@ -255,11 +256,11 @@ func (mc *MemoryClient) Source(req SourceRequest) (*SourceResult, error) {
 		return nil, err
 	}
 
-	result := &SourceResult{Files: make([]SourceFile, 0, len(req.Files))}
+	result := &CatResult{Files: make([]CatFile, 0, len(req.Files))}
 	for _, path := range req.Files {
 		data, readErr := cr.ReadFile(path)
 		if readErr != nil {
-			result.Files = append(result.Files, SourceFile{
+			result.Files = append(result.Files, CatFile{
 				Path:  path,
 				Error: readErr.Error(),
 			})
@@ -282,7 +283,7 @@ func (mc *MemoryClient) Source(req SourceRequest) (*SourceResult, error) {
 			content = strings.Join(lines[lineStart-1:lineEnd], "\n")
 		}
 
-		result.Files = append(result.Files, SourceFile{
+		result.Files = append(result.Files, CatFile{
 			Path:      path,
 			Content:   content,
 			LineCount: lineCount,
@@ -452,6 +453,17 @@ func (mc *MemoryClient) loadFromDisk(repo string) error {
 	entry, err := registry.Resolve(repo)
 	if err != nil {
 		return fmt.Errorf("memory client: resolve %q: %w", repo, err)
+	}
+
+	sv, av, ev := entry.Meta.Versions()
+	if sv != "" {
+		if err := version.CheckCompatibility(version.VersionInfo{
+			SchemaVersion:        sv,
+			AlgorithmVersion:     av,
+			EmbeddingTextVersion: ev,
+		}); err != nil {
+			return fmt.Errorf("memory client: %s: %w", repo, err)
+		}
 	}
 
 	repoDir := filepath.Join(mc.dataDir, entry.Name, entry.Hash)
