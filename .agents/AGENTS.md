@@ -16,6 +16,10 @@ Five layers, top to bottom:
 
 5. **Storage & Search** (`internal/storage/`, `internal/search/`, `internal/embedding/`) — Graph persistence uses bbolt + msgpack. Registry (`registry.json`) tracks all indexed repos. BM25 indexes built from graph nodes at query time. Hybrid search merges BM25 + vector results via Reciprocal Rank Fusion (RRF). Embedding via built-in llamacpp provider (bge-small default, 6 model aliases from Hugging Face) or external OpenAI-compatible API. Models managed via `cartograph models` (list/pull/rm). Model cache at `~/.cache/cartograph/models/`.
 
+## Planning
+
+Design documents, implementation plans, and roadmap details live in `.local.plans/` (gitignored via `.local.*`). Always check this directory for existing plans before starting work on a feature — there may already be a design doc or prior analysis. When creating new plans or design documents, place them in `.local.plans/`.
+
 ## Key Design Decisions
 
 - **Single edge label**: All relationships use `EdgeLabel = "CodeRelation"` with a `type` property (e.g., `CALLS`, `IMPORTS`). Use `graph.GetEdgeRelType(e)` to read it.
