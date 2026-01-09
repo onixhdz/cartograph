@@ -132,6 +132,12 @@ When using `--embed-provider openai_compat`, only symbol names and descriptions 
 
 ---
 
+## Acknowledgments
+
+Cartograph was heavily inspired by [GitNexus](https://github.com/abhigyanpatwari/GitNexus). Its approach to code knowledge graphs shaped many of the ideas here.
+
+---
+
 ## License
 
 [MIT](LICENSE)
