@@ -28,6 +28,13 @@ RUN BUN_ARCH=$(if [ "${TARGETARCH}" = "amd64" ]; then echo "x64"; else echo "aar
     cd /tmp && unzip -q bun.zip && \
     chmod +x /tmp/bun-linux-${BUN_ARCH}/bun
 
+# Download GitHub Copilot CLI
+ARG COPILOT_VERSION=v1.0.18
+RUN COPILOT_ARCH=$(if [ "${TARGETARCH}" = "amd64" ]; then echo "x64"; else echo "arm64"; fi) && \
+    curl ${CURL_OPTS} -L -o /tmp/copilot.tar.gz "https://github.com/github/copilot-cli/releases/download/${COPILOT_VERSION}/copilot-linux-${COPILOT_ARCH}.tar.gz" && \
+    mkdir -p /tmp/copilot && tar -xzf /tmp/copilot.tar.gz -C /tmp/copilot && \
+    rm /tmp/copilot.tar.gz
+
 FROM mcr.microsoft.com/devcontainers/go:1.26-bookworm AS development
 
 COPY --from=builder /tmp/task /usr/local/bin/
@@ -43,5 +50,6 @@ RUN --mount=from=builder,source=/tmp,target=/mnt/builder \
     cp /mnt/builder/bun-linux-${BUN_ARCH}/bun /usr/local/bin/bun && \
     ln -s /usr/local/bin/bun /usr/local/bin/bunx
 
-# Install GitHub Copilot CLI
-RUN curl -fsSL https://gh.io/copilot-install | bash
+# Copy GitHub Copilot CLI
+COPY --from=builder /tmp/copilot /usr/local/lib/copilot
+RUN ln -s /usr/local/lib/copilot/copilot /usr/local/bin/copilot
