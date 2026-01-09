@@ -1,0 +1,29 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the README
+{
+  "name": "Cartograph Dev Container",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+  "shutdownAction": "stopCompose",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "prettier.singleQuote": true,
+        "chat.tools.terminal.autoApprove": {
+          "go test": true,
+          "go doc": true,
+          "sed": true,
+          "grep": true,
+          "cat": true,
+          "cartograph": true
+        }
+      },
+      "extensions": [
+        "ms-azuretools.vscode-containers",
+        "esbenp.prettier-vscode",
+        "GitHub.copilot",
+        "golang.go"
+      ]
+    }
+  }
+}

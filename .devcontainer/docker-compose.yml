@@ -1,0 +1,13 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    volumes:
+      - ../..:/workspaces:cached
+    userns_mode: "keep-id:uid=1000,gid=1000"
+    command: sleep infinity
+    env_file:
+      - path: ../.local.env
+        required: false
