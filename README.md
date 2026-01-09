@@ -10,6 +10,15 @@
 
 ---
 
+## Install
+
+```bash
+brew tap realxen/tap
+brew install cartograph
+```
+
+---
+
 ## Quick Start
 
 ```bash
