@@ -16,7 +16,6 @@ require (
 	github.com/pelletier/go-toml/v2 v2.3.0
 	github.com/posener/complete v1.2.3
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
-	github.com/tetratelabs/wazero v1.11.0
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	go.etcd.io/bbolt v1.4.3
 	golang.org/x/mod v0.32.0
