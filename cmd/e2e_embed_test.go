@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -90,7 +89,7 @@ func TestE2E_IncrementalEmbedding(t *testing.T) {
 	t.Log("Step 2: first embedding (full)...")
 
 	embedResult := embedAndWait(t, client, repoName)
-	if embedResult.Status != "complete" {
+	if embedResult.Status != statusComplete {
 		t.Fatalf("embed failed: %s", embedResult.Error)
 	}
 	firstEmbedCount := embedResult.Progress
@@ -139,7 +138,7 @@ func TestE2E_IncrementalEmbedding(t *testing.T) {
 	t.Log("Step 4: re-embedding (should skip)...")
 
 	embedResult2 := embedAndWait(t, client, repoName)
-	if embedResult2.Status != "complete" {
+	if embedResult2.Status != statusComplete {
 		t.Fatalf("re-embed failed: %s", embedResult2.Error)
 	}
 
@@ -192,7 +191,7 @@ func (p *PaymentProcessor) RefundPayment(transactionID string) error {
 	_ = client.Reload(service.ReloadRequest{Repo: repoName})
 
 	embedResult3 := embedAndWait(t, client, repoName)
-	if embedResult3.Status != "complete" {
+	if embedResult3.Status != statusComplete {
 		t.Fatalf("partial re-embed failed: %s", embedResult3.Error)
 	}
 
@@ -247,7 +246,7 @@ func (p *PaymentProcessor) RefundPayment(transactionID string) error {
 func createFixtureRepo(t *testing.T) string {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "fixture-repo")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 
@@ -361,14 +360,14 @@ func SanitizeInput(input string) string {
 
 	for name, content := range files {
 		path := filepath.Join(dir, name)
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 			t.Fatalf("write %s: %v", name, err)
 		}
 	}
 
 	// Initialize git repo so the pipeline can read HEAD.
 	run := func(args ...string) {
-		cmd := exec.Command(args[0], args[1:]...)
+		cmd := exec.CommandContext(context.Background(), args[0], args[1:]...) //nolint:gosec // args are test-controlled literals
 		cmd.Dir = dir
 		cmd.Env = append(os.Environ(),
 			"GIT_AUTHOR_NAME=test",
@@ -391,11 +390,11 @@ func SanitizeInput(input string) string {
 func addFileToFixture(t *testing.T, dir, name, content string) {
 	t.Helper()
 	path := filepath.Join(dir, name)
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write %s: %v", name, err)
 	}
 	run := func(args ...string) {
-		cmd := exec.Command(args[0], args[1:]...)
+		cmd := exec.CommandContext(context.Background(), args[0], args[1:]...) //nolint:gosec // args are test-controlled literals
 		cmd.Dir = dir
 		cmd.Env = append(os.Environ(),
 			"GIT_AUTHOR_NAME=test",
@@ -408,7 +407,7 @@ func addFileToFixture(t *testing.T, dir, name, content string) {
 		}
 	}
 	run("git", "add", name)
-	run("git", "commit", "-m", fmt.Sprintf("add %s", name))
+	run("git", "commit", "-m", "add "+name)
 }
 
 // embedAndWait triggers embedding and polls until complete or failed.
@@ -435,9 +434,9 @@ func embedAndWait(t *testing.T, client *service.Client, repo string) *service.Em
 			t.Fatalf("embed status: %v", err)
 		}
 		switch st.Status {
-		case "complete":
+		case statusComplete:
 			return st
-		case "failed":
+		case statusFailed:
 			return st
 		}
 	}
