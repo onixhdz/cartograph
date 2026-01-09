@@ -12,9 +12,23 @@ import (
 	"github.com/realxen/cartograph/cmd"
 	"github.com/realxen/cartograph/internal/query"
 	"github.com/realxen/cartograph/internal/service"
+	"github.com/realxen/cartograph/internal/version"
 )
 
-var version = "dev"
+var ver = "dev"
+
+func versionString() string {
+	s := ver
+	if version.BuildCommit != "" {
+		s += fmt.Sprintf(" (%s)", version.BuildCommit)
+	}
+	if version.BuildDate != "" {
+		s += "\nBuilt:  " + version.BuildDate
+	}
+	s += fmt.Sprintf("\nSchema: %s  Algorithm: %s  EmbeddingText: %s",
+		version.SchemaVersion, version.AlgorithmVersion, version.EmbeddingTextVersion)
+	return s
+}
 
 func main() {
 	cli := cmd.CLI{}
@@ -22,7 +36,7 @@ func main() {
 		kong.Name("cartograph"),
 		kong.Description("Graph-powered code intelligence tool"),
 		kong.UsageOnError(),
-		kong.Vars{"version": version},
+		kong.Vars{"version": versionString()},
 	)
 
 	// Handle shell tab-completion requests before normal parsing.

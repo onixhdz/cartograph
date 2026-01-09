@@ -31,6 +31,8 @@ func writeError(w http.ResponseWriter, code int, msg string) {
 		httpStatus = http.StatusNotFound
 	case ErrCodeQueryBlocked:
 		httpStatus = http.StatusForbidden
+	case ErrCodeIncompatible:
+		httpStatus = http.StatusConflict
 	case ErrCodeMethodUnknown:
 		httpStatus = http.StatusNotFound
 	case ErrCodeInvalidParams:
@@ -100,7 +102,11 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Repo = repo
 
-	backend := s.getBackend(req.Repo)
+	backend, err := s.getBackend(req.Repo)
+	if err != nil {
+		writeError(w, ErrCodeIncompatible, err.Error())
+		return
+	}
 	if backend == nil {
 		writeError(w, ErrCodeRepoNotFound, fmt.Sprintf("repository %q not indexed", req.Repo))
 		return
@@ -136,7 +142,11 @@ func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Repo = repo
 
-	backend := s.getBackend(req.Repo)
+	backend, err := s.getBackend(req.Repo)
+	if err != nil {
+		writeError(w, ErrCodeIncompatible, err.Error())
+		return
+	}
 	if backend == nil {
 		writeError(w, ErrCodeRepoNotFound, fmt.Sprintf("repository %q not indexed", req.Repo))
 		return
@@ -178,7 +188,11 @@ func (s *Server) handleCypher(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	backend := s.getBackend(req.Repo)
+	backend, err := s.getBackend(req.Repo)
+	if err != nil {
+		writeError(w, ErrCodeIncompatible, err.Error())
+		return
+	}
 	if backend == nil {
 		writeError(w, ErrCodeRepoNotFound, fmt.Sprintf("repository %q not indexed", req.Repo))
 		return
@@ -214,7 +228,11 @@ func (s *Server) handleImpact(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Repo = repo
 
-	backend := s.getBackend(req.Repo)
+	backend, err := s.getBackend(req.Repo)
+	if err != nil {
+		writeError(w, ErrCodeIncompatible, err.Error())
+		return
+	}
 	if backend == nil {
 		writeError(w, ErrCodeRepoNotFound, fmt.Sprintf("repository %q not indexed", req.Repo))
 		return
@@ -396,7 +414,11 @@ func (s *Server) handleSchema(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Repo = repo
 
-	backend := s.getBackend(req.Repo)
+	backend, err := s.getBackend(req.Repo)
+	if err != nil {
+		writeError(w, ErrCodeIncompatible, err.Error())
+		return
+	}
 	if backend == nil {
 		writeError(w, ErrCodeRepoNotFound, fmt.Sprintf("repository %q not indexed", req.Repo))
 		return

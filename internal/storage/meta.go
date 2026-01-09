@@ -24,6 +24,23 @@ type Meta struct {
 	// Branch is the Git branch that was analyzed.
 	Branch string `json:"branch,omitempty"`
 
+	// Version tracking — stamped at analysis time from the binary's
+	// compiled-in constants (internal/version package).
+
+	// SchemaVersion is the graph schema version used to build this index.
+	SchemaVersion string `json:"schemaVersion,omitempty"`
+
+	// AlgorithmVersion is the pipeline algorithm version used.
+	AlgorithmVersion string `json:"algorithmVersion,omitempty"`
+
+	// EmbeddingTextVersion is the embedding text generation version.
+	EmbeddingTextVersion string `json:"embeddingTextVersion,omitempty"`
+
+	// BinaryVersion is the cartograph binary version (from ldflags)
+	// that produced this index. Informational only — not used for
+	// compatibility decisions.
+	BinaryVersion string `json:"binaryVersion,omitempty"`
+
 	// ClonedOnly is true when the repo was cloned to disk via
 	// 'cartograph clone' but has not been indexed yet.
 	ClonedOnly bool `json:"clonedOnly,omitempty"`
@@ -53,4 +70,10 @@ type Meta struct {
 
 	// EmbeddingDuration is how long the last embedding run took (human-readable).
 	EmbeddingDuration string `json:"embeddingDuration,omitempty"`
+}
+
+// Versions returns the schema, algorithm, and embedding text version
+// strings for use with version.CheckCompatibility.
+func (m Meta) Versions() (schema, algorithm, embeddingText string) {
+	return m.SchemaVersion, m.AlgorithmVersion, m.EmbeddingTextVersion
 }

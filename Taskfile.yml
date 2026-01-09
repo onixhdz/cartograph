@@ -3,7 +3,16 @@ dotenv:
   - .local.env
 vars:
   VERSION: '{{default "dev" .VERSION}}'
-  GO_LDFLAGS: '-s -w -X main.version={{.VERSION}}'
+  GIT_COMMIT:
+    sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
+  BUILD_DATE:
+    sh: date -u +%Y-%m-%dT%H:%M:%SZ
+  GO_LDFLAGS: >-
+    -s -w
+    -X main.ver={{.VERSION}}
+    -X github.com/realxen/cartograph/internal/version.BuildVersion={{.VERSION}}
+    -X github.com/realxen/cartograph/internal/version.BuildCommit={{.GIT_COMMIT}}
+    -X github.com/realxen/cartograph/internal/version.BuildDate={{.BUILD_DATE}}
   EMBEDDING_LIB_DIR: internal/embedding/local
 tasks:
   test:

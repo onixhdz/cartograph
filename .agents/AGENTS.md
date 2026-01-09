@@ -86,11 +86,13 @@ task build:target:linux # Linux binary only
 
 ## Post-Change Checklist
 
-After all code changes are completed, run:
+After **all** code changes are completed, run these steps in order:
 
 ```bash
 go fix ./...
 go vet ./...
+task lint              # or: golangci-lint run ./...
 ```
 
-This applies any automated fixes required by the current Go toolchain (e.g., updated API usage, deprecation rewrites). Run it as a final step before submitting changes for review.
+1. `go fix` / `go vet` — applies automated fixes and catches common issues.
+2. **`task lint`** (equivalent to `golangci-lint run ./...`) — runs the full linter suite. **This is mandatory.** Fix every reported issue before considering the work done. Do not skip this step.

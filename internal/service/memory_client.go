@@ -17,6 +17,7 @@ import (
 	"github.com/realxen/cartograph/internal/search"
 	"github.com/realxen/cartograph/internal/storage"
 	"github.com/realxen/cartograph/internal/storage/bbolt"
+	"github.com/realxen/cartograph/internal/version"
 )
 
 // MemoryClient is an in-process implementation of the service API that
@@ -452,6 +453,17 @@ func (mc *MemoryClient) loadFromDisk(repo string) error {
 	entry, err := registry.Resolve(repo)
 	if err != nil {
 		return fmt.Errorf("memory client: resolve %q: %w", repo, err)
+	}
+
+	sv, av, ev := entry.Meta.Versions()
+	if sv != "" {
+		if err := version.CheckCompatibility(version.VersionInfo{
+			SchemaVersion:        sv,
+			AlgorithmVersion:     av,
+			EmbeddingTextVersion: ev,
+		}); err != nil {
+			return fmt.Errorf("memory client: %s: %w", repo, err)
+		}
 	}
 
 	repoDir := filepath.Join(mc.dataDir, entry.Name, entry.Hash)

@@ -29,6 +29,7 @@ import (
 	"github.com/realxen/cartograph/internal/storage"
 	"github.com/realxen/cartograph/internal/storage/bbolt"
 	"github.com/realxen/cartograph/internal/sysutil"
+	"github.com/realxen/cartograph/internal/version"
 )
 
 const (
@@ -380,6 +381,26 @@ func (c *AnalyzeCmd) runLocal(cli *CLI, target string) error {
 	repoName := filepath.Base(abs)
 	write(fmt.Sprintf("Analyzing %s\n", abs))
 
+	dataDir := DefaultDataDir()
+	repoHash := shortHash(abs)
+
+	// Check if re-analyzing with changed versions — force cleanup of
+	// stale derived state (search index) if schema or algorithm changed.
+	if !c.Force {
+		if reg, err := storage.NewRegistry(dataDir); err == nil {
+			if prev, ok := reg.Get(repoName); ok && prev.Hash == repoHash {
+				sv, av, _ := prev.Meta.Versions()
+				if reason, needed := version.ShouldReindexOnAnalyze(version.VersionInfo{
+					SchemaVersion:    sv,
+					AlgorithmVersion: av,
+				}); needed {
+					fmt.Printf("  ℹ %s. Rebuilding...\n", reason)
+					c.Force = true
+				}
+			}
+		}
+	}
+
 	start := time.Now()
 	spPipeline := newSpinner("Walking repository...")
 	spPipeline.Start()
@@ -403,8 +424,6 @@ func (c *AnalyzeCmd) runLocal(cli *CLI, target string) error {
 	edgeCount := graph.EdgeCount(g)
 	fmt.Printf("  Graph: %d nodes, %d edges\n", nodeCount, edgeCount)
 
-	dataDir := DefaultDataDir()
-	repoHash := shortHash(abs)
 	repoDir := filepath.Join(dataDir, repoName, repoHash)
 
 	if err := os.MkdirAll(repoDir, 0o750); err != nil {
@@ -465,10 +484,14 @@ func (c *AnalyzeCmd) runLocal(cli *CLI, target string) error {
 		NodeCount: nodeCount,
 		EdgeCount: edgeCount,
 		Meta: storage.Meta{
-			CommitHash: gitHeadHash(abs),
-			Languages:  langs,
-			Duration:   duration.Round(time.Millisecond).String(),
-			SourcePath: abs,
+			CommitHash:           gitHeadHash(abs),
+			Languages:            langs,
+			Duration:             duration.Round(time.Millisecond).String(),
+			SourcePath:           abs,
+			SchemaVersion:        version.SchemaVersion,
+			AlgorithmVersion:     version.AlgorithmVersion,
+			EmbeddingTextVersion: version.EmbeddingTextVersion,
+			BinaryVersion:        version.BuildVersion,
 		},
 	}); err != nil {
 		return fmt.Errorf("analyze: update registry: %w", err)
@@ -736,11 +759,15 @@ func (c *AnalyzeCmd) runCloneToMemory(
 		EdgeCount: edgeCount,
 		URL:       identity.Canonical,
 		Meta: storage.Meta{
-			CommitHash:       result.HeadSHA,
-			Languages:        langs,
-			Duration:         duration.Round(time.Millisecond).String(),
-			Branch:           result.Branch,
-			HasContentBucket: true,
+			CommitHash:           result.HeadSHA,
+			Languages:            langs,
+			Duration:             duration.Round(time.Millisecond).String(),
+			Branch:               result.Branch,
+			HasContentBucket:     true,
+			SchemaVersion:        version.SchemaVersion,
+			AlgorithmVersion:     version.AlgorithmVersion,
+			EmbeddingTextVersion: version.EmbeddingTextVersion,
+			BinaryVersion:        version.BuildVersion,
 		},
 	}); err != nil {
 		return fmt.Errorf("analyze: update registry: %w", err)
@@ -875,11 +902,15 @@ func (c *AnalyzeCmd) runCloneToDisk(
 		EdgeCount: edgeCount,
 		URL:       identity.Canonical,
 		Meta: storage.Meta{
-			CommitHash: headSHA,
-			Languages:  langs,
-			Duration:   duration.Round(time.Millisecond).String(),
-			SourcePath: srcDir,
-			Branch:     branch,
+			CommitHash:           headSHA,
+			Languages:            langs,
+			Duration:             duration.Round(time.Millisecond).String(),
+			SourcePath:           srcDir,
+			Branch:               branch,
+			SchemaVersion:        version.SchemaVersion,
+			AlgorithmVersion:     version.AlgorithmVersion,
+			EmbeddingTextVersion: version.EmbeddingTextVersion,
+			BinaryVersion:        version.BuildVersion,
 		},
 	}); err != nil {
 		return fmt.Errorf("analyze: update registry: %w", err)
@@ -1168,7 +1199,7 @@ func (c *ListCmd) Run(cli *CLI) error {
 		return nil
 	}
 
-	headers := []string{"Name", "Hash", "Type", "Analyzed", "Nodes", "Edges", "Embedding"}
+	headers := []string{"Name", "Hash", "Type", "Analyzed", "Nodes", "Edges", "Built With", "Embedding"}
 	rows := make([][]string, 0, len(entries))
 	for _, e := range entries {
 		typeLabel := "local"
@@ -1189,6 +1220,11 @@ func (c *ListCmd) Run(cli *CLI) error {
 		m := e.Meta
 		embedLabel := embedStatusLabel(m.EmbeddingStatus, m.EmbeddingNodes, m.EmbeddingTotal, m.EmbeddingDuration, m.EmbeddingError)
 
+		builtWith := m.BinaryVersion
+		if builtWith == "" {
+			builtWith = "-"
+		}
+
 		rows = append(rows, []string{
 			e.Name,
 			hashLabel,
@@ -1196,6 +1232,7 @@ func (c *ListCmd) Run(cli *CLI) error {
 			timeAgo(e.IndexedAt),
 			strconv.Itoa(e.NodeCount),
 			strconv.Itoa(e.EdgeCount),
+			builtWith,
 			embedLabel,
 		})
 	}

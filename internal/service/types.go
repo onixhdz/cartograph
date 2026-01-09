@@ -88,6 +88,7 @@ const (
 	ErrCodeInvalidParams = -32602 // Invalid params
 	ErrCodeRepoNotFound  = -32001 // Repository not indexed
 	ErrCodeQueryBlocked  = -32002 // Write query blocked (cypher security)
+	ErrCodeIncompatible  = -32003 // Index version incompatible with binary
 )
 
 // QueryRequest is the JSON body for POST /api/query.
