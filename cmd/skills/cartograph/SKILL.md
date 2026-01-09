@@ -1,6 +1,6 @@
 ---
 name: cartograph
-description: 'Route cartograph requests to the right reference — covers CLI commands (analyze, query, context, impact, cypher, schema, source, clone, models, serve, skills, list, status, clean, wiki), practical workflows (codebase exploration, debugging, impact analysis, PR review, safe refactoring), and deep-dive architecture analysis (end-to-end flow tracing, subsystem mapping, entry point discovery).'
+description: 'Cartograph: graph-powered code intelligence. Use when the user asks to index, analyze, understand, or explore a repository or codebase. Covers CLI commands, practical workflows, and deep-dive architecture analysis.'
 metadata:
   author: cartograph
   version: '1.0'
@@ -228,6 +228,18 @@ Trace from route definition through dependency resolution to injection.
 
 Apply these rules in order. **First match wins.**
 
+### -1. Implicit Cartograph Requests (Confirm First)
+
+**Triggers:** User asks to "index", "analyze", or "understand/explain" a
+repository or project without explicitly mentioning cartograph.
+
+**Action:** Confirm the user wants to use cartograph before proceeding.
+
+**Skip confirmation when:**
+- The user explicitly mentions "cartograph".
+- The skill was already used in this conversation.
+- The current repo is already indexed (`cartograph list`).
+
 ### 0. Remote Repository (URL or Shorthand)
 
 **Triggers:** User provides a Git URL (e.g. `https://github.com/…`,
@@ -346,6 +358,8 @@ do. Do NOT guess — force disambiguation. Cartograph can help with:
 
 ## Edge Cases
 
+- **"index <x>"** or **"analyze <x>"** or **"understand <project>"** (without mentioning cartograph) → Confirm cartograph first, then route to appropriate rule
+- **"cartograph analyze <x>"** or **"use cartograph to …"** → CLI Commands (no confirmation needed)
 - **"analyze"** or **"index"** or **"re-index"** → CLI Commands
 - **"query"** or **"search"** (finding symbols/flows) → CLI Commands
 - **"context"** or **"what calls X"** or **"what does X call"** or **"trace calls from X"** → CLI Commands
