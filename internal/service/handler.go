@@ -246,12 +246,12 @@ func (s *Server) handleImpact(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, result)
 }
 
-func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleCat(w http.ResponseWriter, r *http.Request) {
 	s.resetIdleTimer(r.Context())
 	if !requirePOST(w, r) {
 		return
 	}
-	var req SourceRequest
+	var req CatRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -284,11 +284,11 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := SourceResult{Files: make([]SourceFile, 0, len(req.Files))}
+	result := CatResult{Files: make([]CatFile, 0, len(req.Files))}
 	for _, path := range req.Files {
 		data, err := cr.ReadFile(path)
 		if err != nil {
-			result.Files = append(result.Files, SourceFile{
+			result.Files = append(result.Files, CatFile{
 				Path:  path,
 				Error: err.Error(),
 			})
@@ -311,7 +311,7 @@ func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
 			content = strings.Join(lines[lineStart-1:lineEnd], "\n")
 		}
 
-		result.Files = append(result.Files, SourceFile{
+		result.Files = append(result.Files, CatFile{
 			Path:      path,
 			Content:   content,
 			LineCount: lineCount,

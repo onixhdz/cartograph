@@ -20,7 +20,7 @@ type ServiceClient interface {
 	Context(service.ContextRequest) (*service.ContextResult, error)
 	Cypher(service.CypherRequest) (*service.CypherResult, error)
 	Impact(service.ImpactRequest) (*service.ImpactResult, error)
-	Source(service.SourceRequest) (*service.SourceResult, error)
+	Cat(service.CatRequest) (*service.CatResult, error)
 	Schema(service.SchemaRequest) (*service.SchemaResult, error)
 	Reload(service.ReloadRequest) error
 	Status() (*service.StatusResult, error)

@@ -14,8 +14,8 @@ const (
 	RouteCypher = APIPrefix + "/cypher"
 	// RouteImpact is the endpoint for blast radius analysis.
 	RouteImpact = APIPrefix + "/impact"
-	// RouteSource is the endpoint to retrieve file source content.
-	RouteSource = APIPrefix + "/source"
+	// RouteCat is the endpoint to retrieve file source content.
+	RouteCat = APIPrefix + "/cat"
 	// RouteReload is the endpoint to reload a repo's graph.
 	RouteReload = APIPrefix + "/reload"
 	// RouteStatus is the endpoint for service health/status.
@@ -35,7 +35,7 @@ const (
 	MethodContext     = "context"
 	MethodCypher      = "cypher"
 	MethodImpact      = "impact"
-	MethodSource      = "source"
+	MethodCat         = "cat"
 	MethodReload      = "reload"
 	MethodStatus      = "status"
 	MethodShutdown    = "shutdown"
@@ -47,7 +47,7 @@ const (
 // AllMethods lists every valid method name.
 var AllMethods = []string{
 	MethodQuery, MethodContext, MethodCypher, MethodImpact,
-	MethodSource, MethodReload, MethodStatus, MethodShutdown,
+	MethodCat, MethodReload, MethodStatus, MethodShutdown,
 	MethodSchema, MethodEmbed, MethodEmbedStatus,
 }
 
@@ -57,7 +57,7 @@ var MethodToRoute = map[string]string{
 	MethodContext:     RouteContext,
 	MethodCypher:      RouteCypher,
 	MethodImpact:      RouteImpact,
-	MethodSource:      RouteSource,
+	MethodCat:         RouteCat,
 	MethodReload:      RouteReload,
 	MethodStatus:      RouteStatus,
 	MethodShutdown:    RouteShutdown,
@@ -196,20 +196,20 @@ type ImpactResult struct {
 	Depth    int           `json:"depth"`
 }
 
-// SourceRequest is the JSON body for POST /api/source.
-type SourceRequest struct {
+// CatRequest is the JSON body for POST /api/cat.
+type CatRequest struct {
 	Repo  string   `json:"repo"`
 	Files []string `json:"files"`
 	Lines string   `json:"lines,omitempty"` // e.g. "40-60"
 }
 
-// SourceResult is the result payload for a source response.
-type SourceResult struct {
-	Files []SourceFile `json:"files"`
+// CatResult is the result payload for a cat response.
+type CatResult struct {
+	Files []CatFile `json:"files"`
 }
 
-// SourceFile is a single file in a SourceResult.
-type SourceFile struct {
+// CatFile is a single file in a CatResult.
+type CatFile struct {
 	Path      string `json:"path"`
 	Content   string `json:"content"`
 	LineCount int    `json:"lineCount"`

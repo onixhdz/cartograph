@@ -75,9 +75,9 @@ func (m *mockClient) Impact(req service.ImpactRequest) (*service.ImpactResult, e
 	}, nil
 }
 
-func (m *mockClient) Source(req service.SourceRequest) (*service.SourceResult, error) {
-	return &service.SourceResult{
-		Files: []service.SourceFile{
+func (m *mockClient) Cat(req service.CatRequest) (*service.CatResult, error) {
+	return &service.CatResult{
+		Files: []service.CatFile{
 			{Path: "test.go", Content: "package test\n", LineCount: 1},
 		},
 	}, nil

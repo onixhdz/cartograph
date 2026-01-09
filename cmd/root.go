@@ -44,7 +44,7 @@ const (
 type CLI struct {
 	Analyze    AnalyzeCmd       `cmd:"" help:"Index a repository (full analysis)."`
 	Clone      CloneCmd         `cmd:"" help:"Clone a remote repository to disk without indexing."`
-	Source     SourceCmd        `cmd:"" aliases:"src" help:"Retrieve full file source code from an indexed repository."`
+	Cat        CatCmd           `cmd:"" help:"Print file contents from an indexed repository."`
 	List       ListCmd          `cmd:"" help:"List all indexed repositories."`
 	Status     StatusCmd        `cmd:"" help:"Show index status for a repository (defaults to current directory)."`
 	Clean      CleanCmd         `cmd:"" help:"Delete index for a repository (defaults to current directory)."`
@@ -1628,14 +1628,14 @@ func (c *WikiCmd) Run(cli *CLI) error {
 	return nil
 }
 
-// SourceCmd retrieves file source code from an indexed repository.
-type SourceCmd struct {
+// CatCmd retrieves file source code from an indexed repository.
+type CatCmd struct {
 	Files []string `arg:"" required:"" help:"File path(s) relative to repo root."`
 	Repo  string   `help:"Repository name." short:"r"`
 	Lines string   `help:"Line range (e.g. 40-60)." short:"l"`
 }
 
-func (c *SourceCmd) Run(cli *CLI) error {
+func (c *CatCmd) Run(cli *CLI) error {
 	if cli.Client == nil {
 		fmt.Println(errNoService)
 		return nil
@@ -1646,14 +1646,28 @@ func (c *SourceCmd) Run(cli *CLI) error {
 		return err
 	}
 
-	req := service.SourceRequest{
-		Repo:  repo,
-		Files: c.Files,
-		Lines: c.Lines,
+	// Support inline line range syntax: file.go:40-80
+	files := c.Files
+	lines := c.Lines
+	if lines == "" && len(files) == 1 {
+		if idx := strings.LastIndex(files[0], ":"); idx > 0 {
+			suffix := files[0][idx+1:]
+			// Check if suffix looks like a line range (digits and dash).
+			if len(suffix) > 0 && suffix[0] >= '0' && suffix[0] <= '9' {
+				lines = suffix
+				files = []string{files[0][:idx]}
+			}
+		}
 	}
-	result, err := cli.Client.Source(req)
+
+	req := service.CatRequest{
+		Repo:  repo,
+		Files: files,
+		Lines: lines,
+	}
+	result, err := cli.Client.Cat(req)
 	if err != nil {
-		return fmt.Errorf("source: %w", err)
+		return fmt.Errorf("cat: %w", err)
 	}
 
 	for i, f := range result.Files {
@@ -1666,14 +1680,14 @@ func (c *SourceCmd) Run(cli *CLI) error {
 			fmt.Printf("── %s (%d lines) ──\n", f.Path, f.LineCount)
 		}
 
-		lines := strings.Split(f.Content, "\n")
+		contentLines := strings.Split(f.Content, "\n")
 		startLine := 1
-		if c.Lines != "" {
-			_, _ = fmt.Sscanf(c.Lines, "%d-", &startLine)
+		if lines != "" {
+			_, _ = fmt.Sscanf(lines, "%d-", &startLine)
 		}
-		for j, line := range lines {
+		for j, line := range contentLines {
 			// Skip trailing empty line from split.
-			if j == len(lines)-1 && line == "" {
+			if j == len(contentLines)-1 && line == "" {
 				continue
 			}
 			fmt.Printf("%4d | %s\n", startLine+j, line)

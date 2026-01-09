@@ -121,7 +121,7 @@ relationships.
 
 3. **Read source** — only when you need implementation details:
    ```bash
-   cartograph source <filePath> -r {repo_name} -l <startLine>-<endLine>
+   cartograph cat <filePath> -r {repo_name} -l <startLine>-<endLine>
    ```
 
 4. **Repeat** — each `context -d 3` output reveals new symbols to trace.
@@ -138,7 +138,7 @@ relationships.
   if cartograph returns no results.
 - Always use `-d 3` (not `-d 1`) when tracing call trees — depth 1 only
   shows direct callees and misses the architecture.
-- Use `cartograph source` to read code, not `cat` or `view` — it works
+- Use `cartograph cat` to read code — it works
   on the indexed snapshot and doesn't require the repo to be on disk.
 ````
 

@@ -578,7 +578,7 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc(RouteContext, s.handleContext)
 	mux.HandleFunc(RouteCypher, s.handleCypher)
 	mux.HandleFunc(RouteImpact, s.handleImpact)
-	mux.HandleFunc(RouteSource, s.handleSource)
+	mux.HandleFunc(RouteCat, s.handleCat)
 	mux.HandleFunc(RouteReload, s.handleReload)
 	mux.HandleFunc(RouteStatus, s.handleStatus)
 	mux.HandleFunc(RouteSchema, s.handleSchema)

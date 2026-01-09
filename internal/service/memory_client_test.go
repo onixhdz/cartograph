@@ -142,15 +142,15 @@ func TestMemoryClient_EmptyRepo(t *testing.T) {
 	}
 }
 
-func TestMemoryClient_Source_NoResolver(t *testing.T) {
+func TestMemoryClient_Cat_NoResolver(t *testing.T) {
 	mc := newTestMemoryClient(t)
-	_, err := mc.Source(SourceRequest{Repo: "testrepo", Files: []string{"main.go"}})
+	_, err := mc.Cat(CatRequest{Repo: "testrepo", Files: []string{"main.go"}})
 	if err == nil {
 		t.Fatal("expected error when no content resolver is set")
 	}
 }
 
-func TestMemoryClient_Source_WithDiskResolver(t *testing.T) {
+func TestMemoryClient_Cat_WithDiskResolver(t *testing.T) {
 	mc := newTestMemoryClient(t)
 
 	tmpDir := t.TempDir()
@@ -164,9 +164,9 @@ func TestMemoryClient_Source_WithDiskResolver(t *testing.T) {
 		SourcePath: tmpDir,
 	})
 
-	res, err := mc.Source(SourceRequest{Repo: "testrepo", Files: []string{testFile}})
+	res, err := mc.Cat(CatRequest{Repo: "testrepo", Files: []string{testFile}})
 	if err != nil {
-		t.Fatalf("source: %v", err)
+		t.Fatalf("cat: %v", err)
 	}
 	if len(res.Files) != 1 {
 		t.Fatalf("expected 1 file, got %d", len(res.Files))
@@ -179,7 +179,7 @@ func TestMemoryClient_Source_WithDiskResolver(t *testing.T) {
 	}
 }
 
-func TestMemoryClient_Source_LineRange(t *testing.T) {
+func TestMemoryClient_Cat_LineRange(t *testing.T) {
 	mc := newTestMemoryClient(t)
 
 	tmpDir := t.TempDir()
@@ -193,13 +193,13 @@ func TestMemoryClient_Source_LineRange(t *testing.T) {
 		SourcePath: tmpDir,
 	})
 
-	res, err := mc.Source(SourceRequest{
+	res, err := mc.Cat(CatRequest{
 		Repo:  "testrepo",
 		Files: []string{testFile},
 		Lines: "2-4",
 	})
 	if err != nil {
-		t.Fatalf("source: %v", err)
+		t.Fatalf("cat: %v", err)
 	}
 	if len(res.Files) != 1 {
 		t.Fatalf("expected 1 file, got %d", len(res.Files))

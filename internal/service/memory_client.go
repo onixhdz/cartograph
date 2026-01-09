@@ -237,8 +237,8 @@ func (mc *MemoryClient) Impact(req ImpactRequest) (*ImpactResult, error) {
 	return res, nil
 }
 
-// Source retrieves file content from an indexed repository.
-func (mc *MemoryClient) Source(req SourceRequest) (*SourceResult, error) {
+// Cat retrieves file content from an indexed repository.
+func (mc *MemoryClient) Cat(req CatRequest) (*CatResult, error) {
 	if req.Repo == "" {
 		return nil, errors.New("memory client: missing repo")
 	}
@@ -256,11 +256,11 @@ func (mc *MemoryClient) Source(req SourceRequest) (*SourceResult, error) {
 		return nil, err
 	}
 
-	result := &SourceResult{Files: make([]SourceFile, 0, len(req.Files))}
+	result := &CatResult{Files: make([]CatFile, 0, len(req.Files))}
 	for _, path := range req.Files {
 		data, readErr := cr.ReadFile(path)
 		if readErr != nil {
-			result.Files = append(result.Files, SourceFile{
+			result.Files = append(result.Files, CatFile{
 				Path:  path,
 				Error: readErr.Error(),
 			})
@@ -283,7 +283,7 @@ func (mc *MemoryClient) Source(req SourceRequest) (*SourceResult, error) {
 			content = strings.Join(lines[lineStart-1:lineEnd], "\n")
 		}
 
-		result.Files = append(result.Files, SourceFile{
+		result.Files = append(result.Files, CatFile{
 			Path:      path,
 			Content:   content,
 			LineCount: lineCount,

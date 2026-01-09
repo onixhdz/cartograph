@@ -274,7 +274,7 @@ to understand what they actually do:
 
 ```bash
 # Read source for a specific function (use file paths from context output)
-cartograph source <filePath> -l <startLine>-<endLine>
+cartograph cat <filePath> -l <startLine>-<endLine>
 
 # Read source with context from symbol
 cartograph context <symbolName> --content
