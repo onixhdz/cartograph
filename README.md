@@ -13,8 +13,7 @@
 ## Install
 
 ```bash
-brew tap realxen/tap
-brew install cartograph
+brew install realxen/tap/cartograph
 ```
 
 ---
