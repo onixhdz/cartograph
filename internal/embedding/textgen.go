@@ -3,6 +3,8 @@
 package embedding
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"strconv"
 	"strings"
 
@@ -30,6 +32,43 @@ var EmbeddableLabels = []graph.NodeLabel{
 	graph.LabelInterface,
 	graph.LabelStruct,
 	graph.LabelConstructor,
+}
+
+// Embedding priority tiers. Lower value = higher priority.
+const (
+	PriorityArchitectural = 0 // Classes, Interfaces, Structs
+	PriorityHighConn      = 1 // Exported symbols with ≥5 edges
+	PriorityExported      = 2 // Exported symbols with docs or moderate connectivity
+	PriorityDefault       = 3 // Everything else
+)
+
+// EmbedPriority returns an embedding priority tier for a node.
+// Lower values are embedded first so that high-value nodes are
+// available for hybrid search as early as possible.
+func EmbedPriority(node *lpg.Node, g *lpg.Graph) int {
+	if node.HasLabel(string(graph.LabelClass)) ||
+		node.HasLabel(string(graph.LabelInterface)) ||
+		node.HasLabel(string(graph.LabelStruct)) {
+		return PriorityArchitectural
+	}
+
+	exported := graph.GetBoolProp(node, graph.PropIsExported)
+	var degree int
+	if g != nil {
+		degree = len(graph.GetIncomingEdges(node, graph.RelCalls)) +
+			len(graph.GetOutgoingEdges(node, graph.RelCalls))
+	}
+
+	if exported && degree >= 5 {
+		return PriorityHighConn
+	}
+
+	hasDoc := graph.GetStringProp(node, graph.PropDescription) != ""
+	if exported && (hasDoc || degree >= 2) {
+		return PriorityExported
+	}
+
+	return PriorityDefault
 }
 
 // ShouldEmbed reports whether a node is worth embedding.
@@ -101,6 +140,28 @@ func GenerateBatchTexts(nodes []*lpg.Node, g *lpg.Graph) []string {
 		texts[i] = GenerateEmbeddingText(node, g)
 	}
 	return texts
+}
+
+// ContentHash returns a SHA-256 hex digest of the embedding text for a
+// node. Two nodes produce the same hash iff their embedding text is
+// identical — meaning content, signature, description, and graph context
+// are all unchanged. Used to detect stale embeddings without re-running
+// the model.
+func ContentHash(node *lpg.Node, g *lpg.Graph) string {
+	text := GenerateEmbeddingText(node, g)
+	h := sha256.Sum256([]byte(text))
+	return hex.EncodeToString(h[:])
+}
+
+// ContentHashBatch returns content hashes for a slice of nodes, reusing
+// the same texts that would be fed to the embedding model.
+func ContentHashBatch(nodes []*lpg.Node, g *lpg.Graph, texts []string) []string {
+	hashes := make([]string, len(nodes))
+	for i, text := range texts {
+		h := sha256.Sum256([]byte(text))
+		hashes[i] = hex.EncodeToString(h[:])
+	}
+	return hashes
 }
 
 // generateSymbolText handles Function, Class, Method, Interface, Struct, Constructor.
@@ -587,7 +648,6 @@ func packageFromPath(filePath string) string {
 	return dir
 }
 
-// joinMax joins up to max strings with ", ".
 func joinMax(items []string, max int) string {
 	if len(items) > max {
 		items = items[:max]

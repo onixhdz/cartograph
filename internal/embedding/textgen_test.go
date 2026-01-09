@@ -165,7 +165,6 @@ func TestGenerateEmbeddingText_NoGraph(t *testing.T) {
 	if !strings.Contains(text, "func doWork()") {
 		t.Errorf("expected code snippet, got:\n%s", text)
 	}
-	// Should NOT contain graph context lines.
 	if strings.Contains(text, "Calls:") || strings.Contains(text, "Called by:") {
 		t.Errorf("should not have graph context when g is nil, got:\n%s", text)
 	}
@@ -458,5 +457,92 @@ func TestProseSummary(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Errorf("expected %q in summary, got:\n%s", want, text)
 		}
+	}
+}
+
+func TestContentHash_Deterministic(t *testing.T) {
+	_, fn, _, _, _ := quickGraph(t)
+	g := fn.GetGraph()
+
+	h1 := ContentHash(fn, g)
+	h2 := ContentHash(fn, g)
+
+	if h1 != h2 {
+		t.Errorf("ContentHash not deterministic: %q != %q", h1, h2)
+	}
+	if len(h1) != 64 {
+		t.Errorf("expected 64-char hex SHA-256, got %d chars", len(h1))
+	}
+}
+
+func TestContentHash_ChangesWithContent(t *testing.T) {
+	g := lpg.NewGraph()
+
+	fn1 := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "fn1", Name: "Foo"},
+		FilePath:      "a.go",
+		Content:       "func Foo() {}",
+	})
+	fn2 := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "fn2", Name: "Foo"},
+		FilePath:      "a.go",
+		Content:       "func Foo() { return 42 }",
+	})
+
+	h1 := ContentHash(fn1, g)
+	h2 := ContentHash(fn2, g)
+
+	if h1 == h2 {
+		t.Error("different content should produce different hashes")
+	}
+}
+
+func TestContentHashBatch(t *testing.T) {
+	_, fn, _, cls, _ := quickGraph(t)
+	g := fn.GetGraph()
+
+	nodes := []*lpg.Node{fn, cls}
+	texts := GenerateBatchTexts(nodes, g)
+	hashes := ContentHashBatch(nodes, g, texts)
+
+	if len(hashes) != 2 {
+		t.Fatalf("expected 2 hashes, got %d", len(hashes))
+	}
+	if hashes[0] == hashes[1] {
+		t.Error("different nodes should have different hashes")
+	}
+	if hashes[0] != ContentHash(fn, g) {
+		t.Error("batch hash should match individual hash")
+	}
+}
+
+func TestEmbedPriority(t *testing.T) {
+	g := lpg.NewGraph()
+
+	cls := graph.AddSymbolNode(g, graph.LabelClass, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "c1", Name: "Server"},
+		FilePath:      "server.go",
+	})
+
+	exported := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "fn1", Name: "Handle"},
+		FilePath:      "handler.go",
+		IsExported:    true,
+		Description:   "handles requests",
+	})
+
+	private := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "fn2", Name: "helper"},
+		FilePath:      "handler.go",
+	})
+
+	if p := EmbedPriority(cls, g); p != PriorityArchitectural {
+		t.Errorf("class priority: got %d, want %d", p, PriorityArchitectural)
+	}
+	if p := EmbedPriority(exported, g); p != PriorityExported {
+		t.Errorf("exported+doc priority: got %d, want %d", p, PriorityExported)
+	}
+	if p := EmbedPriority(private, g); p != PriorityDefault {
+		t.Errorf("private priority: got %d, want %d", p, PriorityDefault)
 	}
 }

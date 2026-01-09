@@ -8,7 +8,10 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-var bucketEmbeddings = []byte("embeddings")
+var (
+	bucketEmbeddings    = []byte("embeddings")
+	bucketEmbeddingMeta = []byte("embedding_meta")
+)
 
 // EmbeddingStore provides vector storage in a dedicated bbolt bucket.
 // Keys are node IDs; values are raw little-endian float32 vectors (4 bytes/dim).
@@ -39,9 +42,11 @@ func NewEmbeddingStoreFromDB(db *bolt.DB) (*EmbeddingStore, error) {
 
 func newEmbeddingStore(db *bolt.DB, ownsDB bool) (*EmbeddingStore, error) {
 	if err := db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(bucketEmbeddings)
-		if err != nil {
+		if _, err := tx.CreateBucketIfNotExists(bucketEmbeddings); err != nil {
 			return fmt.Errorf("create embeddings bucket: %w", err)
+		}
+		if _, err := tx.CreateBucketIfNotExists(bucketEmbeddingMeta); err != nil {
+			return fmt.Errorf("create embedding_meta bucket: %w", err)
 		}
 		return nil
 	}); err != nil {
@@ -115,14 +120,17 @@ func (s *EmbeddingStore) Has(nodeID string) (bool, error) {
 	return found, nil
 }
 
-// Delete removes vectors for the given node IDs.
+// Delete removes vectors and metadata for the given node IDs.
 func (s *EmbeddingStore) Delete(nodeIDs []string) error {
 	if err := s.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(bucketEmbeddings)
+		vecs := tx.Bucket(bucketEmbeddings)
+		meta := tx.Bucket(bucketEmbeddingMeta)
 		for _, id := range nodeIDs {
-			if err := b.Delete([]byte(id)); err != nil {
+			key := []byte(id)
+			if err := vecs.Delete(key); err != nil {
 				return fmt.Errorf("delete %q: %w", id, err)
 			}
+			_ = meta.Delete(key) // best-effort
 		}
 		return nil
 	}); err != nil {
@@ -182,21 +190,118 @@ func (s *EmbeddingStore) Count() (int, error) {
 	return n, nil
 }
 
-// Clear removes all stored embeddings.
+// Clear removes all stored embeddings and metadata.
 func (s *EmbeddingStore) Clear() error {
 	if err := s.db.Update(func(tx *bolt.Tx) error {
-		if err := tx.DeleteBucket(bucketEmbeddings); err != nil {
-			return fmt.Errorf("delete embeddings bucket: %w", err)
-		}
-		_, err := tx.CreateBucket(bucketEmbeddings)
-		if err != nil {
-			return fmt.Errorf("recreate embeddings bucket: %w", err)
+		for _, name := range [][]byte{bucketEmbeddings, bucketEmbeddingMeta} {
+			if err := tx.DeleteBucket(name); err != nil {
+				return fmt.Errorf("delete bucket %s: %w", name, err)
+			}
+			if _, err := tx.CreateBucket(name); err != nil {
+				return fmt.Errorf("recreate bucket %s: %w", name, err)
+			}
 		}
 		return nil
 	}); err != nil {
 		return fmt.Errorf("embedding store: clear: %w", err)
 	}
 	return nil
+}
+
+// EmbeddingEntryWithHash extends EmbeddingEntry with a content hash
+// for staleness detection during incremental embedding.
+type EmbeddingEntryWithHash struct {
+	NodeID      string
+	Vector      []float32
+	ContentHash string
+}
+
+// BatchPutWithHash stores vectors and their content hashes in a single
+// transaction. The vector goes into the embeddings bucket; the hash
+// goes into embedding_meta.
+func (s *EmbeddingStore) BatchPutWithHash(entries []EmbeddingEntryWithHash) error {
+	if err := s.db.Update(func(tx *bolt.Tx) error {
+		vecs := tx.Bucket(bucketEmbeddings)
+		meta := tx.Bucket(bucketEmbeddingMeta)
+		for _, e := range entries {
+			key := []byte(e.NodeID)
+			if err := vecs.Put(key, encodeVector(e.Vector)); err != nil {
+				return fmt.Errorf("put vec %q: %w", e.NodeID, err)
+			}
+			if e.ContentHash != "" {
+				if err := meta.Put(key, []byte(e.ContentHash)); err != nil {
+					return fmt.Errorf("put hash %q: %w", e.NodeID, err)
+				}
+			}
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("embedding store: batch put with hash: %w", err)
+	}
+	return nil
+}
+
+// GetHashBatch returns stored content hashes for the given node IDs.
+// Missing entries are omitted from the result map.
+func (s *EmbeddingStore) GetHashBatch(nodeIDs []string) (map[string]string, error) {
+	result := make(map[string]string, len(nodeIDs))
+	err := s.db.View(func(tx *bolt.Tx) error {
+		meta := tx.Bucket(bucketEmbeddingMeta)
+		for _, id := range nodeIDs {
+			if v := meta.Get([]byte(id)); v != nil {
+				result[id] = string(v)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("embedding store: get hash batch: %w", err)
+	}
+	return result, nil
+}
+
+// NodeIDs returns all stored node IDs (keys only, no vector decode).
+func (s *EmbeddingStore) NodeIDs() ([]string, error) {
+	var ids []string
+	err := s.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketEmbeddings)
+		c := b.Cursor()
+		for k, _ := c.First(); k != nil; k, _ = c.Next() {
+			ids = append(ids, string(k))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("embedding store: node ids: %w", err)
+	}
+	return ids, nil
+}
+
+// DeleteByPrefix removes all embeddings and metadata whose node ID
+// starts with the given prefix. Returns the number of deleted entries.
+func (s *EmbeddingStore) DeleteByPrefix(prefix string) (int, error) {
+	var deleted int
+	pfx := []byte(prefix)
+	if err := s.db.Update(func(tx *bolt.Tx) error {
+		vecs := tx.Bucket(bucketEmbeddings)
+		meta := tx.Bucket(bucketEmbeddingMeta)
+		c := vecs.Cursor()
+		for k, _ := c.Seek(pfx); k != nil && hasPrefix(k, pfx); k, _ = c.Next() {
+			if err := c.Delete(); err != nil {
+				return fmt.Errorf("delete key: %w", err)
+			}
+			_ = meta.Delete(k) // best-effort, may not exist
+			deleted++
+		}
+		return nil
+	}); err != nil {
+		return 0, fmt.Errorf("embedding store: delete by prefix: %w", err)
+	}
+	return deleted, nil
+}
+
+func hasPrefix(s, prefix []byte) bool {
+	return len(s) >= len(prefix) && string(s[:len(prefix)]) == string(prefix)
 }
 
 // Close releases resources. If the store owns the DB, it closes it.

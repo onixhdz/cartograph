@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -747,23 +748,47 @@ func (s *Server) runEmbedJob(ctx context.Context, job *embedJob, req EmbedReques
 	}
 
 	nodeIDs := make([]string, 0, len(nodes))
+	nodeByID := make(map[string]*lpg.Node, len(nodes))
 	for _, n := range nodes {
 		id := graph.GetStringProp(n, graph.PropID)
 		if id != "" {
 			nodeIDs = append(nodeIDs, id)
+			nodeByID[id] = n
 		}
 	}
+
+	// Check which nodes already have embeddings and their content hashes.
 	existing, err := embStore.HasBatch(nodeIDs)
 	if err != nil {
 		setError(fmt.Sprintf("check existing embeddings: %v", err))
 		return
 	}
+	storedHashes, err := embStore.GetHashBatch(nodeIDs)
+	if err != nil {
+		setError(fmt.Sprintf("check stored hashes: %v", err))
+		return
+	}
 
-	var missing []*lpg.Node
-	for _, n := range nodes {
-		id := graph.GetStringProp(n, graph.PropID)
-		if id != "" && !existing[id] {
-			missing = append(missing, n)
+	// Compute current content hashes and find nodes that need embedding:
+	// either missing entirely, or stale (content hash changed).
+	var needEmbed []*lpg.Node
+	var staleCount int
+	for _, id := range nodeIDs {
+		n := nodeByID[id]
+		if !existing[id] {
+			needEmbed = append(needEmbed, n)
+			continue
+		}
+		// Existing vector — check if content hash has changed.
+		oldHash := storedHashes[id]
+		if oldHash == "" {
+			// No stored hash (legacy vector) — keep as-is, don't re-embed.
+			continue
+		}
+		newHash := embedding.ContentHash(n, g)
+		if newHash != oldHash {
+			needEmbed = append(needEmbed, n)
+			staleCount++
 		}
 	}
 
@@ -771,28 +796,42 @@ func (s *Server) runEmbedJob(ctx context.Context, job *embedJob, req EmbedReques
 	job.Total = len(nodes)
 	s.embedMu.Unlock()
 
-	if len(missing) == 0 || (len(missing) <= 10 && len(nodes) > 1000) {
-		if len(missing) > 0 {
-			log.Printf("[embed] %s: skipping %d trivial missing nodes (out of %d)", req.Repo, len(missing), len(nodes))
+	if len(needEmbed) == 0 || (len(needEmbed) <= 10 && len(nodes) > 1000 && staleCount == 0) {
+		if len(needEmbed) > 0 {
+			log.Printf("[embed] %s: skipping %d trivial missing nodes (out of %d)", req.Repo, len(needEmbed), len(nodes))
 		} else {
-			log.Printf("[embed] %s: all %d nodes already embedded", req.Repo, len(nodes))
+			log.Printf("[embed] %s: all %d nodes already embedded and current", req.Repo, len(nodes))
 		}
 		s.embedMu.Lock()
 		job.Progress = len(nodes)
-		// Carry forward model metadata from the registry entry so
-		// status/list still display the embed model after a shortcut.
 		if job.Model == "" {
 			job.Model = entry.Meta.EmbeddingModel
 			job.Dims = entry.Meta.EmbeddingDims
 			job.Provider = entry.Meta.EmbeddingProvider
 		}
 		s.embedMu.Unlock()
+
+		// Clean orphaned vectors from previous graph versions.
+		if orphans, err := embedding.CleanOrphans(embStore, g); err == nil && orphans > 0 {
+			log.Printf("[embed] %s: cleaned %d orphaned vectors", req.Repo, orphans)
+		}
+
 		setStatus("complete")
 		return
 	}
 
-	log.Printf("[embed] %s: %d/%d nodes need embedding", req.Repo, len(missing), len(nodes))
-	nodes = missing
+	// Sort by priority — architectural types first, then high-connectivity, etc.
+	sort.Slice(needEmbed, func(i, j int) bool {
+		return embedding.EmbedPriority(needEmbed[i], g) < embedding.EmbedPriority(needEmbed[j], g)
+	})
+
+	if staleCount > 0 {
+		log.Printf("[embed] %s: %d nodes need embedding (%d missing, %d stale content)",
+			req.Repo, len(needEmbed), len(needEmbed)-staleCount, staleCount)
+	} else {
+		log.Printf("[embed] %s: %d/%d nodes need embedding", req.Repo, len(needEmbed), len(nodes))
+	}
+	nodes = needEmbed
 
 	// Resolve model (may trigger download with progress tracking).
 	setStatus("downloading")
@@ -827,8 +866,6 @@ func (s *Server) runEmbedJob(ctx context.Context, job *embedJob, req EmbedReques
 	}
 	defer provider.Close()
 
-	// Determine model name for display/recovery (must be a resolvable specifier,
-	// not the provider display name).
 	modelName := req.Model
 	if modelName == "" {
 		switch cfg.Provider {
@@ -850,6 +887,7 @@ func (s *Server) runEmbedJob(ctx context.Context, job *embedJob, req EmbedReques
 	s.persistEmbedState(req.Repo, job)
 
 	texts := embedding.GenerateBatchTexts(nodes, g)
+	hashes := embedding.ContentHashBatch(nodes, g, texts)
 
 	const batchSize = 256
 	embeddedCount := 0
@@ -870,20 +908,21 @@ func (s *Server) runEmbedJob(ctx context.Context, job *embedJob, req EmbedReques
 			return
 		}
 
-		entries := make([]bbolt.EmbeddingEntry, 0, len(vecs))
+		entries := make([]bbolt.EmbeddingEntryWithHash, 0, len(vecs))
 		for j, vec := range vecs {
 			if vec != nil {
 				nodeID := graph.GetStringProp(nodes[i+j], graph.PropID)
 				if nodeID != "" {
-					entries = append(entries, bbolt.EmbeddingEntry{
-						NodeID: nodeID,
-						Vector: vec,
+					entries = append(entries, bbolt.EmbeddingEntryWithHash{
+						NodeID:      nodeID,
+						Vector:      vec,
+						ContentHash: hashes[i+j],
 					})
 				}
 			}
 		}
 		if len(entries) > 0 {
-			if err := embStore.BatchPut(entries); err != nil {
+			if err := embStore.BatchPutWithHash(entries); err != nil {
 				setError(fmt.Sprintf("save embeddings batch %d: %v", i/batchSize, err))
 				return
 			}
@@ -894,11 +933,14 @@ func (s *Server) runEmbedJob(ctx context.Context, job *embedJob, req EmbedReques
 		job.Progress = end
 		s.embedMu.Unlock()
 
-		// Checkpoint progress to registry every 10 batches so a crash
-		// leaves reasonably up-to-date progress for recovery.
 		if (i/batchSize+1)%10 == 0 {
 			s.persistEmbedState(req.Repo, job)
 		}
+	}
+
+	// Clean orphaned vectors after embedding.
+	if orphans, err := embedding.CleanOrphans(embStore, g); err == nil && orphans > 0 {
+		log.Printf("[embed] %s: cleaned %d orphaned vectors", req.Repo, orphans)
 	}
 
 	dur := time.Since(job.StartedAt).Round(time.Millisecond)

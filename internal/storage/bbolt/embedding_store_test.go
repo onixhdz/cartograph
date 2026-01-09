@@ -301,3 +301,189 @@ func TestEncodeDecodeVector(t *testing.T) {
 		}
 	}
 }
+
+func TestEmbeddingStore_BatchPutWithHash(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "embed.db")
+	s, err := NewEmbeddingStore(path)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	defer s.Close()
+
+	entries := []EmbeddingEntryWithHash{
+		{NodeID: "n1", Vector: []float32{0.1, 0.2}, ContentHash: "hash_a"},
+		{NodeID: "n2", Vector: []float32{0.3, 0.4}, ContentHash: "hash_b"},
+		{NodeID: "n3", Vector: []float32{0.5, 0.6}, ContentHash: ""},
+	}
+	if err := s.BatchPutWithHash(entries); err != nil {
+		t.Fatalf("batch put with hash: %v", err)
+	}
+
+	vec, err := s.Get("n1")
+	if err != nil || vec == nil {
+		t.Fatalf("get n1: %v", err)
+	}
+	if len(vec) != 2 {
+		t.Errorf("n1 vec len: got %d, want 2", len(vec))
+	}
+
+	hashes, err := s.GetHashBatch([]string{"n1", "n2", "n3", "n4"})
+	if err != nil {
+		t.Fatalf("get hash batch: %v", err)
+	}
+	if hashes["n1"] != "hash_a" {
+		t.Errorf("n1 hash: got %q, want %q", hashes["n1"], "hash_a")
+	}
+	if hashes["n2"] != "hash_b" {
+		t.Errorf("n2 hash: got %q, want %q", hashes["n2"], "hash_b")
+	}
+	if _, ok := hashes["n3"]; ok {
+		t.Errorf("n3 should have no hash (empty), got %q", hashes["n3"])
+	}
+	if _, ok := hashes["n4"]; ok {
+		t.Errorf("n4 should not exist")
+	}
+}
+
+func TestEmbeddingStore_NodeIDs(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "embed.db")
+	s, err := NewEmbeddingStore(path)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	defer s.Close()
+
+	if err := s.BatchPut([]EmbeddingEntry{
+		{NodeID: "a", Vector: []float32{1}},
+		{NodeID: "b", Vector: []float32{2}},
+		{NodeID: "c", Vector: []float32{3}},
+	}); err != nil {
+		t.Fatalf("batch put: %v", err)
+	}
+
+	ids, err := s.NodeIDs()
+	if err != nil {
+		t.Fatalf("node ids: %v", err)
+	}
+	if len(ids) != 3 {
+		t.Fatalf("got %d ids, want 3", len(ids))
+	}
+}
+
+func TestEmbeddingStore_DeleteByPrefix(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "embed.db")
+	s, err := NewEmbeddingStore(path)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	defer s.Close()
+
+	if err := s.BatchPutWithHash([]EmbeddingEntryWithHash{
+		{NodeID: "file:src/a.go:func:foo", Vector: []float32{1}, ContentHash: "h1"},
+		{NodeID: "file:src/a.go:func:bar", Vector: []float32{2}, ContentHash: "h2"},
+		{NodeID: "file:src/b.go:func:baz", Vector: []float32{3}, ContentHash: "h3"},
+	}); err != nil {
+		t.Fatalf("batch put: %v", err)
+	}
+
+	deleted, err := s.DeleteByPrefix("file:src/a.go:")
+	if err != nil {
+		t.Fatalf("delete by prefix: %v", err)
+	}
+	if deleted != 2 {
+		t.Errorf("deleted: got %d, want 2", deleted)
+	}
+
+	has, _ := s.Has("file:src/b.go:func:baz")
+	if !has {
+		t.Error("b.go entry should still exist")
+	}
+
+	has, _ = s.Has("file:src/a.go:func:foo")
+	if has {
+		t.Error("a.go:foo should be deleted")
+	}
+
+	hashes, _ := s.GetHashBatch([]string{"file:src/a.go:func:foo", "file:src/b.go:func:baz"})
+	if _, ok := hashes["file:src/a.go:func:foo"]; ok {
+		t.Error("a.go:foo hash should be deleted")
+	}
+	if hashes["file:src/b.go:func:baz"] != "h3" {
+		t.Errorf("b.go:baz hash: got %q, want %q", hashes["file:src/b.go:func:baz"], "h3")
+	}
+}
+
+func TestEmbeddingStore_DeleteCleansMetadata(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "embed.db")
+	s, err := NewEmbeddingStore(path)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	defer s.Close()
+
+	if err := s.BatchPutWithHash([]EmbeddingEntryWithHash{
+		{NodeID: "n1", Vector: []float32{1}, ContentHash: "h1"},
+	}); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+
+	if err := s.Delete([]string{"n1"}); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	hashes, _ := s.GetHashBatch([]string{"n1"})
+	if _, ok := hashes["n1"]; ok {
+		t.Error("hash should be deleted after Delete()")
+	}
+}
+
+func TestEmbeddingStore_ClearBothBuckets(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "embed.db")
+	s, err := NewEmbeddingStore(path)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	defer s.Close()
+
+	if err := s.BatchPutWithHash([]EmbeddingEntryWithHash{
+		{NodeID: "n1", Vector: []float32{1}, ContentHash: "h1"},
+	}); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+
+	if err := s.Clear(); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+
+	count, _ := s.Count()
+	if count != 0 {
+		t.Errorf("count after clear: got %d, want 0", count)
+	}
+
+	hashes, _ := s.GetHashBatch([]string{"n1"})
+	if _, ok := hashes["n1"]; ok {
+		t.Error("hash should be cleared")
+	}
+}
+
+func TestEmbeddingStore_OpenExistingWithoutMetaBucket(t *testing.T) {
+	// Backward compat: DB without embedding_meta bucket should open fine.
+	path := filepath.Join(t.TempDir(), "legacy.db")
+
+	s, err := NewEmbeddingStore(path)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	defer s.Close()
+
+	if err := s.Put("n1", []float32{1}); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	hashes, err := s.GetHashBatch([]string{"n1"})
+	if err != nil {
+		t.Fatalf("get hash: %v", err)
+	}
+	if len(hashes) != 0 {
+		t.Errorf("legacy node should have no hash, got %v", hashes)
+	}
+}
