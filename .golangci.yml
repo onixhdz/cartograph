@@ -1,0 +1,96 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    # Security
+    - gosec           # Security-oriented static analysis
+    - bidichk         # Detect dangerous Unicode bidi characters
+
+    # Bug detection
+    - bodyclose       # Ensure HTTP response bodies are closed
+    - contextcheck    # Check inherited context usage
+    - durationcheck   # Detect bad time.Duration arithmetic
+    - errchkjson      # Check JSON encoding/decoding errors
+    - makezero        # Detect append to zero-length slices
+    - nilerr          # Detect returning nil after checking err != nil
+    - noctx           # Detect HTTP requests without context
+    - nolintlint      # Keep //nolint directives valid and scoped
+    - reassign        # Detect accidental variable reassignment
+    - sqlclosecheck   # Detect unclosed SQL rows/statements
+    - wastedassign    # Detect wasted assignments
+
+    # Error handling
+    - errorlint       # Proper error wrapping and comparison
+    - wrapcheck       # Ensure errors from external packages are wrapped
+
+    # Code quality
+    - dupword         # Detect duplicate words in comments
+    - goconst         # Detect repeated strings that should be constants
+    - gocritic        # Broad set of opinionated checks
+    - misspell        # Detect common misspellings
+    - perfsprint      # Detect fmt.Sprintf that can be simpler
+    - unconvert       # Detect unnecessary type conversions
+    - unparam         # Detect unused function parameters
+    - usestdlibvars   # Detect manual values replaceable by stdlib constants
+
+    # Modern Go
+    - intrange        # Detect for loops replaceable with range-over-int
+    - modernize       # Suggest modern Go idioms
+    - exptostd        # Detect exp packages that moved to stdlib
+
+  disable:
+    # Too noisy for this codebase
+    - exhaustruct     # Require all struct fields — too strict for large external types
+    - wsl             # Whitespace formatting — too opinionated
+    - varnamelen      # Variable name length — conflicts with Go idioms (i, n, ok)
+    - funlen          # Function length — some pipeline steps are inherently long
+    - gochecknoglobals # Package-level vars are used for constants and config
+
+  exclusions:
+    presets:
+      - std-error-handling
+      - common-false-positives
+    rules:
+      - linters: [errcheck]
+        source: "defer "
+      - linters: [revive]
+        path: "_test\\.go$"
+        text: "dot-imports"
+      - linters: [lll]
+        source: "^//go:"
+
+  settings:
+    gosec:
+      excludes:
+        - G404
+    gocritic:
+      disabled-checks:
+        - ifElseChain
+        - singleCaseSwitch
+    errcheck:
+      check-type-assertions: true
+    errorlint:
+      errorf: true
+      asserts: true
+      comparison: true
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+    misspell:
+      locale: US
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    gofumpt:
+      module-path: github.com/realxen/cartograph
+    goimports:
+      local-prefixes:
+        - github.com/realxen/cartograph
+
+issues:
+  max-issues-per-linter: 50
+  max-same-issues: 5

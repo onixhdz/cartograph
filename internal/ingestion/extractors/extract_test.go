@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	ts "github.com/odvcencio/gotreesitter"
+
 	"github.com/realxen/cartograph/internal/graph"
 )
 

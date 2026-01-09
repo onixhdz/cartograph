@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/cloudprivacylabs/lpg/v2"
+
 	"github.com/realxen/cartograph/internal/search"
 	"github.com/realxen/cartograph/internal/storage"
 )
@@ -23,6 +24,7 @@ func (stubBackend) Query(req QueryRequest) (*QueryResult, error) {
 		Definitions:    []SymbolMatch{},
 	}, nil
 }
+
 func (stubBackend) Context(req ContextRequest) (*ContextResult, error) {
 	return &ContextResult{
 		Symbol:    SymbolMatch{},
@@ -33,12 +35,14 @@ func (stubBackend) Context(req ContextRequest) (*ContextResult, error) {
 		Processes: []SymbolMatch{},
 	}, nil
 }
+
 func (stubBackend) Cypher(req CypherRequest) (*CypherResult, error) {
 	return &CypherResult{
 		Columns: []string{},
 		Rows:    []map[string]any{},
 	}, nil
 }
+
 func (stubBackend) Impact(req ImpactRequest) (*ImpactResult, error) {
 	return &ImpactResult{
 		Target:   SymbolMatch{},
@@ -46,6 +50,7 @@ func (stubBackend) Impact(req ImpactRequest) (*ImpactResult, error) {
 		Depth:    req.Depth,
 	}, nil
 }
+
 func (stubBackend) Schema(req SchemaRequest) (*SchemaResult, error) {
 	return &SchemaResult{
 		NodeLabels: []NodeLabelSummary{},

@@ -415,10 +415,10 @@ func TestIsExampleFile(t *testing.T) {
 		"internal/server.go",
 		"src/auth/login.go",
 		"cmd/root.go",
-		"src/documented.go",                // contains "doc" but not a docs dir
-		"src/exemplary.go",                 // contains "example" substring but not a pattern
-		"src/demolish.ts",                  // contains "demo" substring
-		"src/sampling.py",                  // contains "sample" substring
+		"src/documented.go", // contains "doc" but not a docs dir
+		"src/exemplary.go",  // contains "example" substring but not a pattern
+		"src/demolish.ts",   // contains "demo" substring
+		"src/sampling.py",   // contains "sample" substring
 		"internal/query/backend.go",
 		"pkg/service/handler.java",
 		"lib/models/user.rb",
@@ -429,11 +429,11 @@ func TestIsExampleFile(t *testing.T) {
 	// Regex-based patterns: compound and variant directory names
 	// that the old static list would have missed.
 	regexExampleFiles := []string{
-		"docs_src/security/tutorial004.py",     // Python docs source (FastAPI)
-		"doc-examples/auth.ts",                 // hyphenated variant
-		"docs-src/guide.py",                    // hyphenated variant
-		"doc_examples/setup.go",                // underscore variant
-		"sandboxes/experiment.ts",              // plural of sandbox
+		"docs_src/security/tutorial004.py", // Python docs source (FastAPI)
+		"doc-examples/auth.ts",             // hyphenated variant
+		"docs-src/guide.py",                // hyphenated variant
+		"doc_examples/setup.go",            // underscore variant
+		"sandboxes/experiment.ts",          // plural of sandbox
 	}
 	for _, fp := range regexExampleFiles {
 		t.Run("regex_"+fp, func(t *testing.T) {
@@ -538,9 +538,9 @@ func TestIsTestFile_RegexPatterns(t *testing.T) {
 	// that a static list would miss.
 	regexTestFiles := []string{
 		"test-utils/setup.ts",               // hyphenated compound
-		"test_helpers/factory.py",            // underscore compound
-		"src/test-fixtures/data.json",        // hyphenated test dir
-		"project/specs/models/user_spec.rb",  // plural of spec
+		"test_helpers/factory.py",           // underscore compound
+		"src/test-fixtures/data.json",       // hyphenated test dir
+		"project/specs/models/user_spec.rb", // plural of spec
 	}
 	for _, fp := range regexTestFiles {
 		if !IsTestFile(fp) {
@@ -550,9 +550,9 @@ func TestIsTestFile_RegexPatterns(t *testing.T) {
 
 	// Must NOT match — test/example stems appearing in non-dir context
 	regexNonTestFiles := []string{
-		"src/testing_utils.py",    // filename, not directory
-		"src/testimony.go",        // contains "test" but different word
-		"lib/contest/handler.go",  // contains "test" but different word
+		"src/testing_utils.py",   // filename, not directory
+		"src/testimony.go",       // contains "test" but different word
+		"lib/contest/handler.go", // contains "test" but different word
 	}
 	for _, fp := range regexNonTestFiles {
 		if IsTestFile(fp) {
@@ -560,7 +560,6 @@ func TestIsTestFile_RegexPatterns(t *testing.T) {
 		}
 	}
 }
-
 
 func TestIsTestFile_TestHelperFiles(t *testing.T) {
 	helperFiles := []string{

@@ -7,6 +7,7 @@ import (
 
 	"github.com/cloudprivacylabs/lpg/v2"
 	"github.com/cloudprivacylabs/opencypher"
+
 	"github.com/realxen/cartograph/internal/graph"
 	"github.com/realxen/cartograph/internal/search"
 	"github.com/realxen/cartograph/internal/service"
@@ -514,22 +515,26 @@ func TestStripOrderBy(t *testing.T) {
 		{
 			"MATCH (n) RETURN n.name ORDER BY n.name",
 			"MATCH (n) RETURN n.name",
-			[]string{"n.name"}, []bool{true},
+			[]string{"n.name"},
+			[]bool{true},
 		},
 		{
 			"MATCH (n) RETURN n.name, n.score ORDER BY n.score DESC",
 			"MATCH (n) RETURN n.name, n.score",
-			[]string{"n.score"}, []bool{false},
+			[]string{"n.score"},
+			[]bool{false},
 		},
 		{
 			"MATCH (n) RETURN n.name ORDER BY n.score DESC LIMIT 10",
 			"MATCH (n) RETURN n.name LIMIT 10",
-			[]string{"n.score"}, []bool{false},
+			[]string{"n.score"},
+			[]bool{false},
 		},
 		{
 			"MATCH (n) RETURN n.name ORDER BY n.a ASC, n.b DESC",
 			"MATCH (n) RETURN n.name",
-			[]string{"n.a", "n.b"}, []bool{true, false},
+			[]string{"n.a", "n.b"},
+			[]bool{true, false},
 		},
 		{
 			"MATCH (n) RETURN n.name",

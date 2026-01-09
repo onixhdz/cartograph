@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/cloudprivacylabs/lpg/v2"
+
 	"github.com/realxen/cartograph/internal/graph"
 )
 
@@ -417,9 +418,9 @@ func TestProseSummary(t *testing.T) {
 		BaseNodeProps: graph.BaseNodeProps{ID: "fn1", Name: "HandleRequest"},
 		FilePath:      "internal/server/handler.go",
 		StartLine:     10, EndLine: 30,
-		Content:       "func HandleRequest(w http.ResponseWriter, r *http.Request) {}",
-		Signature:     "func HandleRequest(w http.ResponseWriter, r *http.Request)",
-		IsExported:    true,
+		Content:    "func HandleRequest(w http.ResponseWriter, r *http.Request) {}",
+		Signature:  "func HandleRequest(w http.ResponseWriter, r *http.Request)",
+		IsExported: true,
 	})
 
 	// Cross-package callee

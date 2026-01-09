@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/cloudprivacylabs/lpg/v2"
+
 	"github.com/realxen/cartograph/internal/graph"
 )
 
@@ -964,7 +965,8 @@ func stepsFingerprint(steps []struct {
 	node    *lpg.Node
 	stepNum int
 	depth   int
-}) string {
+},
+) string {
 	ids := make([]string, 0, len(steps))
 	for _, s := range steps {
 		id := graph.GetStringProp(s.node, graph.PropID)

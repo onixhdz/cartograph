@@ -14,10 +14,10 @@ func TestLocalWalker_ImplementsFileWalker(t *testing.T) {
 
 func TestLocalWalker_Walk(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(dir+"/main.go", []byte("package main\n"), 0644)   //nolint:errcheck
-	os.WriteFile(dir+"/utils.go", []byte("package main\n"), 0644)  //nolint:errcheck
-	os.MkdirAll(dir+"/sub", 0755)                                  //nolint:errcheck
-	os.WriteFile(dir+"/sub/lib.go", []byte("package sub\n"), 0644) //nolint:errcheck
+	os.WriteFile(dir+"/main.go", []byte("package main\n"), 0o644)   //nolint:errcheck
+	os.WriteFile(dir+"/utils.go", []byte("package main\n"), 0o644)  //nolint:errcheck
+	os.MkdirAll(dir+"/sub", 0o755)                                  //nolint:errcheck
+	os.WriteFile(dir+"/sub/lib.go", []byte("package sub\n"), 0o644) //nolint:errcheck
 
 	w := LocalWalker{}
 	results, err := w.Walk(dir, WalkOptions{})
@@ -46,7 +46,7 @@ func TestOSFileReader_ReadFile(t *testing.T) {
 	dir := t.TempDir()
 	path := dir + "/test.txt"
 	want := "hello world"
-	os.WriteFile(path, []byte(want), 0644) //nolint:errcheck
+	os.WriteFile(path, []byte(want), 0o644) //nolint:errcheck
 
 	r := OSFileReader{}
 	data, err := r.ReadFile(path)

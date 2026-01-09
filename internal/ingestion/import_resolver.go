@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/cloudprivacylabs/lpg/v2"
+
 	"github.com/realxen/cartograph/internal/graph"
 )
 
@@ -259,8 +260,10 @@ func findGoPackageFile(idx *filePathIndex, dir string) *lpg.Node {
 
 // TypeScript/JavaScript import resolver
 
-var tsExts = []string{".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}
-var tsIndexFiles = []string{"index.ts", "index.tsx", "index.js", "index.jsx"}
+var (
+	tsExts       = []string{".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}
+	tsIndexFiles = []string{"index.ts", "index.tsx", "index.js", "index.jsx"}
+)
 
 // resolveTSJSImport resolves TypeScript/JavaScript imports using tsconfig.json
 // path aliases, baseUrl, and standard Node.js module resolution.

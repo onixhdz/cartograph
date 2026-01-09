@@ -9,6 +9,7 @@ import (
 	bolt "go.etcd.io/bbolt"
 
 	"github.com/cloudprivacylabs/lpg/v2"
+
 	"github.com/realxen/cartograph/internal/graph"
 	"github.com/realxen/cartograph/internal/storage"
 )
@@ -67,7 +68,7 @@ func (s *Store) SaveGraph(g *lpg.Graph) error {
 		// Count nodes first so we can write a fixed-length array header.
 		graph.ForEachNode(g, func(_ *lpg.Node) bool { nodeCount++; return true })
 
-			nodeBuf = make([]byte, 0, nodeCount*256)
+		nodeBuf = make([]byte, 0, nodeCount*256)
 		w := byteWriter{buf: nodeBuf}
 		enc.Reset(&w)
 		_ = enc.EncodeArrayLen(nodeCount)

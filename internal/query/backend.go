@@ -16,6 +16,7 @@ import (
 
 	"github.com/cloudprivacylabs/lpg/v2"
 	"github.com/cloudprivacylabs/opencypher"
+
 	"github.com/realxen/cartograph/internal/graph"
 	"github.com/realxen/cartograph/internal/ingestion"
 	"github.com/realxen/cartograph/internal/search"
@@ -1308,8 +1309,10 @@ type negativePatternInfo struct {
 
 // reNegativePattern matches WHERE ... NOT ()-[:REL_TYPE]->(var) or
 // NOT (var)-[:REL_TYPE]->() patterns in Cypher queries.
-var reNegativePatternIncoming = regexp.MustCompile(`(?i)\bNOT\s+\(\s*\)\s*-\[\s*:\s*(\w+)\s*\]\s*->\s*\(\s*(\w+)\s*\)`)
-var reNegativePatternOutgoing = regexp.MustCompile(`(?i)\bNOT\s+\(\s*(\w+)\s*\)\s*-\[\s*:\s*(\w+)\s*\]\s*->\s*\(\s*\)`)
+var (
+	reNegativePatternIncoming = regexp.MustCompile(`(?i)\bNOT\s+\(\s*\)\s*-\[\s*:\s*(\w+)\s*\]\s*->\s*\(\s*(\w+)\s*\)`)
+	reNegativePatternOutgoing = regexp.MustCompile(`(?i)\bNOT\s+\(\s*(\w+)\s*\)\s*-\[\s*:\s*(\w+)\s*\]\s*->\s*\(\s*\)`)
+)
 
 // rewriteNegativePattern replaces NOT ()-[:REL]->() patterns with id <> exclusions
 // (workaround: opencypher doesn't support negative pattern matching).

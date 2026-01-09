@@ -478,7 +478,7 @@ func (s *Server) handleEmbedStatus(w http.ResponseWriter, r *http.Request) {
 
 	job := s.GetEmbedJob(req.Repo)
 	if job == nil {
-			if s.dataDir != "" {
+		if s.dataDir != "" {
 			registry, err := storage.NewRegistry(s.dataDir)
 			if err == nil {
 				if entry, ok := registry.Get(req.Repo); ok && entry.Meta.EmbeddingStatus != "" {

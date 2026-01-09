@@ -877,7 +877,7 @@ func TestCsprojDependencies(t *testing.T) {
 	// Override os.ReadDir by using LoadProjectConfig with a temp dir
 	dir := t.TempDir()
 	// Create a fake .csproj file so os.ReadDir finds it
-	if err := os.WriteFile(dir+"/MyApp.csproj", []byte(""), 0644); err != nil {
+	if err := os.WriteFile(dir+"/MyApp.csproj", []byte(""), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg := LoadProjectConfig(dir, func(path string) ([]byte, error) {
@@ -906,7 +906,7 @@ func TestCsprojDependencies(t *testing.T) {
 
 func TestCsprojSkipsMSBuildVariables(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(dir+"/App.csproj", []byte(""), 0644); err != nil {
+	if err := os.WriteFile(dir+"/App.csproj", []byte(""), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg := LoadProjectConfig(dir, func(path string) ([]byte, error) {
@@ -936,7 +936,7 @@ func TestCsprojSkipsMSBuildVariables(t *testing.T) {
 
 func TestCsprojUpdateAttribute(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(dir+"/Build.csproj", []byte(""), 0644); err != nil {
+	if err := os.WriteFile(dir+"/Build.csproj", []byte(""), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg := LoadProjectConfig(dir, func(path string) ([]byte, error) {

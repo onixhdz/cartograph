@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gofrs/flock"
+
 	"github.com/realxen/cartograph/internal/sysutil"
 )
 

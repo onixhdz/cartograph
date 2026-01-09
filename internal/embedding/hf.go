@@ -43,21 +43,21 @@ var hfBaseURL = "https://huggingface.co"
 
 // quantPriority ranks GGUF quantizations — higher is preferred.
 var quantPriority = map[string]int{
-	"Q8_0":  100,
-	"Q6_K":  90,
+	"Q8_0":   100,
+	"Q6_K":   90,
 	"Q5_K_M": 80,
 	"Q5_K_S": 75,
-	"Q5_1":  70,
-	"Q5_0":  65,
+	"Q5_1":   70,
+	"Q5_0":   65,
 	"Q4_K_M": 60,
 	"Q4_K_S": 55,
-	"Q4_1":  50,
-	"Q4_0":  45,
+	"Q4_1":   50,
+	"Q4_0":   45,
 	"Q3_K_M": 40,
 	"Q3_K_S": 35,
-	"Q2_K":  30,
-	"F16":   20,
-	"F32":   10,
+	"Q2_K":   30,
+	"F16":    20,
+	"F32":    10,
 }
 
 // FetchModelInfo queries the HF API for available GGUF files in a repo

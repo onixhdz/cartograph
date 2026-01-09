@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/cloudprivacylabs/lpg/v2"
+
 	"github.com/realxen/cartograph/internal/graph"
 )
 
@@ -107,13 +108,25 @@ func ints(from, to int) []string {
 // igraph expected: 2 clusters, modularity ~0.45238, {0..4} together, {5..9} together.
 func TestLeiden_igraph_TwoCliquesWithBridge(t *testing.T) {
 	edges := [][2]int{
-		{0, 1}, {0, 2}, {0, 3}, {0, 4},
-		{1, 2}, {1, 3}, {1, 4},
-		{2, 3}, {2, 4},
+		{0, 1},
+		{0, 2},
+		{0, 3},
+		{0, 4},
+		{1, 2},
+		{1, 3},
+		{1, 4},
+		{2, 3},
+		{2, 4},
 		{3, 4},
-		{5, 6}, {5, 7}, {5, 8}, {5, 9},
-		{6, 7}, {6, 8}, {6, 9},
-		{7, 8}, {7, 9},
+		{5, 6},
+		{5, 7},
+		{5, 8},
+		{5, 9},
+		{6, 7},
+		{6, 8},
+		{6, 9},
+		{7, 8},
+		{7, 9},
 		{8, 9},
 		{0, 5}, // bridge
 	}
@@ -143,13 +156,25 @@ func TestLeiden_igraph_TwoCliquesWithBridge(t *testing.T) {
 // IG2: Same as IG1 but with uniform weight=2 on all edges.
 func TestLeiden_igraph_TwoCliquesUniformWeight(t *testing.T) {
 	edges := [][2]int{
-		{0, 1}, {0, 2}, {0, 3}, {0, 4},
-		{1, 2}, {1, 3}, {1, 4},
-		{2, 3}, {2, 4},
+		{0, 1},
+		{0, 2},
+		{0, 3},
+		{0, 4},
+		{1, 2},
+		{1, 3},
+		{1, 4},
+		{2, 3},
+		{2, 4},
 		{3, 4},
-		{5, 6}, {5, 7}, {5, 8}, {5, 9},
-		{6, 7}, {6, 8}, {6, 9},
-		{7, 8}, {7, 9},
+		{5, 6},
+		{5, 7},
+		{5, 8},
+		{5, 9},
+		{6, 7},
+		{6, 8},
+		{6, 9},
+		{7, 8},
+		{7, 9},
 		{8, 9},
 		{0, 5},
 	}
@@ -400,13 +425,25 @@ func TestLeiden_ModularityNonDecreasing(t *testing.T) {
 // TEST-6: All edge weights = 1.0 (unweighted) should work correctly.
 func TestLeiden_AllSameWeight(t *testing.T) {
 	edges := [][2]int{
-		{0, 1}, {0, 2}, {0, 3}, {0, 4},
-		{1, 2}, {1, 3}, {1, 4},
-		{2, 3}, {2, 4},
+		{0, 1},
+		{0, 2},
+		{0, 3},
+		{0, 4},
+		{1, 2},
+		{1, 3},
+		{1, 4},
+		{2, 3},
+		{2, 4},
 		{3, 4},
-		{5, 6}, {5, 7}, {5, 8}, {5, 9},
-		{6, 7}, {6, 8}, {6, 9},
-		{7, 8}, {7, 9},
+		{5, 6},
+		{5, 7},
+		{5, 8},
+		{5, 9},
+		{6, 7},
+		{6, 8},
+		{6, 9},
+		{7, 8},
+		{7, 9},
 		{8, 9},
 		{0, 5},
 	}
@@ -1082,13 +1119,25 @@ func TestLeidenCPM_NegativeWeights(t *testing.T) {
 func TestLeidenCPM_TwoCliques(t *testing.T) {
 	// Two 5-cliques connected by a bridge. CPM should detect them.
 	edges := [][2]int{
-		{0, 1}, {0, 2}, {0, 3}, {0, 4},
-		{1, 2}, {1, 3}, {1, 4},
-		{2, 3}, {2, 4},
+		{0, 1},
+		{0, 2},
+		{0, 3},
+		{0, 4},
+		{1, 2},
+		{1, 3},
+		{1, 4},
+		{2, 3},
+		{2, 4},
 		{3, 4},
-		{5, 6}, {5, 7}, {5, 8}, {5, 9},
-		{6, 7}, {6, 8}, {6, 9},
-		{7, 8}, {7, 9},
+		{5, 6},
+		{5, 7},
+		{5, 8},
+		{5, 9},
+		{6, 7},
+		{6, 8},
+		{6, 9},
+		{7, 8},
+		{7, 9},
 		{8, 9},
 		{0, 5}, // bridge
 	}
@@ -1283,8 +1332,26 @@ func TestLeiden_ShuffledOrderStillDeterministic(t *testing.T) {
 func TestLeidenER_TwoCliques(t *testing.T) {
 	// Two 5-cliques connected by a bridge. ER should separate them.
 	adj := buildAdjFromEdges([][2]int{
-		{0, 1}, {0, 2}, {0, 3}, {0, 4}, {1, 2}, {1, 3}, {1, 4}, {2, 3}, {2, 4}, {3, 4},
-		{5, 6}, {5, 7}, {5, 8}, {5, 9}, {6, 7}, {6, 8}, {6, 9}, {7, 8}, {7, 9}, {8, 9},
+		{0, 1},
+		{0, 2},
+		{0, 3},
+		{0, 4},
+		{1, 2},
+		{1, 3},
+		{1, 4},
+		{2, 3},
+		{2, 4},
+		{3, 4},
+		{5, 6},
+		{5, 7},
+		{5, 8},
+		{5, 9},
+		{6, 7},
+		{6, 8},
+		{6, 9},
+		{7, 8},
+		{7, 9},
+		{8, 9},
 		{0, 5},
 	}, nil)
 
@@ -1308,8 +1375,26 @@ func TestLeidenER_TwoCliques(t *testing.T) {
 
 func TestLeidenER_QualityReturned(t *testing.T) {
 	adj := buildAdjFromEdges([][2]int{
-		{0, 1}, {0, 2}, {0, 3}, {0, 4}, {1, 2}, {1, 3}, {1, 4}, {2, 3}, {2, 4}, {3, 4},
-		{5, 6}, {5, 7}, {5, 8}, {5, 9}, {6, 7}, {6, 8}, {6, 9}, {7, 8}, {7, 9}, {8, 9},
+		{0, 1},
+		{0, 2},
+		{0, 3},
+		{0, 4},
+		{1, 2},
+		{1, 3},
+		{1, 4},
+		{2, 3},
+		{2, 4},
+		{3, 4},
+		{5, 6},
+		{5, 7},
+		{5, 8},
+		{5, 9},
+		{6, 7},
+		{6, 8},
+		{6, 9},
+		{7, 8},
+		{7, 9},
+		{8, 9},
 		{0, 5},
 	}, nil)
 
@@ -1365,8 +1450,26 @@ func TestLeidenWithOptions_ConfigurableBeta(t *testing.T) {
 func TestLeidenWithOptions_HighBeta(t *testing.T) {
 	// Very high beta increases randomness — result should still be valid.
 	adj := buildAdjFromEdges([][2]int{
-		{0, 1}, {0, 2}, {0, 3}, {0, 4}, {1, 2}, {1, 3}, {1, 4}, {2, 3}, {2, 4}, {3, 4},
-		{5, 6}, {5, 7}, {5, 8}, {5, 9}, {6, 7}, {6, 8}, {6, 9}, {7, 8}, {7, 9}, {8, 9},
+		{0, 1},
+		{0, 2},
+		{0, 3},
+		{0, 4},
+		{1, 2},
+		{1, 3},
+		{1, 4},
+		{2, 3},
+		{2, 4},
+		{3, 4},
+		{5, 6},
+		{5, 7},
+		{5, 8},
+		{5, 9},
+		{6, 7},
+		{6, 8},
+		{6, 9},
+		{7, 8},
+		{7, 9},
+		{8, 9},
 		{0, 5},
 	}, nil)
 
@@ -1429,8 +1532,26 @@ func TestQuality_MatchesModularity(t *testing.T) {
 
 func TestQuality_CPM(t *testing.T) {
 	adj := buildAdjFromEdges([][2]int{
-		{0, 1}, {0, 2}, {0, 3}, {0, 4}, {1, 2}, {1, 3}, {1, 4}, {2, 3}, {2, 4}, {3, 4},
-		{5, 6}, {5, 7}, {5, 8}, {5, 9}, {6, 7}, {6, 8}, {6, 9}, {7, 8}, {7, 9}, {8, 9},
+		{0, 1},
+		{0, 2},
+		{0, 3},
+		{0, 4},
+		{1, 2},
+		{1, 3},
+		{1, 4},
+		{2, 3},
+		{2, 4},
+		{3, 4},
+		{5, 6},
+		{5, 7},
+		{5, 8},
+		{5, 9},
+		{6, 7},
+		{6, 8},
+		{6, 9},
+		{7, 8},
+		{7, 9},
+		{8, 9},
 		{0, 5},
 	}, nil)
 
@@ -1444,8 +1565,26 @@ func TestQuality_CPM(t *testing.T) {
 
 func TestQuality_ER(t *testing.T) {
 	adj := buildAdjFromEdges([][2]int{
-		{0, 1}, {0, 2}, {0, 3}, {0, 4}, {1, 2}, {1, 3}, {1, 4}, {2, 3}, {2, 4}, {3, 4},
-		{5, 6}, {5, 7}, {5, 8}, {5, 9}, {6, 7}, {6, 8}, {6, 9}, {7, 8}, {7, 9}, {8, 9},
+		{0, 1},
+		{0, 2},
+		{0, 3},
+		{0, 4},
+		{1, 2},
+		{1, 3},
+		{1, 4},
+		{2, 3},
+		{2, 4},
+		{3, 4},
+		{5, 6},
+		{5, 7},
+		{5, 8},
+		{5, 9},
+		{6, 7},
+		{6, 8},
+		{6, 9},
+		{7, 8},
+		{7, 9},
+		{8, 9},
 		{0, 5},
 	}, nil)
 
@@ -1490,8 +1629,26 @@ func TestModularity_EdgelessReturnsZero(t *testing.T) {
 
 func TestLeidenFull_ReturnsAllFields(t *testing.T) {
 	adj := buildAdjFromEdges([][2]int{
-		{0, 1}, {0, 2}, {0, 3}, {0, 4}, {1, 2}, {1, 3}, {1, 4}, {2, 3}, {2, 4}, {3, 4},
-		{5, 6}, {5, 7}, {5, 8}, {5, 9}, {6, 7}, {6, 8}, {6, 9}, {7, 8}, {7, 9}, {8, 9},
+		{0, 1},
+		{0, 2},
+		{0, 3},
+		{0, 4},
+		{1, 2},
+		{1, 3},
+		{1, 4},
+		{2, 3},
+		{2, 4},
+		{3, 4},
+		{5, 6},
+		{5, 7},
+		{5, 8},
+		{5, 9},
+		{6, 7},
+		{6, 8},
+		{6, 9},
+		{7, 8},
+		{7, 9},
+		{8, 9},
 		{0, 5},
 	}, nil)
 
@@ -1660,13 +1817,25 @@ func TestLeiden_KarateClub_ExactModularity(t *testing.T) {
 // Two 5-cliques with bridge: analytical optimal Q = 19/42 ≈ 0.45238.
 func TestLeiden_TwoCliques_ExactModularity(t *testing.T) {
 	edges := [][2]int{
-		{0, 1}, {0, 2}, {0, 3}, {0, 4},
-		{1, 2}, {1, 3}, {1, 4},
-		{2, 3}, {2, 4},
+		{0, 1},
+		{0, 2},
+		{0, 3},
+		{0, 4},
+		{1, 2},
+		{1, 3},
+		{1, 4},
+		{2, 3},
+		{2, 4},
 		{3, 4},
-		{5, 6}, {5, 7}, {5, 8}, {5, 9},
-		{6, 7}, {6, 8}, {6, 9},
-		{7, 8}, {7, 9},
+		{5, 6},
+		{5, 7},
+		{5, 8},
+		{5, 9},
+		{6, 7},
+		{6, 8},
+		{6, 9},
+		{7, 8},
+		{7, 9},
 		{8, 9},
 		{0, 5},
 	}
@@ -1784,8 +1953,18 @@ func TestLeidenFull_WithStartPartition(t *testing.T) {
 func TestModularity_TwoK4_ExactValue(t *testing.T) {
 	// Two disconnected K_4: 12 edges, optimal 2-partition Q = 0.5.
 	edges := [][2]int{
-		{0, 1}, {0, 2}, {0, 3}, {1, 2}, {1, 3}, {2, 3},
-		{4, 5}, {4, 6}, {4, 7}, {5, 6}, {5, 7}, {6, 7},
+		{0, 1},
+		{0, 2},
+		{0, 3},
+		{1, 2},
+		{1, 3},
+		{2, 3},
+		{4, 5},
+		{4, 6},
+		{4, 7},
+		{5, 6},
+		{5, 7},
+		{6, 7},
 	}
 	adj := buildAdjFromEdges(edges, nil)
 	communities := map[string]int{

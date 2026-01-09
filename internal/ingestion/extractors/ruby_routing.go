@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	ts "github.com/odvcencio/gotreesitter"
+
 	"github.com/realxen/cartograph/internal/graph"
 )
 

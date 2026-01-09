@@ -19,7 +19,7 @@ tasks:
   lint:
     desc: Run golangci-lint
     cmds:
-      - go tool golangci-lint run ./...
+      - golangci-lint run ./...
 
   build:
     desc: Build cartograph for all supported platforms (native CGO)

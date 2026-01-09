@@ -9,6 +9,7 @@ import (
 
 	ts "github.com/odvcencio/gotreesitter"
 	"github.com/odvcencio/gotreesitter/grammars"
+
 	"github.com/realxen/cartograph/internal/graph"
 )
 

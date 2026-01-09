@@ -17,6 +17,8 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/cloudprivacylabs/lpg/v2"
 	"github.com/go-git/go-billy/v6"
+	"golang.org/x/term"
+
 	"github.com/realxen/cartograph/internal/graph"
 	"github.com/realxen/cartograph/internal/ingestion"
 	"github.com/realxen/cartograph/internal/remote"
@@ -25,7 +27,6 @@ import (
 	"github.com/realxen/cartograph/internal/storage"
 	"github.com/realxen/cartograph/internal/storage/bbolt"
 	"github.com/realxen/cartograph/internal/sysutil"
-	"golang.org/x/term"
 )
 
 // CLI is the top-level kong command structure for cartograph.

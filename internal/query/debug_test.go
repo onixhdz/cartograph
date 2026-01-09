@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	lpg "github.com/cloudprivacylabs/lpg/v2"
+
 	"github.com/realxen/cartograph/internal/graph"
 	"github.com/realxen/cartograph/internal/service"
 )

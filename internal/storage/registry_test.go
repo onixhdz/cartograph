@@ -146,7 +146,6 @@ func TestRegistryRemoveNonExistent(t *testing.T) {
 	if err := reg.Remove("nonexistent"); err != nil {
 		t.Errorf("Remove nonexistent should not error, got: %v", err)
 	}
-
 }
 
 // --- Same-name collision tests ---

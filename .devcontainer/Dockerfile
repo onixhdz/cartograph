@@ -28,6 +28,15 @@ RUN BUN_ARCH=$(if [ "${TARGETARCH}" = "amd64" ]; then echo "x64"; else echo "aar
     cd /tmp && unzip -q bun.zip && \
     chmod +x /tmp/bun-linux-${BUN_ARCH}/bun
 
+# Download golangci-lint
+ARG GOLANGCI_LINT_VERSION=v2.1.6
+RUN curl ${CURL_OPTS} -fL -o /tmp/golangci-lint.tar.gz \
+    "https://github.com/golangci/golangci-lint/releases/download/${GOLANGCI_LINT_VERSION}/golangci-lint-${GOLANGCI_LINT_VERSION#v}-linux-${TARGETARCH}.tar.gz" && \
+    tar -xzf /tmp/golangci-lint.tar.gz -C /tmp && \
+    chmod +x /tmp/golangci-lint-${GOLANGCI_LINT_VERSION#v}-linux-${TARGETARCH}/golangci-lint && \
+    mv /tmp/golangci-lint-${GOLANGCI_LINT_VERSION#v}-linux-${TARGETARCH}/golangci-lint /tmp/golangci-lint && \
+    rm /tmp/golangci-lint.tar.gz
+
 # Download GitHub Copilot CLI
 ARG COPILOT_VERSION=v1.0.18
 RUN COPILOT_ARCH=$(if [ "${TARGETARCH}" = "amd64" ]; then echo "x64"; else echo "arm64"; fi) && \
@@ -38,6 +47,7 @@ RUN COPILOT_ARCH=$(if [ "${TARGETARCH}" = "amd64" ]; then echo "x64"; else echo 
 FROM mcr.microsoft.com/devcontainers/go:1.26-bookworm AS development
 
 COPY --from=builder /tmp/task /usr/local/bin/
+COPY --from=builder /tmp/golangci-lint /usr/local/bin/
 
 # Copy Zig compiler
 COPY --from=builder /tmp/zig /usr/local/zig

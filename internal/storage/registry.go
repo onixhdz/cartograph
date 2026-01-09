@@ -45,7 +45,7 @@ type RegistryEntry struct {
 // Entries are keyed by Hash; name-based lookups may be ambiguous.
 type Registry struct {
 	path    string
-	flock   *flock.Flock // cross-process file lock for safe read-modify-write
+	flock   *flock.Flock             // cross-process file lock for safe read-modify-write
 	entries map[string]RegistryEntry // keyed by Hash
 	mu      sync.RWMutex
 }
@@ -75,7 +75,7 @@ func (r *Registry) Add(entry RegistryEntry) error {
 	if err := r.lockAndReload(); err != nil {
 		return err
 	}
-	defer r.flock.Unlock() //nolint:errcheck
+	defer r.flock.Unlock()
 	if prev, ok := r.entries[entry.Hash]; ok {
 		entry.Meta.EmbeddingStatus = prev.Meta.EmbeddingStatus
 		entry.Meta.EmbeddingModel = prev.Meta.EmbeddingModel
@@ -99,7 +99,7 @@ func (r *Registry) Remove(nameOrHash string) error {
 	if err := r.lockAndReload(); err != nil {
 		return err
 	}
-	defer r.flock.Unlock() //nolint:errcheck
+	defer r.flock.Unlock()
 
 	hash := r.resolveToHashLocked(nameOrHash)
 	if hash == "" {
@@ -253,7 +253,7 @@ func (r *Registry) Link(a, b string) error {
 	if err := r.lockAndReload(); err != nil {
 		return err
 	}
-	defer r.flock.Unlock() //nolint:errcheck
+	defer r.flock.Unlock()
 
 	hashA := r.resolveToHashLocked(a)
 	hashB := r.resolveToHashLocked(b)
@@ -288,7 +288,7 @@ func (r *Registry) Unlink(a, b string) error {
 	if err := r.lockAndReload(); err != nil {
 		return err
 	}
-	defer r.flock.Unlock() //nolint:errcheck
+	defer r.flock.Unlock()
 
 	hashA := r.resolveToHashLocked(a)
 	hashB := r.resolveToHashLocked(b)
@@ -347,7 +347,7 @@ func (r *Registry) UpdateEmbedding(nameOrHash string, info EmbeddingInfo) error 
 	if err := r.lockAndReload(); err != nil {
 		return err
 	}
-	defer r.flock.Unlock() //nolint:errcheck
+	defer r.flock.Unlock()
 
 	hash := r.resolveToHashLocked(nameOrHash)
 	if hash == "" {

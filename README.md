@@ -106,7 +106,7 @@ Everything is persisted locally — no external services needed.
 
 ## Development
 
-**Prerequisites:** [Go 1.25+](https://go.dev/dl/) and [Zig 0.14+](https://ziglang.org/download/) (for the native embedding library). [Task](https://taskfile.dev/) is optional but recommended.
+**Prerequisites:** [Go 1.25+](https://go.dev/dl/), [Zig 0.14+](https://ziglang.org/download/) (for the native embedding library), and [golangci-lint](https://golangci-lint.run/docs/welcome/install/). [Task](https://taskfile.dev/) is optional but recommended.
 
 ```bash
 task test              # unit tests (short mode)

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cloudprivacylabs/lpg/v2"
+
 	"github.com/realxen/cartograph/internal/embedding"
 	"github.com/realxen/cartograph/internal/graph"
 	"github.com/realxen/cartograph/internal/search"
@@ -419,7 +420,7 @@ func (s *Server) LoadAllFromRegistry() {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			s.lazyLoadGraph(name) //nolint:errcheck
+			s.lazyLoadGraph(name)
 		}(entry.Name)
 	}
 	wg.Wait()

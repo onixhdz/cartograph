@@ -43,7 +43,7 @@ go test -short ./...    # Unit tests (skips network/integration)
 go test -count=1 ./...  # All tests including integration (requires network)
 
 # === LINT ===
-go vet ./...
+golangci-lint run ./...  # Install via: brew install golangci-lint
 
 # === RELEASE / SPECIALIZED (rarely needed) ===
 task build              # Release cross-compilation

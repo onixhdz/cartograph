@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run linter
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.11
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+
+      - name: Run tests
+        run: go test -short ./...
+
+      - name: Build all platforms
+        run: task build VERSION=${GITHUB_REF_NAME}
+
+      - name: Generate checksums
+        run: |
+          sha256sum cartograph-linux-amd64 \
+                    cartograph-linux-arm64 \
+                    cartograph-darwin-arm64 \
+                    cartograph-windows-amd64.exe \
+            > checksums-sha256.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            cartograph-linux-amd64
+            cartograph-linux-arm64
+            cartograph-darwin-arm64
+            cartograph-windows-amd64.exe
+            checksums-sha256.txt
+
+      - name: Update Homebrew tap
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          DARWIN_ARM64_SHA=$(grep darwin-arm64 checksums-sha256.txt | awk '{print $1}')
+          LINUX_AMD64_SHA=$(grep linux-amd64 checksums-sha256.txt | awk '{print $1}')
+          LINUX_ARM64_SHA=$(grep linux-arm64 checksums-sha256.txt | awk '{print $1}')
+
+          curl -X POST \
+            -H "Authorization: token $TAP_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/realxen/homebrew-cartograph/dispatches \
+            -d "{
+              \"event_type\": \"update-formula\",
+              \"client_payload\": {
+                \"version\": \"$VERSION\",
+                \"darwin_arm64_sha\": \"$DARWIN_ARM64_SHA\",
+                \"linux_amd64_sha\": \"$LINUX_AMD64_SHA\",
+                \"linux_arm64_sha\": \"$LINUX_ARM64_SHA\"
+              }
+            }"

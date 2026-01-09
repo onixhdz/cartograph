@@ -96,7 +96,7 @@ type QueryRequest struct {
 	Text         string `json:"text"`
 	Limit        int    `json:"limit"`
 	Content      bool   `json:"content,omitempty"`
-	CrossRepo    bool   `json:"crossRepo,omitempty"`  // when true, search across linked repos
+	CrossRepo    bool   `json:"crossRepo,omitempty"`    // when true, search across linked repos
 	IncludeTests bool   `json:"includeTests,omitempty"` // when true, include test files in results
 }
 
@@ -301,7 +301,7 @@ type EmbedStatusResult struct {
 	Provider        string `json:"provider,omitempty"`
 	Dims            int    `json:"dims,omitempty"`
 	Error           string `json:"error,omitempty"`
-	Duration        string `json:"duration,omitempty"` // human-readable (set on completion)
+	Duration        string `json:"duration,omitempty"`         // human-readable (set on completion)
 	DownloadFile    string `json:"download_file,omitempty"`    // filename being downloaded
 	DownloadPercent int    `json:"download_percent,omitempty"` // 0-100
 }
