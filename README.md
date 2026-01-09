@@ -2,6 +2,8 @@
 
 **Build a nervous system for your codebase.** Cartograph indexes any repository into a knowledge graph — every function, call chain, dependency, and execution flow — then exposes it through smart tools so AI agents never miss code.
 
+> ⚠️ **Early Development** — Cartograph is under active development. Expect frequent updates, breaking changes, and rough edges. APIs, CLI flags, and storage formats may change without notice. Not recommended for production workflows yet.
+
 > Even smaller models get full architectural context, making them compete with frontier models on code tasks.
 
 **TL;DR:** Point it at a repo, get a complete map. Use the CLI to search, trace impact, and explore — or connect it to your AI editor via MCP so Cursor, Claude Code, and friends stop missing dependencies and shipping blind edits.

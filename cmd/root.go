@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alecthomas/kong"
 	"github.com/cloudprivacylabs/lpg/v2"
 	"github.com/go-git/go-billy/v6"
 	"github.com/realxen/cartograph/internal/graph"
@@ -29,22 +30,23 @@ import (
 
 // CLI is the top-level kong command structure for cartograph.
 type CLI struct {
-	Analyze    AnalyzeCmd    `cmd:"" help:"Index a repository (full analysis)."`
-	Clone      CloneCmd      `cmd:"" help:"Clone a remote repository to disk without indexing."`
-	Source     SourceCmd     `cmd:"" aliases:"src" help:"Retrieve full file source code from an indexed repository."`
-	List       ListCmd       `cmd:"" help:"List all indexed repositories."`
-	Status     StatusCmd     `cmd:"" help:"Show index status for a repository (defaults to current directory)."`
-	Clean      CleanCmd      `cmd:"" help:"Delete index for a repository (defaults to current directory)."`
-	Wiki       WikiCmd       `cmd:"" help:"Generate repository wiki from knowledge graph."`
-	Query      QueryCmd      `cmd:"" help:"Search the knowledge graph for execution flows."`
-	Context    ContextCmd    `cmd:"" help:"360-degree view of a code symbol."`
-	Impact     ImpactCmd     `cmd:"" help:"Blast radius: what breaks if you change a symbol."`
-	Cypher     CypherCmd     `cmd:"" help:"Execute raw Cypher query against the knowledge graph."`
-	Schema     SchemaCmd     `cmd:"" help:"Show graph schema (node labels, edge types, properties) to assist Cypher queries."`
-	Serve      ServeCmd      `cmd:"" help:"Manage the long-running HTTP service (for MCP / editor integrations)."`
-	Skills     SkillsCmd     `cmd:"" help:"Install/manage cartograph skills for AI coding agents."`
-	Models     ModelsCmd     `cmd:"" help:"Manage embedding models (download, list, remove)."`
-	Completion completionCmd `cmd:"" help:"Set up shell tab-completion (bash, zsh, fish)."`
+	Analyze    AnalyzeCmd       `cmd:"" help:"Index a repository (full analysis)."`
+	Clone      CloneCmd         `cmd:"" help:"Clone a remote repository to disk without indexing."`
+	Source     SourceCmd        `cmd:"" aliases:"src" help:"Retrieve full file source code from an indexed repository."`
+	List       ListCmd          `cmd:"" help:"List all indexed repositories."`
+	Status     StatusCmd        `cmd:"" help:"Show index status for a repository (defaults to current directory)."`
+	Clean      CleanCmd         `cmd:"" help:"Delete index for a repository (defaults to current directory)."`
+	Wiki       WikiCmd          `cmd:"" help:"Generate repository wiki from knowledge graph."`
+	Query      QueryCmd         `cmd:"" help:"Search the knowledge graph for execution flows."`
+	Context    ContextCmd       `cmd:"" help:"360-degree view of a code symbol."`
+	Impact     ImpactCmd        `cmd:"" help:"Blast radius: what breaks if you change a symbol."`
+	Cypher     CypherCmd        `cmd:"" help:"Execute raw Cypher query against the knowledge graph."`
+	Schema     SchemaCmd        `cmd:"" help:"Show graph schema (node labels, edge types, properties) to assist Cypher queries."`
+	Serve      ServeCmd         `cmd:"" help:"Manage the long-running HTTP service (for MCP / editor integrations)."`
+	Skills     SkillsCmd        `cmd:"" help:"Install/manage cartograph skills for AI coding agents."`
+	Models     ModelsCmd        `cmd:"" help:"Manage embedding models (download, list, remove)."`
+	Completion completionCmd    `cmd:"" help:"Set up shell tab-completion (bash, zsh, fish)."`
+	Version    kong.VersionFlag `help:"Print version and exit." short:"v"`
 
 	// Client is the service client used by subcommands. It is hidden
 	// from kong and injected by the caller.

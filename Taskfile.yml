@@ -2,7 +2,8 @@ version: '3'
 dotenv:
   - .local.env
 vars:
-  GO_LDFLAGS: '-s -w'
+  VERSION: '{{default "dev" .VERSION}}'
+  GO_LDFLAGS: '-s -w -X main.version={{.VERSION}}'
   EMBEDDING_LIB_DIR: internal/embedding/local
 tasks:
   test:
@@ -26,6 +27,12 @@ tasks:
       - task: build:target:linux
       - task: build:target:mac
       - task: build:target:windows
+
+  build:target:linux:
+    desc: Build cartograph for all Linux targets
+    cmds:
+      - task: build:target:linux:amd64
+      - task: build:target:linux:arm64
 
   # ── Zig native library ──────────────────────────────────────────────
 

@@ -13,12 +13,15 @@ import (
 	"github.com/realxen/cartograph/internal/service"
 )
 
+var version = "dev"
+
 func main() {
 	cli := cmd.CLI{}
 	parser := kong.Must(&cli,
 		kong.Name("cartograph"),
 		kong.Description("Graph-powered code intelligence tool"),
 		kong.UsageOnError(),
+		kong.Vars{"version": version},
 	)
 
 	// Handle shell tab-completion requests before normal parsing.
