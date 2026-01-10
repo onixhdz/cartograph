@@ -53,6 +53,7 @@ jobs:
         run: |
           sha256sum cartograph-linux-amd64 \
                     cartograph-linux-arm64 \
+                    cartograph-darwin-amd64 \
                     cartograph-darwin-arm64 \
                     cartograph-windows-amd64.exe \
             > checksums-sha256.txt
@@ -63,6 +64,7 @@ jobs:
           subject-path: |
             cartograph-linux-amd64
             cartograph-linux-arm64
+            cartograph-darwin-amd64
             cartograph-darwin-arm64
             cartograph-windows-amd64.exe
 
@@ -73,6 +75,7 @@ jobs:
           files: |
             cartograph-linux-amd64
             cartograph-linux-arm64
+            cartograph-darwin-amd64
             cartograph-darwin-arm64
             cartograph-windows-amd64.exe
             checksums-sha256.txt
