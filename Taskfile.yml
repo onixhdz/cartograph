@@ -37,17 +37,24 @@ tasks:
   # ── Zig native library ──────────────────────────────────────────────
 
   build:embedding:lib:
-    desc: Build libinference.a via Zig (host or cross with TARGET=)
+    desc: Build native inference library via Zig (host or cross with TARGET=)
     dir: '{{.EMBEDDING_LIB_DIR}}'
+    vars:
+      EMBEDDING_LIB_FILE:
+        sh: |
+          case "{{.TARGET}}" in
+            x86_64-windows-gnu) echo "inference.lib" ;;
+            *) echo "libinference.a" ;;
+          esac
     status:
-      - test -f zig-out/lib/libinference.a
+      - test -f zig-out/lib/{{.EMBEDDING_LIB_FILE}}
       - test -f .zig-target.stamp
       - test "$(cat .zig-target.stamp)" = "{{.TARGET}}"
     cmds:
       - rm -rf zig-out
       - zig build native -Doptimize=ReleaseFast {{if .TARGET}}-Dtarget={{.TARGET}}{{end}}
       - echo "{{.TARGET}}" > .zig-target.stamp
-      - echo "✓ libinference.a [{{.TARGET}}] ($(du -h zig-out/lib/libinference.a | cut -f1))"
+      - echo "✓ {{.EMBEDDING_LIB_FILE}} [{{.TARGET}}] ($(du -h zig-out/lib/{{.EMBEDDING_LIB_FILE}} | cut -f1))"
 
   # ── Dev build (auto-detect host) ────────────────────────────────────
 
@@ -184,7 +191,7 @@ tasks:
     sources:
       - ./**/*.go
       - go.mod
-      - '{{.EMBEDDING_LIB_DIR}}/zig-out/lib/libinference.a'
+      - '{{.EMBEDDING_LIB_DIR}}/zig-out/lib/inference.lib'
     generates:
       - cartograph-windows-amd64.exe
     cmds:
