@@ -13,17 +13,16 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: '1'
+      CC: zig cc
+      CXX: zig c++
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-
-      - name: Run linter
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.11
 
       - uses: mlugg/setup-zig@v2
         with:
@@ -32,6 +31,14 @@ jobs:
       - uses: arduino/setup-task@v2
         with:
           version: 3.x
+
+      - name: Build native embedding prereqs
+        run: task build:embedding:lib
+
+      - name: Run linter
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.11
 
       - name: Run tests
         run: go test -short ./...

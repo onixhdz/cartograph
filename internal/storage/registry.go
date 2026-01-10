@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -62,7 +63,7 @@ func NewRegistry(dir string) (*Registry, error) {
 		flock:   flock.New(regPath + ".lock"),
 		entries: make(map[string]RegistryEntry),
 	}
-	if err := r.load(); err != nil && !os.IsNotExist(err) {
+	if err := r.load(); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
 	return r, nil
@@ -432,7 +433,7 @@ func (r *Registry) lockAndReload() error {
 	// Reload from disk so we don't overwrite entries added by another process.
 	fresh := make(map[string]RegistryEntry)
 	r.entries = fresh
-	if err := r.load(); err != nil && !os.IsNotExist(err) {
+	if err := r.load(); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		_ = r.flock.Unlock()
 		return fmt.Errorf("registry: reload: %w", err)
 	}
@@ -663,6 +664,10 @@ func ResolveRepoName(dataDir, name string) (string, error) {
 	}
 	reg, err := NewRegistry(dataDir)
 	if err != nil {
+		var pathErr *fs.PathError
+		if errors.As(err, &pathErr) {
+			return name, nil
+		}
 		return name, fmt.Errorf("registry unavailable: %w", err)
 	}
 	entry, err := reg.Resolve(name)

@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -1032,8 +1034,13 @@ func TestResolveRepoName_EmptyDataDir(t *testing.T) {
 }
 
 func TestResolveRepoName_InvalidDataDir(t *testing.T) {
-	// Non-existent directory — registry unavailable, should pass through.
-	got, err := ResolveRepoName("/nonexistent/path/xyz", "myrepo")
+	// Point at a file, not a directory, so the path is invalid across environments.
+	file := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatalf("write sentinel file: %v", err)
+	}
+
+	got, err := ResolveRepoName(file, "myrepo")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
