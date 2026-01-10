@@ -58,7 +58,7 @@ const defaultMaxParseFileSize int64 = 10 * 1024 * 1024
 //
 // TODO: Known limitation: the gotreesitter parser produces slightly different
 // results under concurrent parsing (~0.05% node variance, e.g. 18/37K
-// nodes). Results are sorted post-parse to stabilise
+// nodes). Results are sorted post-parse to stabilize
 // downstream graph construction, but the raw extraction count is not
 // fully deterministic. See parser_variance_test.go for documented
 // evidence. This does NOT affect ranking stability — only step counts
@@ -86,7 +86,7 @@ func ParseFiles(files []FileInput, opts ParseOptions) *ParseResult {
 	cache.warmLanguages(langs)
 
 	// Sort files largest-first so that big files start processing early.
-	// This improves worker utilisation: without sorting, the last few files
+	// This improves worker utilization: without sorting, the last few files
 	// dispatched may all be large, leaving most workers idle ("tail latency").
 	sort.Slice(files, func(i, j int) bool { return files[i].Size > files[j].Size })
 

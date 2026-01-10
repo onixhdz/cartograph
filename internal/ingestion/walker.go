@@ -4,6 +4,7 @@
 package ingestion
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -42,7 +43,7 @@ func Walk(root string, opts WalkOptions) ([]WalkResult, error) {
 
 	root, err := filepath.Abs(root)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("absolute path: %w", err)
 	}
 
 	// Build a single ignore matcher from .gitignore, .cartographignore,
@@ -59,7 +60,7 @@ func Walk(root string, opts WalkOptions) ([]WalkResult, error) {
 
 		relPath, err := filepath.Rel(root, path)
 		if err != nil {
-			return err
+			return fmt.Errorf("relative path: %w", err)
 		}
 		if relPath == "." {
 			return nil
@@ -118,7 +119,7 @@ func Walk(root string, opts WalkOptions) ([]WalkResult, error) {
 
 		info, err := d.Info()
 		if err != nil {
-			return nil // skip files we can't stat
+			return nil //nolint:nilerr // skip files we can't stat
 		}
 
 		if info.Size() > opts.MaxFileSize {
@@ -138,7 +139,7 @@ func Walk(root string, opts WalkOptions) ([]WalkResult, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("walk directory: %w", err)
 	}
 	return results, nil
 }
@@ -390,7 +391,7 @@ var docExtensions = map[string]bool{
 
 // IsDocFile returns true if the file path matches a known documentation
 // name prefix (with a doc extension), or is a doc-extension file inside
-// a recognised documentation directory. All matching is case-insensitive.
+// a recognized documentation directory. All matching is case-insensitive.
 func IsDocFile(filePath string) bool {
 	fp := strings.ReplaceAll(filePath, "\\", "/")
 	lower := strings.ToLower(fp)
@@ -422,7 +423,7 @@ func IsDocFile(filePath string) bool {
 		}
 	}
 
-	// 3. File inside a recognised doc directory with a doc extension.
+	// 3. File inside a recognized doc directory with a doc extension.
 	//    Only match doc-extension files to avoid capturing code like docs/main.go.
 	if isDocExt {
 		parts := strings.Split(lower, "/")

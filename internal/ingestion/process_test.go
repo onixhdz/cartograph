@@ -9,13 +9,15 @@ import (
 	"github.com/realxen/cartograph/internal/graph"
 )
 
+const testFuncA = "func:A"
+
 func boolPtr(b bool) *bool { return &b }
 
 func TestFindEntryPoints_NoIncomingCalls(t *testing.T) {
 	g := lpg.NewGraph()
 
 	fnA := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
-		BaseNodeProps: graph.BaseNodeProps{ID: "func:A", Name: "A"},
+		BaseNodeProps: graph.BaseNodeProps{ID: testFuncA, Name: "A"},
 		FilePath:      "a.go",
 		StartLine:     1,
 		EndLine:       10,
@@ -34,7 +36,7 @@ func TestFindEntryPoints_NoIncomingCalls(t *testing.T) {
 		t.Fatalf("expected 1 entry point, got %d", len(eps))
 	}
 	epID := graph.GetStringProp(eps[0], graph.PropID)
-	if epID != "func:A" {
+	if epID != testFuncA {
 		t.Errorf("expected entry point func:A, got %s", epID)
 	}
 }
@@ -95,7 +97,7 @@ func TestDetectProcesses_LinearChain(t *testing.T) {
 	g := lpg.NewGraph()
 
 	fnA := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
-		BaseNodeProps: graph.BaseNodeProps{ID: "func:A", Name: "A"},
+		BaseNodeProps: graph.BaseNodeProps{ID: testFuncA, Name: "A"},
 		FilePath:      "a.go",
 		StartLine:     1,
 		EndLine:       10,
@@ -145,7 +147,7 @@ func TestDetectProcesses_MaxDepthLimits(t *testing.T) {
 
 	// Create chain: A -> B -> C -> D -> E
 	prev := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
-		BaseNodeProps: graph.BaseNodeProps{ID: "func:A", Name: "A"},
+		BaseNodeProps: graph.BaseNodeProps{ID: testFuncA, Name: "A"},
 		FilePath:      "a.go",
 		StartLine:     1,
 		EndLine:       10,
@@ -184,7 +186,7 @@ func TestDetectProcesses_Branching(t *testing.T) {
 	g := lpg.NewGraph()
 
 	fnA := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
-		BaseNodeProps: graph.BaseNodeProps{ID: "func:A", Name: "A"},
+		BaseNodeProps: graph.BaseNodeProps{ID: testFuncA, Name: "A"},
 		FilePath:      "a.go",
 		StartLine:     1,
 		EndLine:       10,
@@ -479,7 +481,7 @@ func TestDetectProcesses_LowConfidenceFiltering(t *testing.T) {
 	g := lpg.NewGraph()
 
 	fnA := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
-		BaseNodeProps: graph.BaseNodeProps{ID: "func:A", Name: "A"},
+		BaseNodeProps: graph.BaseNodeProps{ID: testFuncA, Name: "A"},
 		FilePath:      "a.go",
 		StartLine:     1,
 		EndLine:       10,
@@ -529,7 +531,7 @@ func TestDetectProcesses_CrossCommunity(t *testing.T) {
 
 	// Create a chain: A (Backend) -> B (Frontend)
 	fnA := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
-		BaseNodeProps: graph.BaseNodeProps{ID: "func:A", Name: "A"},
+		BaseNodeProps: graph.BaseNodeProps{ID: testFuncA, Name: "A"},
 		FilePath:      "a.go",
 		StartLine:     1,
 		EndLine:       10,
@@ -720,7 +722,7 @@ func TestDetectProcesses_CallerCount(t *testing.T) {
 
 	// A calls B and C; X and Y call B externally (not in the BFS tree).
 	fnA := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
-		BaseNodeProps: graph.BaseNodeProps{ID: "func:A", Name: "A"},
+		BaseNodeProps: graph.BaseNodeProps{ID: testFuncA, Name: "A"},
 		FilePath:      "a.go",
 		StartLine:     1,
 		EndLine:       10,
@@ -760,7 +762,7 @@ func TestDetectProcesses_CallerCount(t *testing.T) {
 	result := DetectProcessesDetailed(g, ProcessOptions{MinSteps: 1})
 	var aFlow *ProcessInfo
 	for i := range result.Processes {
-		if result.Processes[i].EntryPoint == "func:A" {
+		if result.Processes[i].EntryPoint == testFuncA {
 			aFlow = &result.Processes[i]
 			break
 		}
@@ -789,7 +791,7 @@ func TestDetectProcesses_ImportanceScore(t *testing.T) {
 
 	// Build: A → B → C, with external callers X, Y calling B.
 	fnA := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
-		BaseNodeProps: graph.BaseNodeProps{ID: "func:A", Name: "A"},
+		BaseNodeProps: graph.BaseNodeProps{ID: testFuncA, Name: "A"},
 		FilePath:      "a.go",
 		StartLine:     1, EndLine: 10,
 	})
@@ -823,7 +825,7 @@ func TestDetectProcesses_ImportanceScore(t *testing.T) {
 
 	var aFlow *ProcessInfo
 	for i := range result.Processes {
-		if result.Processes[i].EntryPoint == "func:A" {
+		if result.Processes[i].EntryPoint == testFuncA {
 			aFlow = &result.Processes[i]
 			break
 		}
@@ -889,7 +891,7 @@ func TestDetectProcesses_ImportanceCrossCommunityBoost(t *testing.T) {
 	})
 
 	fnA := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
-		BaseNodeProps: graph.BaseNodeProps{ID: "func:A", Name: "A"},
+		BaseNodeProps: graph.BaseNodeProps{ID: testFuncA, Name: "A"},
 		FilePath:      "a.go",
 		StartLine:     1, EndLine: 10,
 	})
@@ -915,7 +917,7 @@ func TestDetectProcesses_ImportanceCrossCommunityBoost(t *testing.T) {
 
 	var aFlow *ProcessInfo
 	for i := range result.Processes {
-		if result.Processes[i].EntryPoint == "func:A" {
+		if result.Processes[i].EntryPoint == testFuncA {
 			aFlow = &result.Processes[i]
 			break
 		}
@@ -1345,7 +1347,7 @@ func TestDetectProcesses_TestCallerExclusion(t *testing.T) {
 	g := lpg.NewGraph()
 
 	fnA := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
-		BaseNodeProps: graph.BaseNodeProps{ID: "func:A", Name: "A"},
+		BaseNodeProps: graph.BaseNodeProps{ID: testFuncA, Name: "A"},
 		FilePath:      "pkg/a.go", StartLine: 1, EndLine: 10,
 	})
 	fnB := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
@@ -1375,7 +1377,7 @@ func TestDetectProcesses_TestCallerExclusion(t *testing.T) {
 
 	var aFlow *ProcessInfo
 	for i := range result.Processes {
-		if result.Processes[i].EntryPoint == "func:A" {
+		if result.Processes[i].EntryPoint == testFuncA {
 			aFlow = &result.Processes[i]
 			break
 		}
@@ -1392,7 +1394,7 @@ func TestDetectProcesses_TestCallerExclusion(t *testing.T) {
 	// Build equivalent with only the production caller.
 	g2 := lpg.NewGraph()
 	fnA2 := graph.AddSymbolNode(g2, graph.LabelFunction, graph.SymbolProps{
-		BaseNodeProps: graph.BaseNodeProps{ID: "func:A", Name: "A"},
+		BaseNodeProps: graph.BaseNodeProps{ID: testFuncA, Name: "A"},
 		FilePath:      "pkg/a.go", StartLine: 1, EndLine: 10,
 	})
 	fnB2 := graph.AddSymbolNode(g2, graph.LabelFunction, graph.SymbolProps{
@@ -1409,7 +1411,7 @@ func TestDetectProcesses_TestCallerExclusion(t *testing.T) {
 	r2 := DetectProcessesDetailed(g2, ProcessOptions{MinSteps: 1})
 	var aFlow2 *ProcessInfo
 	for i := range r2.Processes {
-		if r2.Processes[i].EntryPoint == "func:A" {
+		if r2.Processes[i].EntryPoint == testFuncA {
 			aFlow2 = &r2.Processes[i]
 			break
 		}

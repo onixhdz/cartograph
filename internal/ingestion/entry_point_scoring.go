@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+const entryPatternReason = "entry-pattern"
+
 // testDirRe matches a directory segment that signals test/spec/mock content.
 // Handles variations like test/, tests/, testing/, test-utils/, testdata/,
 // __tests__/, spec/, specs/, e2e/, cypress/, mocks/, fixtures/, etc.
@@ -177,19 +179,19 @@ func namePatternMultiplier(name, language string) (float64, string) {
 	lower := strings.ToLower(name)
 
 	if slices.Contains(universalEntryPatterns, lower) {
-		return 1.5, "entry-pattern"
+		return 1.5, entryPatternReason
 	}
 
 	for _, re := range entryPrefixPatterns {
 		if re.MatchString(name) {
-			return 1.5, "entry-pattern"
+			return 1.5, entryPatternReason
 		}
 	}
 
 	if patterns, ok := langPatterns[language]; ok {
 		for _, re := range patterns {
 			if re.MatchString(name) {
-				return 1.5, "entry-pattern"
+				return 1.5, entryPatternReason
 			}
 		}
 	}

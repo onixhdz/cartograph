@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -91,7 +92,7 @@ func TestServerSetupRoutesRegistered(t *testing.T) {
 	}
 
 	for _, rt := range routes {
-		req := httptest.NewRequest(rt.method, rt.path, nil)
+		req := httptest.NewRequestWithContext(context.Background(), rt.method, rt.path, nil)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 		if rec.Code == http.StatusNotFound {
@@ -112,11 +113,15 @@ func TestServerStartStop(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + RouteStatus)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, ts.URL+RouteStatus, nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("status request: %v", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200, got %d", resp.StatusCode)
 	}
@@ -191,15 +196,22 @@ func TestServerReadiness_StatusEndpointReflectsReady(t *testing.T) {
 		idleTimeout: DefaultIdleTimeout,
 	}
 
-	req := httptest.NewRequest("GET", RouteStatus, nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", RouteStatus, nil)
 	rec := httptest.NewRecorder()
 	s.handleStatus(rec, req)
 
 	var resp Response
-	json.Unmarshal(rec.Body.Bytes(), &resp)
-	resultData, _ := json.Marshal(resp.Result)
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	resultData, err := json.Marshal(resp.Result)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
 	var sr StatusResult
-	json.Unmarshal(resultData, &sr)
+	if err := json.Unmarshal(resultData, &sr); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 
 	if sr.Ready {
 		t.Error("expected ready=false before any graph is loaded")
@@ -211,11 +223,18 @@ func TestServerReadiness_StatusEndpointReflectsReady(t *testing.T) {
 	s.LoadGraphDirect("repo", lpg.NewGraph(), nil)
 
 	rec2 := httptest.NewRecorder()
-	s.handleStatus(rec2, httptest.NewRequest("GET", RouteStatus, nil))
+	s.handleStatus(rec2, httptest.NewRequestWithContext(context.Background(), "GET", RouteStatus, nil))
 
-	json.Unmarshal(rec2.Body.Bytes(), &resp)
-	resultData2, _ := json.Marshal(resp.Result)
-	json.Unmarshal(resultData2, &sr)
+	if err := json.Unmarshal(rec2.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	resultData2, err := json.Marshal(resp.Result)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := json.Unmarshal(resultData2, &sr); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 
 	if !sr.Ready {
 		t.Error("expected ready=true after LoadGraphDirect")

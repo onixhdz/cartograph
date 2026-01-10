@@ -15,6 +15,10 @@ import (
 	"golang.org/x/mod/modfile"
 )
 
+const langPHP = "php"
+
+const langPython = "python"
+
 // DependencyInfo describes a single external dependency parsed from a manifest.
 type DependencyInfo struct {
 	Name    string // package name or module path
@@ -544,7 +548,7 @@ func loadComposerDependencies(root string, readFile func(string) ([]byte, error)
 	}
 	for name, version := range composer.Require {
 		// Skip platform requirements (php version, extensions, libraries).
-		if name == "php" || strings.HasPrefix(name, "ext-") || strings.HasPrefix(name, "lib-") {
+		if name == langPHP || strings.HasPrefix(name, "ext-") || strings.HasPrefix(name, "lib-") {
 			continue
 		}
 		cfg.Dependencies = append(cfg.Dependencies, DependencyInfo{
@@ -552,7 +556,7 @@ func loadComposerDependencies(root string, readFile func(string) ([]byte, error)
 		})
 	}
 	for name, version := range composer.RequireDev {
-		if name == "php" || strings.HasPrefix(name, "ext-") || strings.HasPrefix(name, "lib-") {
+		if name == langPHP || strings.HasPrefix(name, "ext-") || strings.HasPrefix(name, "lib-") {
 			continue
 		}
 		cfg.Dependencies = append(cfg.Dependencies, DependencyInfo{
@@ -987,7 +991,7 @@ func loadPyprojectTomlDependencies(root string, readFile func(string) ([]byte, e
 	} else if len(pyproj.Tool.Poetry.Dependencies) > 0 {
 		// Poetry: [tool.poetry.dependencies] is a map.
 		for name, val := range pyproj.Tool.Poetry.Dependencies {
-			if strings.ToLower(name) == "python" {
+			if strings.ToLower(name) == langPython {
 				continue
 			}
 			version := parsePoetryVersion(val)
@@ -999,7 +1003,7 @@ func loadPyprojectTomlDependencies(root string, readFile func(string) ([]byte, e
 		for group, g := range pyproj.Tool.Poetry.Group {
 			dev := strings.Contains(group, "dev") || strings.Contains(group, "test")
 			for name, val := range g.Dependencies {
-				if strings.ToLower(name) == "python" {
+				if strings.ToLower(name) == langPython {
 					continue
 				}
 				version := parsePoetryVersion(val)

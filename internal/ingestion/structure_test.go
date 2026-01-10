@@ -9,6 +9,8 @@ import (
 	"github.com/realxen/cartograph/internal/testutil"
 )
 
+const testLangPython = "python"
+
 func TestProcessStructure_FlatDirectory(t *testing.T) {
 	g := lpg.NewGraph()
 	results := []WalkResult{
@@ -85,7 +87,7 @@ func TestProcessStructure_FileProperties(t *testing.T) {
 	g := lpg.NewGraph()
 	results := []WalkResult{
 		{RelPath: "src", IsDir: true},
-		{RelPath: "src/app.py", IsDir: false, Size: 2048, Language: "python"},
+		{RelPath: "src/app.py", IsDir: false, Size: 2048, Language: testLangPython},
 	}
 
 	if err := ProcessStructure(g, results); err != nil {
@@ -100,8 +102,8 @@ func TestProcessStructure_FileProperties(t *testing.T) {
 	if got := graph.GetStringProp(node, graph.PropFilePath); got != "src/app.py" {
 		t.Errorf("filePath: expected %q, got %q", "src/app.py", got)
 	}
-	if got := graph.GetStringProp(node, graph.PropLanguage); got != "python" {
-		t.Errorf("language: expected %q, got %q", "python", got)
+	if got := graph.GetStringProp(node, graph.PropLanguage); got != testLangPython {
+		t.Errorf("language: expected %q, got %q", testLangPython, got)
 	}
 }
 

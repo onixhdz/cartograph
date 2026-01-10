@@ -6,6 +6,11 @@ import (
 	"time"
 )
 
+const (
+	testRepoNomad = "hashicorp/nomad"
+	testHashMux   = "h_mux"
+)
+
 func TestRegistryAddAndGet(t *testing.T) {
 	dir := t.TempDir()
 	reg, err := NewRegistry(dir)
@@ -234,7 +239,7 @@ func TestRegistryResolveDidYouMean(t *testing.T) {
 	dir := t.TempDir()
 	reg, _ := NewRegistry(dir)
 	_ = reg.Add(RegistryEntry{Name: "pdfa", Hash: "h1", Path: "/tmp/pdfa"})
-	_ = reg.Add(RegistryEntry{Name: "hashicorp/nomad", Hash: "h2", Path: "/tmp/nomad"})
+	_ = reg.Add(RegistryEntry{Name: testRepoNomad, Hash: "h2", Path: "/tmp/nomad"})
 
 	tests := []struct {
 		input       string
@@ -259,10 +264,8 @@ func TestRegistryResolveDidYouMean(t *testing.T) {
 				if !strings.Contains(err.Error(), tt.wantSuggest) {
 					t.Fatalf("expected suggestion %q in error, got: %s", tt.wantSuggest, err)
 				}
-			} else {
-				if strings.Contains(err.Error(), "did you mean") {
-					t.Fatalf("expected no suggestion for %q, got: %s", tt.input, err)
-				}
+			} else if strings.Contains(err.Error(), "did you mean") {
+				t.Fatalf("expected no suggestion for %q, got: %s", tt.input, err)
 			}
 		})
 	}
@@ -295,9 +298,9 @@ func TestRegistryGetByShortName(t *testing.T) {
 	dir := t.TempDir()
 	reg, _ := NewRegistry(dir)
 
-	_ = reg.Add(RegistryEntry{Name: "hashicorp/nomad", Hash: "h1", Path: "/tmp/nomad"})
+	_ = reg.Add(RegistryEntry{Name: testRepoNomad, Hash: "h1", Path: "/tmp/nomad"})
 
-	got, ok := reg.Get("hashicorp/nomad")
+	got, ok := reg.Get(testRepoNomad)
 	if !ok || got.Hash != "h1" {
 		t.Fatalf("expected hashicorp/nomad, got %+v", got)
 	}
@@ -306,7 +309,7 @@ func TestRegistryGetByShortName(t *testing.T) {
 	if !ok {
 		t.Fatal("expected to find nomad by short name")
 	}
-	if got.Name != "hashicorp/nomad" || got.Hash != "h1" {
+	if got.Name != testRepoNomad || got.Hash != "h1" {
 		t.Errorf("short name lookup mismatch: got %+v", got)
 	}
 }
@@ -315,7 +318,7 @@ func TestRegistryResolveByShortName(t *testing.T) {
 	dir := t.TempDir()
 	reg, _ := NewRegistry(dir)
 
-	_ = reg.Add(RegistryEntry{Name: "hashicorp/nomad", Hash: "h1"})
+	_ = reg.Add(RegistryEntry{Name: testRepoNomad, Hash: "h1"})
 	_ = reg.Add(RegistryEntry{Name: "temporalio/temporal", Hash: "h2"})
 
 	// "nomad" → hashicorp/nomad
@@ -323,7 +326,7 @@ func TestRegistryResolveByShortName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve(nomad): %v", err)
 	}
-	if e.Name != "hashicorp/nomad" {
+	if e.Name != testRepoNomad {
 		t.Errorf("expected hashicorp/nomad, got %s", e.Name)
 	}
 
@@ -376,9 +379,9 @@ func TestRegistryResolveShortNameDoesNotShadowExact(t *testing.T) {
 	reg, _ := NewRegistry(dir)
 
 	// A repo whose full name is just "nomad" (local repo) AND
-	// "hashicorp/nomad" (remote repo with same basename).
+	// testRepoNomad (remote repo with same basename).
 	_ = reg.Add(RegistryEntry{Name: "nomad", Hash: "local"})
-	_ = reg.Add(RegistryEntry{Name: "hashicorp/nomad", Hash: "remote"})
+	_ = reg.Add(RegistryEntry{Name: testRepoNomad, Hash: "remote"})
 
 	// "nomad" should match the exact name first (local), not the alias.
 	e, err := reg.Resolve("nomad")
@@ -394,12 +397,12 @@ func TestRegistryRemoveByShortName(t *testing.T) {
 	dir := t.TempDir()
 	reg, _ := NewRegistry(dir)
 
-	_ = reg.Add(RegistryEntry{Name: "hashicorp/nomad", Hash: "h1"})
+	_ = reg.Add(RegistryEntry{Name: testRepoNomad, Hash: "h1"})
 
 	if err := reg.Remove("nomad"); err != nil {
 		t.Fatalf("Remove by short name: %v", err)
 	}
-	if _, ok := reg.Get("hashicorp/nomad"); ok {
+	if _, ok := reg.Get(testRepoNomad); ok {
 		t.Error("expected hashicorp/nomad to be removed via short name")
 	}
 }
@@ -701,22 +704,22 @@ func TestRegistryResolveByURL(t *testing.T) {
 
 	_ = reg.Add(RegistryEntry{
 		Name: "gorilla/mux",
-		Hash: "h_mux",
+		Hash: testHashMux,
 		URL:  "https://github.com/gorilla/mux",
 	})
 
 	e, ok := reg.ResolveByURL("https://github.com/gorilla/mux")
-	if !ok || e.Hash != "h_mux" {
+	if !ok || e.Hash != testHashMux {
 		t.Errorf("exact URL match: got ok=%v hash=%s", ok, e.Hash)
 	}
 
 	e, ok = reg.ResolveByURL("git@github.com:gorilla/mux.git")
-	if !ok || e.Hash != "h_mux" {
+	if !ok || e.Hash != testHashMux {
 		t.Errorf("SSH URL match: got ok=%v hash=%s", ok, e.Hash)
 	}
 
 	e, ok = reg.ResolveByURL("https://github.com/gorilla/mux.git")
-	if !ok || e.Hash != "h_mux" {
+	if !ok || e.Hash != testHashMux {
 		t.Errorf(".git suffix URL match: got ok=%v hash=%s", ok, e.Hash)
 	}
 
@@ -746,7 +749,7 @@ func TestRegistryResolveByImportPath_ExactMatch(t *testing.T) {
 
 	_ = reg.Add(RegistryEntry{
 		Name: "gorilla/mux",
-		Hash: "h_mux",
+		Hash: testHashMux,
 		URL:  "https://github.com/gorilla/mux",
 	})
 
@@ -754,7 +757,7 @@ func TestRegistryResolveByImportPath_ExactMatch(t *testing.T) {
 	if !ok {
 		t.Fatal("expected match")
 	}
-	if e.Hash != "h_mux" {
+	if e.Hash != testHashMux {
 		t.Errorf("hash mismatch: %s", e.Hash)
 	}
 	if suffix != "" {
@@ -768,7 +771,7 @@ func TestRegistryResolveByImportPath_SubpackageMatch(t *testing.T) {
 
 	_ = reg.Add(RegistryEntry{
 		Name: "gorilla/mux",
-		Hash: "h_mux",
+		Hash: testHashMux,
 		URL:  "https://github.com/gorilla/mux",
 	})
 
@@ -776,7 +779,7 @@ func TestRegistryResolveByImportPath_SubpackageMatch(t *testing.T) {
 	if !ok {
 		t.Fatal("expected prefix match for subpackage")
 	}
-	if e.Hash != "h_mux" {
+	if e.Hash != testHashMux {
 		t.Errorf("hash mismatch: %s", e.Hash)
 	}
 	if suffix != "middleware" {
@@ -790,7 +793,7 @@ func TestRegistryResolveByImportPath_LongestMatchWins(t *testing.T) {
 
 	_ = reg.Add(RegistryEntry{
 		Name: "gorilla/mux",
-		Hash: "h_mux",
+		Hash: testHashMux,
 		URL:  "https://github.com/gorilla/mux",
 	})
 	_ = reg.Add(RegistryEntry{
@@ -817,7 +820,7 @@ func TestRegistryResolveByImportPath_NoMatch(t *testing.T) {
 
 	_ = reg.Add(RegistryEntry{
 		Name: "gorilla/mux",
-		Hash: "h_mux",
+		Hash: testHashMux,
 		URL:  "https://github.com/gorilla/mux",
 	})
 
@@ -852,7 +855,7 @@ func TestRegistryLinkLocalToURLRepo(t *testing.T) {
 	})
 	_ = reg.Add(RegistryEntry{
 		Name: "gorilla/mux",
-		Hash: "h_mux",
+		Hash: testHashMux,
 		URL:  "https://github.com/gorilla/mux",
 	})
 
@@ -861,10 +864,10 @@ func TestRegistryLinkLocalToURLRepo(t *testing.T) {
 	}
 
 	linked := reg.GetLinkedRepos("h_local")
-	if len(linked) != 1 || linked[0] != "h_mux" {
+	if len(linked) != 1 || linked[0] != testHashMux {
 		t.Errorf("local linked repos: got %v, want [h_mux]", linked)
 	}
-	linked = reg.GetLinkedRepos("h_mux")
+	linked = reg.GetLinkedRepos(testHashMux)
 	if len(linked) != 1 || linked[0] != "h_local" {
 		t.Errorf("URL linked repos: got %v, want [h_local]", linked)
 	}
@@ -876,13 +879,13 @@ func TestRegistryURLReposPersistence(t *testing.T) {
 
 	_ = reg.Add(RegistryEntry{
 		Name:         "gorilla/mux",
-		Hash:         "h_mux",
+		Hash:         testHashMux,
 		URL:          "https://github.com/gorilla/mux",
 		IndexVersion: "abc123",
 	})
 
 	reg2, _ := NewRegistry(dir)
-	e, ok := reg2.Get("h_mux")
+	e, ok := reg2.Get(testHashMux)
 	if !ok {
 		t.Fatal("expected persisted URL repo")
 	}
@@ -899,13 +902,13 @@ func TestRegistryResolveByURL_Persisted(t *testing.T) {
 	reg, _ := NewRegistry(dir)
 	_ = reg.Add(RegistryEntry{
 		Name: "gorilla/mux",
-		Hash: "h_mux",
+		Hash: testHashMux,
 		URL:  "https://github.com/gorilla/mux",
 	})
 
 	reg2, _ := NewRegistry(dir)
 	e, ok := reg2.ResolveByURL("git@github.com:gorilla/mux.git")
-	if !ok || e.Hash != "h_mux" {
+	if !ok || e.Hash != testHashMux {
 		t.Errorf("persisted URL resolution: ok=%v hash=%s", ok, e.Hash)
 	}
 }
@@ -916,7 +919,7 @@ func TestRegistryGetByURLRepoName(t *testing.T) {
 
 	_ = reg.Add(RegistryEntry{
 		Name: "gorilla/mux",
-		Hash: "h_mux",
+		Hash: testHashMux,
 		URL:  "https://github.com/gorilla/mux",
 	})
 
@@ -924,7 +927,7 @@ func TestRegistryGetByURLRepoName(t *testing.T) {
 	if !ok {
 		t.Fatal("expected to find by owner/name")
 	}
-	if e.Hash != "h_mux" {
+	if e.Hash != testHashMux {
 		t.Errorf("hash mismatch: %s", e.Hash)
 	}
 }
@@ -965,28 +968,28 @@ func TestRegistryResolveAmbiguous_MixedLocalAndURL(t *testing.T) {
 func TestResolveRepoName_ExactMatch(t *testing.T) {
 	dir := t.TempDir()
 	reg, _ := NewRegistry(dir)
-	_ = reg.Add(RegistryEntry{Name: "hashicorp/nomad", Hash: "h1"})
+	_ = reg.Add(RegistryEntry{Name: testRepoNomad, Hash: "h1"})
 
-	got, err := ResolveRepoName(dir, "hashicorp/nomad")
+	got, err := ResolveRepoName(dir, testRepoNomad)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got != "hashicorp/nomad" {
-		t.Errorf("got %q, want %q", got, "hashicorp/nomad")
+	if got != testRepoNomad {
+		t.Errorf("got %q, want %q", got, testRepoNomad)
 	}
 }
 
 func TestResolveRepoName_ShortName(t *testing.T) {
 	dir := t.TempDir()
 	reg, _ := NewRegistry(dir)
-	_ = reg.Add(RegistryEntry{Name: "hashicorp/nomad", Hash: "h1"})
+	_ = reg.Add(RegistryEntry{Name: testRepoNomad, Hash: "h1"})
 
 	got, err := ResolveRepoName(dir, "nomad")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got != "hashicorp/nomad" {
-		t.Errorf("got %q, want %q", got, "hashicorp/nomad")
+	if got != testRepoNomad {
+		t.Errorf("got %q, want %q", got, testRepoNomad)
 	}
 }
 

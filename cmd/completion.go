@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -36,7 +37,7 @@ func (c *completionCmd) Run(ctx *kong.Context) error {
 	if shell == "" {
 		shell = detectShell()
 		if shell == "" {
-			return fmt.Errorf("could not detect shell; pass it explicitly: cartograph completion bash")
+			return errors.New("could not detect shell; pass it explicitly: cartograph completion bash")
 		}
 	}
 
@@ -184,7 +185,7 @@ func predictorForValue(v *kong.Value, predictors map[string]complete.Predictor) 
 // splitFlags partitions flags into bool and non-bool groups.
 func splitFlags(flags []*kong.Flag) (boolFlags, argFlags []*kong.Flag) {
 	for _, f := range flags {
-		if f.Value.IsBool() {
+		if f.IsBool() {
 			boolFlags = append(boolFlags, f)
 		} else {
 			argFlags = append(argFlags, f)

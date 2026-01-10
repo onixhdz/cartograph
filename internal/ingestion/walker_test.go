@@ -10,6 +10,8 @@ import (
 	"github.com/realxen/cartograph/internal/testutil"
 )
 
+const testMainGo = "main.go"
+
 func TestWalk_SimpleDirectory(t *testing.T) {
 	dir := testutil.TempDir(t, map[string]string{
 		"main.go":   "package main",
@@ -148,7 +150,7 @@ func TestWalk_MaxFileSizeRespected(t *testing.T) {
 	for i := range largeData {
 		largeData[i] = 'x'
 	}
-	if err := os.WriteFile(largePath, largeData, 0o644); err != nil {
+	if err := os.WriteFile(largePath, largeData, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -366,7 +368,7 @@ func TestWalk_IgnoredExtensions(t *testing.T) {
 			continue
 		}
 		name := filepath.Base(r.RelPath)
-		if name != "main.go" {
+		if name != testMainGo {
 			t.Errorf("expected only main.go to survive, but found %s", name)
 		}
 	}
@@ -402,7 +404,7 @@ func TestWalk_IgnoredFileNames(t *testing.T) {
 			continue
 		}
 		name := filepath.Base(r.RelPath)
-		if name != "main.go" {
+		if name != testMainGo {
 			t.Errorf("expected only main.go to survive, but found %s", name)
 		}
 	}
@@ -430,7 +432,7 @@ func TestWalk_CompoundExtensions(t *testing.T) {
 			continue
 		}
 		name := filepath.Base(r.RelPath)
-		if name != "main.go" {
+		if name != testMainGo {
 			t.Errorf("expected only main.go to survive, but found %s", name)
 		}
 	}

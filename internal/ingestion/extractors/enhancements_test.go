@@ -10,6 +10,8 @@ import (
 // Gap 1: C# primary constructor parameter extraction
 // ---------------------------------------------------------------------------
 
+const testCalleeAdd = "add"
+
 func TestGapFix_CSharpPrimaryConstructor(t *testing.T) {
 	src := `class Point(int x, int y) {
     public int X => x;
@@ -135,7 +137,7 @@ func TestGapFix_KotlinInfixCalls(t *testing.T) {
 	foundAdd := false
 	foundTo := false
 	for _, call := range result.Calls {
-		if call.CalleeName == "add" {
+		if call.CalleeName == testCalleeAdd {
 			foundAdd = true
 		}
 		if call.CalleeName == "to" {

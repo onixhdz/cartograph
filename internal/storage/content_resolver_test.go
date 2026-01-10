@@ -28,7 +28,9 @@ func (m *mockContentReader) Has(relPath string) bool {
 func TestContentResolver_DiskFirst(t *testing.T) {
 	dir := t.TempDir()
 	content := []byte("package main\n")
-	os.WriteFile(filepath.Join(dir, "main.go"), content, 0o644) //nolint:errcheck
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), content, 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	store := &mockContentReader{files: map[string][]byte{
 		"main.go": []byte("stale content from store"),
@@ -109,7 +111,9 @@ func TestContentResolver_NotFound(t *testing.T) {
 
 func TestContentResolver_HasFile(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "disk.go"), []byte("d"), 0o644) //nolint:errcheck
+	if err := os.WriteFile(filepath.Join(dir, "disk.go"), []byte("d"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	store := &mockContentReader{files: map[string][]byte{
 		"store.go": []byte("s"),

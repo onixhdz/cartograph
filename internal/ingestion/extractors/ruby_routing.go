@@ -8,6 +8,15 @@ import (
 	"github.com/realxen/cartograph/internal/graph"
 )
 
+const (
+	rubyNodeCall     = "call"
+	rubyNodeString   = "string"
+	rubyNodeConstant = "constant"
+	rubyNodeClass    = "class"
+	rubyNodeModule   = "module"
+	rubyKindTrait    = "trait"
+)
+
 // routeRubyCalls reclassifies Ruby call captures into imports (require),
 // heritage (include/extend/prepend), or properties (attr_accessor etc.).
 func routeRubyCalls(result *FileExtractionResult, filePath string, rootNode *ts.Node, source []byte, lang *ts.Language) *FileExtractionResult {
@@ -33,7 +42,7 @@ func routeRubyCalls(result *FileExtractionResult, filePath string, rootNode *ts.
 			if mixinName != "" {
 				className := findRubyEnclosingClass(rootNode, source, lang, call.Line)
 				if className != "" {
-					kind := "trait" // Ruby mixins map to "trait" kind
+					kind := rubyKindTrait // Ruby mixins map to "trait" kind
 					result.Heritage = append(result.Heritage, ExtractedHeritage{
 						FilePath:   filePath,
 						ClassName:  className,
@@ -77,7 +86,7 @@ func findRubyCallArg(root *ts.Node, source []byte, lang *ts.Language, line int, 
 		if result != "" {
 			return ts.WalkStop
 		}
-		if node.Type(lang) != "call" {
+		if node.Type(lang) != rubyNodeCall {
 			return ts.WalkContinue
 		}
 		if int(node.StartPoint().Row) != line {
@@ -91,22 +100,22 @@ func findRubyCallArg(root *ts.Node, source []byte, lang *ts.Language, line int, 
 		if args == nil {
 			return ts.WalkContinue
 		}
-		for i := 0; i < int(args.ChildCount()); i++ {
+		for i := range args.ChildCount() {
 			child := args.Child(i)
 			if child == nil {
 				continue
 			}
 			ctype := child.Type(lang)
 			switch ctype {
-			case "string":
-				for j := 0; j < int(child.ChildCount()); j++ {
+			case rubyNodeString:
+				for j := range child.ChildCount() {
 					sc := child.Child(j)
 					if sc != nil && sc.Type(lang) == "string_content" {
 						result = safeNodeText(sc, source)
 						return ts.WalkStop
 					}
 				}
-			case "constant", "scope_resolution":
+			case rubyNodeConstant, "scope_resolution":
 				result = safeNodeText(child, source)
 				return ts.WalkStop
 			}
@@ -123,7 +132,7 @@ func findRubyAttrArgs(root *ts.Node, source []byte, lang *ts.Language, line int,
 		if len(names) > 0 {
 			return ts.WalkStop
 		}
-		if node.Type(lang) != "call" || int(node.StartPoint().Row) != line {
+		if node.Type(lang) != rubyNodeCall || int(node.StartPoint().Row) != line {
 			return ts.WalkContinue
 		}
 		method := node.ChildByFieldName("method", lang)
@@ -134,7 +143,7 @@ func findRubyAttrArgs(root *ts.Node, source []byte, lang *ts.Language, line int,
 		if args == nil {
 			return ts.WalkContinue
 		}
-		for i := 0; i < int(args.ChildCount()); i++ {
+		for i := range args.ChildCount() {
 			child := args.Child(i)
 			if child != nil && child.Type(lang) == "simple_symbol" {
 				text := strings.TrimPrefix(safeNodeText(child, source), ":")
@@ -157,14 +166,14 @@ func findRubyEnclosingClass(root *ts.Node, source []byte, lang *ts.Language, lin
 		if className != "" {
 			return ts.WalkStop
 		}
-		if node.Type(lang) != "call" || int(node.StartPoint().Row) != line {
+		if node.Type(lang) != rubyNodeCall || int(node.StartPoint().Row) != line {
 			return ts.WalkContinue
 		}
 		// Walk up to find enclosing class/module.
 		current := node.Parent()
 		for i := 0; current != nil && i < 20; i++ {
 			ctype := current.Type(lang)
-			if ctype == "class" || ctype == "module" {
+			if ctype == rubyNodeClass || ctype == rubyNodeModule {
 				nameNode := current.ChildByFieldName("name", lang)
 				if nameNode != nil {
 					className = safeNodeText(nameNode, source)

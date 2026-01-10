@@ -107,7 +107,7 @@ func TestAddCommunityNode(t *testing.T) {
 	if !ok {
 		t.Fatal("missing modularity")
 	}
-	if v.(float64) != 0.72 {
+	if fv, ok := v.(float64); !ok || fv != 0.72 {
 		t.Errorf("modularity mismatch: %v", v)
 	}
 	if GetIntProp(node, PropCommunitySize) != 5 {
@@ -160,7 +160,8 @@ func TestAddEdge(t *testing.T) {
 		t.Errorf("expected rel type %q, got %q", RelCalls, rt)
 	}
 	v, ok := edge.GetProperty(PropConfidence)
-	if !ok || v.(float64) != 0.85 {
+	fv, typeOk := v.(float64)
+	if !ok || !typeOk || fv != 0.85 {
 		t.Errorf("confidence mismatch")
 	}
 }
@@ -194,7 +195,8 @@ func TestAddTypedEdge(t *testing.T) {
 		t.Errorf("expected STEP_IN_PROCESS, got %q", rt)
 	}
 	v, ok := edge.GetProperty(PropStep)
-	if !ok || v.(int) != 3 {
+	iv, typeOk := v.(int)
+	if !ok || !typeOk || iv != 3 {
 		t.Errorf("step mismatch: %v", v)
 	}
 }

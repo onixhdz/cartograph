@@ -1,6 +1,9 @@
 package ingestion
 
-import "os"
+import (
+	"fmt"
+	"os"
+)
 
 // FileWalker abstracts filesystem traversal so the pipeline can work
 // with both OS filesystems (local paths, --clone) and in-memory
@@ -33,5 +36,9 @@ type OSFileReader struct{}
 
 // ReadFile reads the file at the given path from the OS filesystem.
 func (OSFileReader) ReadFile(path string) ([]byte, error) {
-	return os.ReadFile(path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read file %s: %w", path, err)
+	}
+	return data, nil
 }

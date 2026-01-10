@@ -11,7 +11,7 @@ func TestResolveModel_LocalPath(t *testing.T) {
 	// Create a minimal fake GGUF file.
 	tmp := t.TempDir()
 	fakeGGUF := filepath.Join(tmp, "test.gguf")
-	if err := os.WriteFile(fakeGGUF, []byte("fake-gguf-data"), 0o644); err != nil {
+	if err := os.WriteFile(fakeGGUF, []byte("fake-gguf-data"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

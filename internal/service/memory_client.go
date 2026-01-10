@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"runtime"
@@ -62,7 +63,7 @@ func (mc *MemoryClient) SetBackendFactory(f BackendFactory) {
 func (mc *MemoryClient) LoadGraph(repo string, g *lpg.Graph, idx *search.Index) {
 	mc.mu.Lock()
 	if prev, ok := mc.indexes[repo]; ok && prev != nil {
-		prev.Close() //nolint:errcheck
+		_ = prev.Close() // best-effort close old index
 	}
 	mc.graphs[repo] = g
 	mc.indexes[repo] = idx
@@ -121,7 +122,7 @@ func (mc *MemoryClient) GetRepoDir(repo string) string {
 // queries that arrive before it completes get BM25-only results
 // (graceful degradation). Returns nil, nil if the provider isn't ready.
 func (mc *MemoryClient) QueryEmbed(ctx context.Context, text string) ([]float32, error) {
-	mc.queryProviderOnce.Do(func() {
+	mc.queryProviderOnce.Do(func() { //nolint:contextcheck // deep call chain
 		go func() {
 			p, err := embedding.NewProvider(embedding.Config{})
 			if err != nil {
@@ -141,8 +142,11 @@ func (mc *MemoryClient) QueryEmbed(ctx context.Context, text string) ([]float32,
 	}
 
 	vecs, err := p.Embed(ctx, []string{text})
-	if err != nil || len(vecs) == 0 {
-		return nil, err
+	if err != nil {
+		return nil, fmt.Errorf("query embed: %w", err)
+	}
+	if len(vecs) == 0 {
+		return nil, nil
 	}
 	return vecs[0], nil
 }
@@ -186,7 +190,11 @@ func (mc *MemoryClient) Query(req QueryRequest) (*QueryResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	return be.Query(req)
+	res, err := be.Query(req)
+	if err != nil {
+		return nil, fmt.Errorf("memory client: query %q: %w", req.Repo, err)
+	}
+	return res, nil
 }
 
 // Context retrieves 360° symbol context.
@@ -195,7 +203,11 @@ func (mc *MemoryClient) Context(req ContextRequest) (*ContextResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	return be.Context(req)
+	res, err := be.Context(req)
+	if err != nil {
+		return nil, fmt.Errorf("memory client: context %q: %w", req.Repo, err)
+	}
+	return res, nil
 }
 
 // Cypher executes a read-only Cypher query.
@@ -204,7 +216,11 @@ func (mc *MemoryClient) Cypher(req CypherRequest) (*CypherResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	return be.Cypher(req)
+	res, err := be.Cypher(req)
+	if err != nil {
+		return nil, fmt.Errorf("memory client: cypher %q: %w", req.Repo, err)
+	}
+	return res, nil
 }
 
 // Impact computes blast radius analysis.
@@ -213,16 +229,20 @@ func (mc *MemoryClient) Impact(req ImpactRequest) (*ImpactResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	return be.Impact(req)
+	res, err := be.Impact(req)
+	if err != nil {
+		return nil, fmt.Errorf("memory client: impact %q: %w", req.Repo, err)
+	}
+	return res, nil
 }
 
 // Source retrieves file content from an indexed repository.
 func (mc *MemoryClient) Source(req SourceRequest) (*SourceResult, error) {
 	if req.Repo == "" {
-		return nil, fmt.Errorf("memory client: missing repo")
+		return nil, errors.New("memory client: missing repo")
 	}
 	if len(req.Files) == 0 {
-		return nil, fmt.Errorf("memory client: missing files")
+		return nil, errors.New("memory client: missing files")
 	}
 
 	cr := mc.getContentResolver(req.Repo)
@@ -276,7 +296,7 @@ func (mc *MemoryClient) Reload(req ReloadRequest) error {
 	mc.mu.Lock()
 	delete(mc.graphs, req.Repo)
 	if idx, ok := mc.indexes[req.Repo]; ok && idx != nil {
-		idx.Close() //nolint:errcheck
+		_ = idx.Close() // best-effort close before reload
 	}
 	delete(mc.indexes, req.Repo)
 	delete(mc.resolvers, req.Repo)
@@ -312,7 +332,11 @@ func (mc *MemoryClient) Schema(req SchemaRequest) (*SchemaResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	return be.Schema(req)
+	res, err := be.Schema(req)
+	if err != nil {
+		return nil, fmt.Errorf("memory client: schema %q: %w", req.Repo, err)
+	}
+	return res, nil
 }
 
 // Shutdown is a no-op for MemoryClient (no server to shut down).
@@ -323,12 +347,12 @@ func (mc *MemoryClient) Shutdown() error {
 // Embed is not supported by MemoryClient — embedding requires the
 // background service. Returns an error indicating this.
 func (mc *MemoryClient) Embed(_ EmbedRequest) (*EmbedStatusResult, error) {
-	return nil, fmt.Errorf("embedding not supported via in-memory client; use the background service")
+	return nil, errors.New("embedding not supported via in-memory client; use the background service")
 }
 
 // EmbedStatus is not supported by MemoryClient.
 func (mc *MemoryClient) EmbedStatus(_ EmbedStatusRequest) (*EmbedStatusResult, error) {
-	return nil, fmt.Errorf("embed status not supported via in-memory client; use the background service")
+	return nil, errors.New("embed status not supported via in-memory client; use the background service")
 }
 
 // ReleaseSearchIndex closes and removes a specific repo's Bleve search
@@ -338,7 +362,7 @@ func (mc *MemoryClient) ReleaseSearchIndex(repo string) {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
 	if idx, ok := mc.indexes[repo]; ok && idx != nil {
-		idx.Close() //nolint:errcheck
+		_ = idx.Close() // best-effort close before release
 	}
 	delete(mc.indexes, repo)
 }
@@ -349,7 +373,7 @@ func (mc *MemoryClient) Close() {
 	defer mc.mu.Unlock()
 	for _, idx := range mc.indexes {
 		if idx != nil {
-			idx.Close() //nolint:errcheck
+			_ = idx.Close() // best-effort close
 		}
 	}
 	mc.graphs = make(map[string]*lpg.Graph)
@@ -359,7 +383,7 @@ func (mc *MemoryClient) Close() {
 
 	mc.queryProviderMu.Lock()
 	if mc.queryProvider != nil {
-		mc.queryProvider.Close() //nolint:errcheck
+		_ = mc.queryProvider.Close() // best-effort close
 		mc.queryProvider = nil
 	}
 	mc.queryProviderMu.Unlock()
@@ -369,7 +393,7 @@ func (mc *MemoryClient) Close() {
 // if needed.
 func (mc *MemoryClient) getBackend(repo string) (ToolBackend, error) {
 	if repo == "" {
-		return nil, fmt.Errorf("memory client: missing repo")
+		return nil, errors.New("memory client: missing repo")
 	}
 
 	resolved, err := mc.resolveRepoName(repo)
@@ -407,7 +431,11 @@ func (mc *MemoryClient) resolveRepoName(name string) (string, error) {
 	}
 	mc.mu.RUnlock()
 
-	return storage.ResolveRepoName(mc.dataDir, name)
+	resolved, err := storage.ResolveRepoName(mc.dataDir, name)
+	if err != nil {
+		return "", fmt.Errorf("memory client: resolve repo %q: %w", name, err)
+	}
+	return resolved, nil
 }
 
 // loadFromDisk loads a repo's graph + search index from the on-disk
@@ -423,7 +451,7 @@ func (mc *MemoryClient) loadFromDisk(repo string) error {
 	}
 	entry, err := registry.Resolve(repo)
 	if err != nil {
-		return err
+		return fmt.Errorf("memory client: resolve %q: %w", repo, err)
 	}
 
 	repoDir := filepath.Join(mc.dataDir, entry.Name, entry.Hash)
@@ -435,7 +463,7 @@ func (mc *MemoryClient) loadFromDisk(repo string) error {
 	}
 
 	g, err := store.LoadGraph()
-	store.Close() //nolint:errcheck
+	_ = store.Close() // best-effort close after load
 	if err != nil {
 		return fmt.Errorf("memory client: load graph %q: %w", repo, err)
 	}
@@ -451,7 +479,7 @@ func (mc *MemoryClient) loadFromDisk(repo string) error {
 			return fmt.Errorf("memory client: build search index %q: %w", repo, err)
 		}
 		if _, err := idx.IndexGraph(g); err != nil {
-			idx.Close() //nolint:errcheck
+			_ = idx.Close() // best-effort close on index error
 			return fmt.Errorf("memory client: index graph %q: %w", repo, err)
 		}
 	}

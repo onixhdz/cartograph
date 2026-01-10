@@ -224,7 +224,7 @@ func registerScalarFuncs() {
 			ValueFunc: func(_ *opencypher.EvalContext, args []opencypher.Value) (opencypher.Value, error) {
 				if p, ok := args[0].Get().(*lpg.Path); ok {
 					var edges []opencypher.Value
-					for i := 0; i < p.NumEdges(); i++ {
+					for i := range p.NumEdges() {
 						edges = append(edges, opencypher.RValue{Value: p.GetEdge(i)})
 					}
 					return opencypher.RValue{Value: edges}, nil

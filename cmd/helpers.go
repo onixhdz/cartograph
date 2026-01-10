@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -30,7 +31,7 @@ type ServiceClient interface {
 
 // detectRepo returns the repo name from git, falling back to the cwd basename.
 func detectRepo() (string, error) {
-	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	out, err := exec.CommandContext(context.Background(), "git", "rev-parse", "--show-toplevel").Output()
 	if err == nil {
 		top := strings.TrimSpace(string(out))
 		if top != "" {
@@ -93,7 +94,7 @@ func formatTable(headers []string, rows [][]string) string {
 	var b strings.Builder
 	b.WriteString("|")
 	for i, h := range headers {
-		b.WriteString(fmt.Sprintf(" %-*s |", widths[i], h))
+		fmt.Fprintf(&b, " %-*s |", widths[i], h)
 	}
 	b.WriteString("\n")
 	b.WriteString("|")
@@ -104,12 +105,12 @@ func formatTable(headers []string, rows [][]string) string {
 	b.WriteString("\n")
 	for _, row := range rows {
 		b.WriteString("|")
-		for i := range len(headers) {
+		for i := range headers {
 			cell := ""
 			if i < len(row) {
 				cell = row[i]
 			}
-			b.WriteString(fmt.Sprintf(" %-*s |", widths[i], cell))
+			fmt.Fprintf(&b, " %-*s |", widths[i], cell)
 		}
 		b.WriteString("\n")
 	}

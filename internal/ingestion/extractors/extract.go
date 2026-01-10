@@ -2,6 +2,7 @@ package extractors
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"regexp"
 	"strings"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/realxen/cartograph/internal/graph"
 )
+
+const langPython = "python"
 
 // ExtractedSymbol represents a code symbol extracted from a source file
 // via tree-sitter parsing.
@@ -195,7 +198,7 @@ func (lc *langCache) warmLanguages(languages []string) {
 	for _, lang := range languages {
 		if !seen[lang] {
 			seen[lang] = true
-			lc.get(lang) // ignore errors; they'll surface per-file
+			_, _ = lc.get(lang) // ignore errors; they'll surface per-file
 		}
 	}
 }
@@ -499,7 +502,7 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 		var content string
 		start := defNode.StartByte()
 		end := defNode.EndByte()
-		if start < end && end <= uint32(len(source)) {
+		if start < end && end <= uint32(len(source)) { //nolint:gosec // G115
 			content = string(source[start:end])
 		}
 
@@ -762,7 +765,7 @@ func isExported(name, language string) bool {
 	switch language {
 	case "go":
 		return name[0] >= 'A' && name[0] <= 'Z'
-	case "python":
+	case langPython:
 		return !strings.HasPrefix(name, "_")
 	default:
 		return true
@@ -779,7 +782,7 @@ func detectExported(defNode *ts.Node, name, language string, lang *ts.Language, 
 	switch language {
 	case "go":
 		return name[0] >= 'A' && name[0] <= 'Z'
-	case "python":
+	case langPython:
 		return !strings.HasPrefix(name, "_")
 	case "ruby":
 		// Ruby: all methods are public by default (private/protected are method calls)
@@ -833,7 +836,7 @@ func hasVisibilityModifier(node *ts.Node, lang *ts.Language, source []byte, keyw
 		return false
 	}
 	// Scan children for modifier/visibility nodes.
-	for i := 0; i < int(decl.ChildCount()); i++ {
+	for i := range decl.ChildCount() {
 		child := decl.Child(i)
 		if child == nil {
 			continue
@@ -861,7 +864,7 @@ func hasSiblingModifier(node *ts.Node, lang *ts.Language, source []byte, keyword
 	if decl == nil {
 		return false
 	}
-	for i := 0; i < int(decl.ChildCount()); i++ {
+	for i := range decl.ChildCount() {
 		child := decl.Child(i)
 		if child == nil {
 			continue
@@ -884,7 +887,7 @@ func hasSiblingNodeType(node *ts.Node, lang *ts.Language, nodeType string) bool 
 	if decl == nil {
 		return false
 	}
-	for i := 0; i < int(decl.ChildCount()); i++ {
+	for i := range decl.ChildCount() {
 		child := decl.Child(i)
 		if child != nil && child.Type(lang) == nodeType {
 			return true
@@ -900,7 +903,7 @@ func hasSiblingModifierText(node *ts.Node, lang *ts.Language, source []byte, nod
 	if decl == nil {
 		return false
 	}
-	for i := 0; i < int(decl.ChildCount()); i++ {
+	for i := range decl.ChildCount() {
 		child := decl.Child(i)
 		if child != nil && child.Type(lang) == nodeType && safeNodeText(child, source) == text {
 			return true
@@ -1025,7 +1028,7 @@ func extractPythonDocstring(defNode *ts.Node, source []byte, lang *ts.Language) 
 			strNode := firstChild.NamedChild(0)
 			if strNode != nil {
 				strType := strings.ToLower(strNode.Type(lang))
-				if strType == "string" || strType == "concatenated_string" {
+				if strType == rubyNodeString || strType == "concatenated_string" {
 					text := safeNodeText(strNode, source)
 					return cleanDocstring(text)
 				}
@@ -1034,7 +1037,7 @@ func extractPythonDocstring(defNode *ts.Node, source []byte, lang *ts.Language) 
 	}
 
 	// Direct string child (some grammars).
-	if childType == "string" || childType == "concatenated_string" {
+	if childType == rubyNodeString || childType == "concatenated_string" {
 		text := safeNodeText(firstChild, source)
 		return cleanDocstring(text)
 	}
@@ -1130,7 +1133,7 @@ func extractSignature(defNode *ts.Node, source []byte, lang *ts.Language) string
 
 	// Fallback: scan children for body-like nodes.
 	if bodyNode == nil {
-		for i := 0; i < int(defNode.ChildCount()); i++ {
+		for i := range defNode.ChildCount() {
 			child := defNode.Child(i)
 			if child == nil {
 				continue
@@ -1151,15 +1154,15 @@ func extractSignature(defNode *ts.Node, source []byte, lang *ts.Language) string
 		// No body found — use the first line of the definition.
 		end = defNode.EndByte()
 		text := ""
-		if start < end && end <= uint32(len(source)) {
+		if start < end && end <= uint32(len(source)) { //nolint:gosec // G115
 			text = string(source[start:end])
 		}
 		if idx := strings.Index(text, "\n"); idx >= 0 {
-			end = start + uint32(idx)
+			end = start + uint32(idx) //nolint:gosec // G115
 		}
 	}
 
-	if start >= end || end > uint32(len(source)) {
+	if start >= end || end > uint32(len(source)) { //nolint:gosec // G115
 		return ""
 	}
 
@@ -1184,7 +1187,7 @@ func extractMethodSignature(defNode *ts.Node, source []byte, lang *ts.Language) 
 		paramNode = defNode.ChildByFieldName("formal_parameters", lang)
 	}
 	if paramNode == nil {
-		for i := 0; i < int(defNode.ChildCount()); i++ {
+		for i := range defNode.ChildCount() {
 			child := defNode.Child(i)
 			if child == nil {
 				continue
@@ -1202,7 +1205,7 @@ func extractMethodSignature(defNode *ts.Node, source []byte, lang *ts.Language) 
 		}
 	}
 	if paramNode != nil {
-		for i := 0; i < int(paramNode.ChildCount()); i++ {
+		for i := range paramNode.ChildCount() {
 			child := paramNode.Child(i)
 			if child != nil && child.IsNamed() {
 				paramCount++
@@ -1256,7 +1259,7 @@ func extractReceiverType(defNode *ts.Node, source []byte, lang *ts.Language) str
 			return ts.WalkSkipChildren
 		}
 		ntype := strings.ToLower(n.Type(lang))
-		if ntype == "type_identifier" {
+		if ntype == nodeTypeIdentifier {
 			typeName = safeNodeText(n, source)
 			return ts.WalkSkipChildren
 		}
@@ -1273,7 +1276,7 @@ func generateID(label, filePath, name, ownerName string) string {
 		key = label + ":" + filePath + ":" + ownerName + "." + name
 	}
 	h := sha256.Sum256([]byte(key))
-	return fmt.Sprintf("%x", h[:12])
+	return hex.EncodeToString(h[:12])
 }
 
 // trimQuotes removes surrounding quotes from a string literal.

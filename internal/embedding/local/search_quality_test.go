@@ -46,9 +46,9 @@ func vectorSearch(p *Provider, ctx context.Context, query string, docs []string,
 
 // embeddingText formats a code node the same way textgen.go does.
 // role is the heuristic process label (e.g., "Initialization"); pass "" to omit.
-func embeddingText(label, name, file, signature, role, doc, code string, calls, calledBy []string) string {
+func embeddingText(name, file, signature, role, doc, code string, calls, calledBy []string) string {
 	var b strings.Builder
-	b.WriteString(label + ": " + name + "\n")
+	b.WriteString("Function: " + name + "\n")
 	b.WriteString("File: " + file + "\n")
 	if signature != "" {
 		b.WriteString("Signature: " + signature + "\n")
@@ -75,7 +75,7 @@ func embeddingText(label, name, file, signature, role, doc, code string, calls, 
 func codebaseNodes() []string {
 	return []string{
 		// [0] Server startup
-		embeddingText("Function", "NewServer", "internal/server/server.go",
+		embeddingText("NewServer", "internal/server/server.go",
 			"func NewServer(cfg Config) (*Server, error)",
 			"Initialization",
 			"NewServer creates and initializes the HTTP server with all routes, middleware, and background workers.",
@@ -90,7 +90,7 @@ func codebaseNodes() []string {
 			[]string{"main", "TestServer"}),
 
 		// [1] Database connection
-		embeddingText("Function", "OpenDatabase", "internal/storage/db.go",
+		embeddingText("OpenDatabase", "internal/storage/db.go",
 			"func OpenDatabase(dsn string) (*sql.DB, error)",
 			"Initialization",
 			"OpenDatabase establishes a connection to the PostgreSQL database with connection pooling and retry logic.",
@@ -104,7 +104,7 @@ func codebaseNodes() []string {
 			[]string{"NewServer", "main"}),
 
 		// [2] Authentication middleware
-		embeddingText("Function", "AuthMiddleware", "internal/auth/middleware.go",
+		embeddingText("AuthMiddleware", "internal/auth/middleware.go",
 			"func AuthMiddleware(next http.Handler) http.Handler",
 			"Authentication",
 			"AuthMiddleware validates JWT tokens from the Authorization header and injects the authenticated user into the request context.",
@@ -121,7 +121,7 @@ func codebaseNodes() []string {
 			[]string{"registerRoutes"}),
 
 		// [3] User registration handler
-		embeddingText("Function", "HandleRegister", "internal/auth/register.go",
+		embeddingText("HandleRegister", "internal/auth/register.go",
 			"func HandleRegister(w http.ResponseWriter, r *http.Request)",
 			"Request handler",
 			"HandleRegister processes new user registration requests, validates input, hashes the password, and stores the user in the database.",
@@ -137,7 +137,7 @@ func codebaseNodes() []string {
 			[]string{"registerRoutes"}),
 
 		// [4] Sorting utility (no role — not part of a process)
-		embeddingText("Function", "QuickSort", "pkg/algorithms/sort.go",
+		embeddingText("QuickSort", "pkg/algorithms/sort.go",
 			"func QuickSort(arr []int) []int",
 			"",
 			"QuickSort implements the quicksort algorithm with median-of-three pivot selection for improved performance on partially sorted data.",
@@ -151,7 +151,7 @@ func codebaseNodes() []string {
 			nil),
 
 		// [5] Logging setup
-		embeddingText("Function", "InitLogger", "internal/logging/logger.go",
+		embeddingText("InitLogger", "internal/logging/logger.go",
 			"func InitLogger(level string, output io.Writer) *slog.Logger",
 			"Initialization",
 			"InitLogger configures the structured logger with the specified level and output destination.",
@@ -169,7 +169,7 @@ func codebaseNodes() []string {
 			[]string{"main", "NewServer"}),
 
 		// [6] Cache layer
-		embeddingText("Function", "NewRedisCache", "internal/cache/redis.go",
+		embeddingText("NewRedisCache", "internal/cache/redis.go",
 			"func NewRedisCache(addr string) (*RedisCache, error)",
 			"Initialization",
 			"NewRedisCache creates a Redis-backed cache client with connection pooling for high-throughput key-value operations.",
@@ -182,7 +182,7 @@ func codebaseNodes() []string {
 			[]string{"NewServer"}),
 
 		// [7] Config parsing
-		embeddingText("Function", "LoadConfig", "internal/config/config.go",
+		embeddingText("LoadConfig", "internal/config/config.go",
 			"func LoadConfig(path string) (*Config, error)",
 			"Configuration",
 			"LoadConfig reads and parses a YAML configuration file, applying environment variable overrides and default values.",
@@ -198,7 +198,7 @@ func codebaseNodes() []string {
 			[]string{"main"}),
 
 		// [8] Graceful shutdown
-		embeddingText("Function", "Shutdown", "internal/server/server.go",
+		embeddingText("Shutdown", "internal/server/server.go",
 			"func (s *Server) Shutdown(ctx context.Context) error",
 			"Shutdown",
 			"Shutdown gracefully stops the server, draining active connections and stopping background workers within the context deadline.",
@@ -210,7 +210,7 @@ func codebaseNodes() []string {
 			[]string{"main"}),
 
 		// [9] Health check endpoint
-		embeddingText("Function", "HandleHealth", "internal/server/health.go",
+		embeddingText("HandleHealth", "internal/server/health.go",
 			"func HandleHealth(w http.ResponseWriter, r *http.Request)",
 			"Observability",
 			"HandleHealth returns the server health status including database connectivity and cache availability.",
@@ -454,33 +454,33 @@ func TestDimensionalityImpact(t *testing.T) {
 	}{
 		{
 			"how to authenticate users",
-			embeddingText("Function", "AuthMiddleware", "auth/middleware.go",
+			embeddingText("AuthMiddleware", "auth/middleware.go",
 				"func AuthMiddleware(next http.Handler) http.Handler",
 				"Authentication",
 				"Validates JWT tokens and injects user context", "", nil, nil),
-			embeddingText("Function", "QuickSort", "algorithms/sort.go",
+			embeddingText("QuickSort", "algorithms/sort.go",
 				"func QuickSort(arr []int) []int",
 				"",
 				"Sorts an array using quicksort algorithm", "", nil, nil),
 		},
 		{
 			"database connection pooling",
-			embeddingText("Function", "OpenDatabase", "storage/db.go",
+			embeddingText("OpenDatabase", "storage/db.go",
 				"func OpenDatabase(dsn string) (*sql.DB, error)",
 				"Initialization",
 				"Opens PostgreSQL with connection pool", "", nil, nil),
-			embeddingText("Function", "InitLogger", "logging/logger.go",
+			embeddingText("InitLogger", "logging/logger.go",
 				"func InitLogger(level string) *slog.Logger",
 				"Initialization",
 				"Sets up structured JSON logging", "", nil, nil),
 		},
 		{
 			"graceful server shutdown",
-			embeddingText("Function", "Shutdown", "server/server.go",
+			embeddingText("Shutdown", "server/server.go",
 				"func (s *Server) Shutdown(ctx context.Context) error",
 				"Shutdown",
 				"Drains connections and stops workers", "", nil, nil),
-			embeddingText("Function", "HandleRegister", "auth/register.go",
+			embeddingText("HandleRegister", "auth/register.go",
 				"func HandleRegister(w http.ResponseWriter, r *http.Request)",
 				"Request handler",
 				"Processes user registration", "", nil, nil),
@@ -513,7 +513,7 @@ func TestDimensionalityImpact(t *testing.T) {
 			avgGap:    avgGap,
 		})
 
-		p.Close()
+		_ = p.Close()
 	}
 
 	// Report comparison

@@ -24,7 +24,7 @@ func TestMain(m *testing.M) {
 	// Ensure embedding never spins up more than one WASM worker if a
 	// test accidentally triggers it.
 	if os.Getenv("CARTOGRAPH_EMBEDDING_WORKERS") == "" {
-		os.Setenv("CARTOGRAPH_EMBEDDING_WORKERS", "1")
+		_ = os.Setenv("CARTOGRAPH_EMBEDDING_WORKERS", "1")
 	}
 
 	os.Exit(m.Run())

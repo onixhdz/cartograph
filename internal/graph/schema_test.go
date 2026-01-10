@@ -266,13 +266,19 @@ func TestSchemaEdgePropsOptional(t *testing.T) {
 			Reason:     "direct",
 			Step:       5,
 		})
-		if v, ok := edge.GetProperty(PropConfidence); !ok || v.(float64) != 0.9 {
+		if v, ok := edge.GetProperty(PropConfidence); !ok {
+			t.Errorf("confidence not set")
+		} else if fv, ok := v.(float64); !ok || fv != 0.9 {
 			t.Errorf("confidence mismatch")
 		}
-		if v, ok := edge.GetProperty(PropReason); !ok || v.(string) != "direct" {
+		if v, ok := edge.GetProperty(PropReason); !ok {
+			t.Errorf("reason not set")
+		} else if sv, ok := v.(string); !ok || sv != "direct" {
 			t.Errorf("reason mismatch")
 		}
-		if v, ok := edge.GetProperty(PropStep); !ok || v.(int) != 5 {
+		if v, ok := edge.GetProperty(PropStep); !ok {
+			t.Errorf("step not set")
+		} else if iv, ok := v.(int); !ok || iv != 5 {
 			t.Errorf("step mismatch")
 		}
 	})

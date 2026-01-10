@@ -7,9 +7,22 @@ import (
 	"testing"
 )
 
+const (
+	testGoModPath       = "/project/go.mod"
+	testBaseURL         = "src"
+	testPackageJSONPath = "/project/package.json"
+	testPackageJSON     = "package.json"
+	testCargoTomlPath   = "/project/Cargo.toml"
+	testCargoToml       = "Cargo.toml"
+	testVersion1_0      = "1.0"
+	testVersion0_5      = "0.5"
+	testReqTxtPath      = "/project/requirements.txt"
+	testReqTxt          = "requirements.txt"
+)
+
 func TestLoadGoModulePath(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
-		if path == "/project/go.mod" {
+		if path == testGoModPath {
 			return []byte("module github.com/user/myproject\n\ngo 1.21\n\nrequire (\n\tgithub.com/foo v1.0.0\n)\n"), nil
 		}
 		return nil, fmt.Errorf("not found: %s", path)
@@ -68,7 +81,7 @@ func TestLoadTSConfigExtends(t *testing.T) {
 	}
 
 	cfg := LoadProjectConfig("/project", readFile)
-	if cfg.TSConfigBaseURL != "src" {
+	if cfg.TSConfigBaseURL != testBaseURL {
 		t.Errorf("expected baseUrl 'src', got '%s'", cfg.TSConfigBaseURL)
 	}
 	if _, ok := cfg.TSConfigPaths["@utils/*"]; !ok {
@@ -127,14 +140,14 @@ func TestLoadTSConfig_JSConfig(t *testing.T) {
 	}
 
 	cfg := LoadProjectConfig("/project", readFile)
-	if cfg.TSConfigBaseURL != "src" {
+	if cfg.TSConfigBaseURL != testBaseURL {
 		t.Errorf("expected baseUrl 'src' from jsconfig.json, got '%s'", cfg.TSConfigBaseURL)
 	}
 }
 
 func TestLoadGoModDependencies(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
-		if path == "/project/go.mod" {
+		if path == testGoModPath {
 			return []byte(`module github.com/user/myproject
 
 go 1.21
@@ -171,7 +184,7 @@ require github.com/single/dep v1.3.0
 
 func TestLoadPackageJSONDependencies(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
-		if path == "/project/package.json" {
+		if path == testPackageJSONPath {
 			return []byte(`{
 				"dependencies": {
 					"react": "^18.0.0",
@@ -188,7 +201,7 @@ func TestLoadPackageJSONDependencies(t *testing.T) {
 	cfg := LoadProjectConfig("/project", readFile)
 	var prodCount, devCount int
 	for _, d := range cfg.Dependencies {
-		if d.Source != "package.json" {
+		if d.Source != testPackageJSON {
 			continue
 		}
 		if d.Dev {
@@ -207,7 +220,7 @@ func TestLoadPackageJSONDependencies(t *testing.T) {
 
 func TestLoadCargoTomlDependencies(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
-		if path == "/project/Cargo.toml" {
+		if path == testCargoTomlPath {
 			return []byte(`[package]
 name = "myapp"
 version = "0.1.0"
@@ -226,24 +239,24 @@ criterion = "0.5"
 	cfg := LoadProjectConfig("/project", readFile)
 	found := map[string]DependencyInfo{}
 	for _, d := range cfg.Dependencies {
-		if d.Source == "Cargo.toml" {
+		if d.Source == testCargoToml {
 			found[d.Name] = d
 		}
 	}
-	if d, ok := found["serde"]; !ok || d.Version != "1.0" || d.Dev {
+	if d, ok := found["serde"]; !ok || d.Version != testVersion1_0 || d.Dev {
 		t.Errorf("expected serde 1.0 (prod), got %+v", found["serde"])
 	}
 	if d, ok := found["tokio"]; !ok || d.Version != "1.28" || d.Dev {
 		t.Errorf("expected tokio 1.28 (prod), got %+v", found["tokio"])
 	}
-	if d, ok := found["criterion"]; !ok || d.Version != "0.5" || !d.Dev {
+	if d, ok := found["criterion"]; !ok || d.Version != testVersion0_5 || !d.Dev {
 		t.Errorf("expected criterion 0.5 (dev), got %+v", found["criterion"])
 	}
 }
 
 func TestLoadRequirementsTxtDependencies(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
-		if path == "/project/requirements.txt" {
+		if path == testReqTxtPath {
 			return []byte(`# Core dependencies
 Flask==2.3.2
 requests>=2.28.0
@@ -259,7 +272,7 @@ pandas[sql]
 	cfg := LoadProjectConfig("/project", readFile)
 	found := map[string]DependencyInfo{}
 	for _, d := range cfg.Dependencies {
-		if d.Source == "requirements.txt" {
+		if d.Source == testReqTxt {
 			found[d.Name] = d
 		}
 	}
@@ -395,7 +408,7 @@ end
 
 func TestGoModReplaceDirectives(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
-		if path == "/project/go.mod" {
+		if path == testGoModPath {
 			return []byte(`module github.com/user/myproject
 
 go 1.21
@@ -432,7 +445,7 @@ replace github.com/original/dep => github.com/fork/dep v1.1.0
 
 func TestGoModVersionSpecificReplace(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
-		if path == "/project/go.mod" {
+		if path == testGoModPath {
 			return []byte(`module github.com/user/myproject
 
 go 1.21
@@ -468,7 +481,7 @@ replace github.com/some/lib v1.0.0 => github.com/fork/lib v1.0.1
 
 func TestCargoTomlGitDeps(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
-		if path == "/project/Cargo.toml" {
+		if path == testCargoTomlPath {
 			return []byte(`[package]
 name = "myapp"
 version = "0.1.0"
@@ -486,11 +499,11 @@ both = { version = "0.5", git = "https://github.com/user/both.git" }
 	cfg := LoadProjectConfig("/project", readFile)
 	found := map[string]DependencyInfo{}
 	for _, d := range cfg.Dependencies {
-		if d.Source == "Cargo.toml" {
+		if d.Source == testCargoToml {
 			found[d.Name] = d
 		}
 	}
-	if d, ok := found["serde"]; !ok || d.Version != "1.0" {
+	if d, ok := found["serde"]; !ok || d.Version != testVersion1_0 {
 		t.Errorf("expected serde 1.0, got %+v", found["serde"])
 	}
 	// Git-only dep should still be included (has git source).
@@ -501,14 +514,14 @@ both = { version = "0.5", git = "https://github.com/user/both.git" }
 	if _, ok := found["path-only"]; ok {
 		t.Error("expected path-only dep to be excluded")
 	}
-	if d, ok := found["both"]; !ok || d.Version != "0.5" {
+	if d, ok := found["both"]; !ok || d.Version != testVersion0_5 {
 		t.Errorf("expected both v0.5, got %+v", found["both"])
 	}
 }
 
 func TestCargoTomlTableStyleAndBuildDeps(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
-		if path == "/project/Cargo.toml" {
+		if path == testCargoTomlPath {
 			return []byte(`[package]
 name = "myapp"
 version = "0.1.0"
@@ -533,12 +546,12 @@ cc = "1.0"
 	cfg := LoadProjectConfig("/project", readFile)
 	found := map[string]DependencyInfo{}
 	for _, d := range cfg.Dependencies {
-		if d.Source == "Cargo.toml" {
+		if d.Source == testCargoToml {
 			found[d.Name] = d
 		}
 	}
 	// Simple inline dep.
-	if d, ok := found["serde"]; !ok || d.Version != "1.0" || d.Dev {
+	if d, ok := found["serde"]; !ok || d.Version != testVersion1_0 || d.Dev {
 		t.Errorf("expected serde 1.0 (prod), got %+v", found["serde"])
 	}
 	// Table-style [dependencies.tokio] should parse correctly.
@@ -546,11 +559,11 @@ cc = "1.0"
 		t.Errorf("expected tokio 1.28 (prod), got %+v", found["tokio"])
 	}
 	// Dev dep.
-	if d, ok := found["criterion"]; !ok || d.Version != "0.5" || !d.Dev {
+	if d, ok := found["criterion"]; !ok || d.Version != testVersion0_5 || !d.Dev {
 		t.Errorf("expected criterion 0.5 (dev), got %+v", found["criterion"])
 	}
 	// Build dep (treated as dev).
-	if d, ok := found["cc"]; !ok || d.Version != "1.0" || !d.Dev {
+	if d, ok := found["cc"]; !ok || d.Version != testVersion1_0 || !d.Dev {
 		t.Errorf("expected cc 1.0 (dev/build), got %+v", found["cc"])
 	}
 }
@@ -558,7 +571,7 @@ cc = "1.0"
 func TestRequirementsTxtRecursiveIncludes(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
 		switch path {
-		case "/project/requirements.txt":
+		case testReqTxtPath:
 			return []byte(`Flask==2.3.2
 -r requirements-dev.txt
 requests>=2.28.0
@@ -574,7 +587,7 @@ coverage>=6.0
 	cfg := LoadProjectConfig("/project", readFile)
 	found := map[string]string{}
 	for _, d := range cfg.Dependencies {
-		if d.Source == "requirements.txt" {
+		if d.Source == testReqTxt {
 			found[d.Name] = d.Version
 		}
 	}
@@ -594,7 +607,7 @@ coverage>=6.0
 
 func TestRequirementsTxtLineContinuation(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
-		if path == "/project/requirements.txt" {
+		if path == testReqTxtPath {
 			return []byte("Django==4.2.0 \\\n  --hash=sha256:abc123\nnumpy==1.25.0\n"), nil
 		}
 		return nil, fmt.Errorf("not found: %s", path)
@@ -603,7 +616,7 @@ func TestRequirementsTxtLineContinuation(t *testing.T) {
 	cfg := LoadProjectConfig("/project", readFile)
 	found := map[string]string{}
 	for _, d := range cfg.Dependencies {
-		if d.Source == "requirements.txt" {
+		if d.Source == testReqTxt {
 			found[d.Name] = d.Version
 		}
 	}
@@ -617,7 +630,7 @@ func TestRequirementsTxtLineContinuation(t *testing.T) {
 
 func TestRequirementsTxtEnvironmentMarkers(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
-		if path == "/project/requirements.txt" {
+		if path == testReqTxtPath {
 			return []byte(`pywin32>=300;sys_platform=="win32"
 colorama>=0.4;python_version>="3.6"
 simplepkg
@@ -629,7 +642,7 @@ simplepkg
 	cfg := LoadProjectConfig("/project", readFile)
 	found := map[string]string{}
 	for _, d := range cfg.Dependencies {
-		if d.Source == "requirements.txt" {
+		if d.Source == testReqTxt {
 			found[d.Name] = d.Version
 		}
 	}
@@ -647,10 +660,10 @@ simplepkg
 func TestRequirementsTxtCycleDetection(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
 		switch path {
-		case "/project/requirements.txt":
+		case testReqTxtPath:
 			return []byte("-r requirements-extra.txt\nflask==2.0\n"), nil
 		case "/project/requirements-extra.txt":
-			return []byte("-r requirements.txt\ncelery==5.0\n"), nil
+			return []byte("-r " + testReqTxt + "\ncelery==5.0\n"), nil
 		}
 		return nil, fmt.Errorf("not found: %s", path)
 	}
@@ -659,7 +672,7 @@ func TestRequirementsTxtCycleDetection(t *testing.T) {
 	cfg := LoadProjectConfig("/project", readFile)
 	found := map[string]string{}
 	for _, d := range cfg.Dependencies {
-		if d.Source == "requirements.txt" {
+		if d.Source == testReqTxt {
 			found[d.Name] = d.Version
 		}
 	}
@@ -673,7 +686,7 @@ func TestRequirementsTxtCycleDetection(t *testing.T) {
 
 func TestRequirementsTxtRejectsURLs(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
-		if path == "/project/requirements.txt" {
+		if path == testReqTxtPath {
 			return []byte(`flask==2.0
 https://example.com/some-package.tar.gz
 git+https://github.com/user/repo.git@main#egg=mylib
@@ -686,7 +699,7 @@ valid-pkg>=1.0
 	cfg := LoadProjectConfig("/project", readFile)
 	found := map[string]string{}
 	for _, d := range cfg.Dependencies {
-		if d.Source == "requirements.txt" {
+		if d.Source == testReqTxt {
 			found[d.Name] = d.Version
 		}
 	}
@@ -710,7 +723,7 @@ valid-pkg>=1.0
 func TestRequirementsTxtMultiFileVariants(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
 		switch path {
-		case "/project/requirements.txt":
+		case testReqTxtPath:
 			return []byte("flask==2.0\n"), nil
 		case "/project/requirements-dev.txt":
 			return []byte("pytest==7.4\n"), nil
@@ -723,7 +736,7 @@ func TestRequirementsTxtMultiFileVariants(t *testing.T) {
 	cfg := LoadProjectConfig("/project", readFile)
 	found := map[string]string{}
 	for _, d := range cfg.Dependencies {
-		if d.Source == "requirements.txt" {
+		if d.Source == testReqTxt {
 			found[d.Name] = d.Version
 		}
 	}
@@ -740,7 +753,7 @@ func TestRequirementsTxtMultiFileVariants(t *testing.T) {
 
 func TestPackageJSONSkipsVSCodeExtension(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
-		if path == "/project/package.json" {
+		if path == testPackageJSONPath {
 			return []byte(`{
 				"name": "my-vscode-extension",
 				"version": "1.0.0",
@@ -755,7 +768,7 @@ func TestPackageJSONSkipsVSCodeExtension(t *testing.T) {
 
 	cfg := LoadProjectConfig("/project", readFile)
 	for _, d := range cfg.Dependencies {
-		if d.Source == "package.json" {
+		if d.Source == testPackageJSON {
 			t.Errorf("VSCode extension package.json should be skipped, but found dep: %s", d.Name)
 		}
 	}
@@ -763,7 +776,7 @@ func TestPackageJSONSkipsVSCodeExtension(t *testing.T) {
 
 func TestPackageJSONSkipsUnityPackage(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
-		if path == "/project/package.json" {
+		if path == testPackageJSONPath {
 			return []byte(`{
 				"name": "com.unity.rendering",
 				"version": "1.0.0",
@@ -778,7 +791,7 @@ func TestPackageJSONSkipsUnityPackage(t *testing.T) {
 
 	cfg := LoadProjectConfig("/project", readFile)
 	for _, d := range cfg.Dependencies {
-		if d.Source == "package.json" {
+		if d.Source == testPackageJSON {
 			t.Errorf("Unity package.json should be skipped, but found dep: %s", d.Name)
 		}
 	}
@@ -786,7 +799,7 @@ func TestPackageJSONSkipsUnityPackage(t *testing.T) {
 
 func TestPackageJSONSkipsVSCodeContributesOnly(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
-		if path == "/project/package.json" {
+		if path == testPackageJSONPath {
 			return []byte(`{
 				"name": "my-extension",
 				"version": "1.0.0",
@@ -799,7 +812,7 @@ func TestPackageJSONSkipsVSCodeContributesOnly(t *testing.T) {
 
 	cfg := LoadProjectConfig("/project", readFile)
 	for _, d := range cfg.Dependencies {
-		if d.Source == "package.json" {
+		if d.Source == testPackageJSON {
 			t.Errorf("VSCode extension with contributes should be skipped, but found dep: %s", d.Name)
 		}
 	}
@@ -808,7 +821,7 @@ func TestPackageJSONSkipsVSCodeContributesOnly(t *testing.T) {
 func TestPackageJSONNormalProject(t *testing.T) {
 	// A non-VSCode, non-Unity package.json should parse normally.
 	readFile := func(path string) ([]byte, error) {
-		if path == "/project/package.json" {
+		if path == testPackageJSONPath {
 			return []byte(`{
 				"name": "my-app",
 				"version": "1.0.0",
@@ -822,7 +835,7 @@ func TestPackageJSONNormalProject(t *testing.T) {
 	cfg := LoadProjectConfig("/project", readFile)
 	var prod, dev int
 	for _, d := range cfg.Dependencies {
-		if d.Source != "package.json" {
+		if d.Source != testPackageJSON {
 			continue
 		}
 		if d.Dev {
@@ -838,7 +851,7 @@ func TestPackageJSONNormalProject(t *testing.T) {
 
 func TestRequirementsTxtTripleEquals(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
-		if path == "/project/requirements.txt" {
+		if path == testReqTxtPath {
 			return []byte("exact-pkg===1.0.0\n"), nil
 		}
 		return nil, fmt.Errorf("not found: %s", path)
@@ -847,7 +860,7 @@ func TestRequirementsTxtTripleEquals(t *testing.T) {
 	cfg := LoadProjectConfig("/project", readFile)
 	found := map[string]string{}
 	for _, d := range cfg.Dependencies {
-		if d.Source == "requirements.txt" {
+		if d.Source == testReqTxt {
 			found[d.Name] = d.Version
 		}
 	}
@@ -877,7 +890,7 @@ func TestCsprojDependencies(t *testing.T) {
 	// Override os.ReadDir by using LoadProjectConfig with a temp dir
 	dir := t.TempDir()
 	// Create a fake .csproj file so os.ReadDir finds it
-	if err := os.WriteFile(dir+"/MyApp.csproj", []byte(""), 0o644); err != nil {
+	if err := os.WriteFile(dir+"/MyApp.csproj", []byte(""), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg := LoadProjectConfig(dir, func(path string) ([]byte, error) {
@@ -906,7 +919,7 @@ func TestCsprojDependencies(t *testing.T) {
 
 func TestCsprojSkipsMSBuildVariables(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(dir+"/App.csproj", []byte(""), 0o644); err != nil {
+	if err := os.WriteFile(dir+"/App.csproj", []byte(""), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg := LoadProjectConfig(dir, func(path string) ([]byte, error) {
@@ -936,7 +949,7 @@ func TestCsprojSkipsMSBuildVariables(t *testing.T) {
 
 func TestCsprojUpdateAttribute(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(dir+"/Build.csproj", []byte(""), 0o644); err != nil {
+	if err := os.WriteFile(dir+"/Build.csproj", []byte(""), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg := LoadProjectConfig(dir, func(path string) ([]byte, error) {

@@ -29,9 +29,9 @@ func TestParseTimings(t *testing.T) {
 		data []byte
 	}
 	var files []srcFile
-	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+	if err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil
+			return err
 		}
 		if info.IsDir() {
 			n := info.Name()
@@ -44,14 +44,16 @@ func TestParseTimings(t *testing.T) {
 			return filepath.SkipAll
 		}
 		if strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go") {
-			data, err := os.ReadFile(path)
+			data, err := os.ReadFile(path) //nolint:gosec // G122
 			if err == nil && len(data) > 0 {
 				rel, _ := filepath.Rel(root, path)
 				files = append(files, srcFile{rel, data})
 			}
 		}
 		return nil
-	})
+	}); err != nil {
+		t.Fatalf("walk: %v", err)
+	}
 	t.Logf("loaded %d files", len(files))
 
 	lang := grammars.DetectLanguageByName("go").Language()
@@ -101,7 +103,7 @@ func TestParseTimings(t *testing.T) {
 			work <- j
 		}
 		close(work)
-		for w := 0; w < runtime.NumCPU(); w++ {
+		for range runtime.NumCPU() {
 			wg.Go(func() {
 				for j := range work {
 					mu.Lock()
@@ -129,7 +131,7 @@ func TestParseTimings(t *testing.T) {
 			work <- j
 		}
 		close(work)
-		for w := 0; w < runtime.NumCPU(); w++ {
+		for range runtime.NumCPU() {
 			wg.Go(func() {
 				for j := range work {
 					tr, err := pool.Parse(files[j].data)

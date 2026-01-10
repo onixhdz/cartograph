@@ -1,7 +1,7 @@
 package storage
 
 import (
-	"fmt"
+	"errors"
 	"testing"
 
 	"github.com/cloudprivacylabs/lpg/v2"
@@ -21,7 +21,7 @@ func (m *mockStore) SaveGraph(g *lpg.Graph) error {
 
 func (m *mockStore) LoadGraph() (*lpg.Graph, error) {
 	if m.saved == nil {
-		return nil, fmt.Errorf("no graph saved")
+		return nil, errors.New("no graph saved")
 	}
 	return m.saved, nil
 }

@@ -59,6 +59,8 @@ linters:
         text: "dot-imports"
       - linters: [lll]
         source: "^//go:"
+      - linters: [dupword]
+        path: "_test\\.go$"
 
   settings:
     gosec:

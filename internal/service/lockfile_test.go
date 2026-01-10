@@ -74,7 +74,7 @@ func TestLockfileIsStaleAfterRelease(t *testing.T) {
 		t.Error("expected IsStale=false while process is running")
 	}
 
-	lf.Release()
+	_ = lf.Release()
 
 	if lf.IsStale() {
 		t.Error("expected IsStale=false after release (file removed)")
@@ -84,7 +84,9 @@ func TestLockfileIsStaleAfterRelease(t *testing.T) {
 func TestLockfileIsStaleWithBogusFile(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "service.pid")
-	os.WriteFile(p, []byte(`{"pid":999999999,"socket":"/x"}`), 0o644)
+	if err := os.WriteFile(p, []byte(`{"pid":999999999,"socket":"/x"}`), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
 
 	lf := NewLockfile(dir)
 	if !lf.IsStale() {
@@ -138,7 +140,9 @@ func TestLockfileReadFullInfo_DefaultsToUnix(t *testing.T) {
 func TestLockfileReadFullInfo_BackwardCompat(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "service.pid")
-	os.WriteFile(p, []byte(`{"pid":1,"socket":"/tmp/old.sock"}`), 0o644)
+	if err := os.WriteFile(p, []byte(`{"pid":1,"socket":"/tmp/old.sock"}`), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
 
 	lf := NewLockfile(dir)
 	_, _, network, err := lf.ReadFullInfo()
@@ -204,7 +208,9 @@ func TestLockfileCreatedAt_Populated(t *testing.T) {
 		t.Fatalf("read: %v", err)
 	}
 	var info lockInfo
-	json.Unmarshal(data, &info)
+	if err := json.Unmarshal(data, &info); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 
 	if info.CreatedAt < before {
 		t.Errorf("CreatedAt (%d) should be >= test start (%d)", info.CreatedAt, before)
@@ -223,8 +229,13 @@ func TestLockfileIsStale_MaxAgeTTL(t *testing.T) {
 		SocketPath: "/tmp/test.sock",
 		CreatedAt:  oldTime,
 	}
-	data, _ := json.Marshal(info)
-	os.WriteFile(p, data, 0o644)
+	data, err := json.Marshal(info)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := os.WriteFile(p, data, 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
 
 	lf := NewLockfile(dir)
 	if !lf.IsStale() {
@@ -240,8 +251,13 @@ func TestLockfileIsStale_RecentTimestampNotStale(t *testing.T) {
 		SocketPath: "/tmp/test.sock",
 		CreatedAt:  time.Now().Unix(),
 	}
-	data, _ := json.Marshal(info)
-	os.WriteFile(p, data, 0o644)
+	data, err := json.Marshal(info)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := os.WriteFile(p, data, 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
 
 	lf := NewLockfile(dir)
 	if lf.IsStale() {
@@ -252,7 +268,9 @@ func TestLockfileIsStale_RecentTimestampNotStale(t *testing.T) {
 func TestLockfileIsStale_NoTimestampFallsBackToPID(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "service.pid")
-	os.WriteFile(p, []byte(`{"pid":999999999,"socket":"/x"}`), 0o644)
+	if err := os.WriteFile(p, []byte(`{"pid":999999999,"socket":"/x"}`), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
 
 	lf := NewLockfile(dir)
 	if !lf.IsStale() {

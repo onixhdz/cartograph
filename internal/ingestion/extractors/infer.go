@@ -9,6 +9,14 @@ import (
 	"github.com/odvcencio/gotreesitter/grammars"
 )
 
+const (
+	heritageImplements = "implements"
+	heritageExtends    = "extends"
+	heritageTrait      = "trait"
+	nodeClass          = "class"
+	nodeConstant       = "constant"
+)
+
 // inferredExtra holds auto-inferred import/call node type names for a grammar.
 type inferredExtra struct {
 	importNodeTypes []string // e.g. "import_statement", "import_declaration"
@@ -121,7 +129,7 @@ func isCallNodeType(lower string) bool {
 }
 
 // extractImportsFromAST walks the AST and extracts import paths from
-// recognised import node types by collecting string literal children.
+// recognized import node types by collecting string literal children.
 func extractImportsFromAST(tree *ts.Node, source []byte, filePath string, lang *ts.Language, extra *inferredExtra) []ExtractedImport {
 	if len(extra.importNodeTypes) == 0 {
 		return nil
@@ -177,7 +185,7 @@ func extractImportSource(node *ts.Node, source []byte, lang *ts.Language) string
 
 	// Strategy 3: Find an identifier/dotted_name/qualified_name child
 	// that looks like a module path.
-	for i := 0; i < int(node.ChildCount()); i++ {
+	for i := range node.ChildCount() {
 		child := node.Child(i)
 		if child == nil {
 			continue
@@ -203,7 +211,7 @@ func findFirstStringLiteral(node *ts.Node, source []byte, lang *ts.Language, dep
 	if depth > 5 {
 		return ""
 	}
-	for i := 0; i < int(node.ChildCount()); i++ {
+	for i := range node.ChildCount() {
 		child := node.Child(i)
 		if child == nil {
 			continue
@@ -214,7 +222,7 @@ func findFirstStringLiteral(node *ts.Node, source []byte, lang *ts.Language, dep
 			return trimQuotes(text)
 		}
 	}
-	for i := 0; i < int(node.ChildCount()); i++ {
+	for i := range node.ChildCount() {
 		child := node.Child(i)
 		if child == nil || !child.IsNamed() {
 			continue
@@ -227,7 +235,7 @@ func findFirstStringLiteral(node *ts.Node, source []byte, lang *ts.Language, dep
 }
 
 // extractCallsFromAST walks the AST and extracts function/method call
-// names from recognised call node types.
+// names from recognized call node types.
 func extractCallsFromAST(tree *ts.Node, source []byte, filePath string, lang *ts.Language, extra *inferredExtra) []ExtractedCall {
 	if len(extra.callNodeTypes) == 0 {
 		return nil
@@ -293,7 +301,7 @@ func extractCalleeName(node *ts.Node, source []byte, lang *ts.Language) string {
 	}
 
 	// Strategy 2: First named child that's an identifier.
-	for i := 0; i < int(node.ChildCount()); i++ {
+	for i := range node.ChildCount() {
 		child := node.Child(i)
 		if child == nil || !child.IsNamed() {
 			continue
@@ -383,7 +391,7 @@ func extractHeritageFromAST(tree *ts.Node, source []byte, filePath string, lang 
 		}
 
 		// Scan children for heritage nodes.
-		for i := 0; i < int(node.ChildCount()); i++ {
+		for i := range node.ChildCount() {
 			child := node.Child(i)
 			if child == nil || !child.IsNamed() {
 				continue
@@ -433,13 +441,13 @@ func extractClassName(node *ts.Node, source []byte, lang *ts.Language) string {
 	}
 
 	// Fallback: first type_identifier or identifier child.
-	for i := 0; i < int(node.ChildCount()); i++ {
+	for i := range node.ChildCount() {
 		child := node.Child(i)
 		if child == nil {
 			continue
 		}
 		ctype := strings.ToLower(child.Type(lang))
-		if ctype == "type_identifier" || ctype == "identifier" || ctype == "constant" || ctype == "simple_identifier" {
+		if ctype == nodeTypeIdentifier || ctype == "identifier" || ctype == nodeConstant || ctype == nodeEnhSimpleIdentifier {
 			return safeNodeText(child, source)
 		}
 	}
@@ -453,13 +461,13 @@ func classifyHeritageChild(childType string) string {
 		if strings.Contains(childType, kw) {
 			// Map to a canonical kind.
 			if strings.Contains(childType, "implement") || childType == "interfaces" {
-				return "implements"
+				return heritageImplements
 			}
 			if strings.Contains(childType, "mixin") || strings.Contains(childType, "trait") || childType == "mixins" {
-				return "trait"
+				return heritageTrait
 			}
 			// Everything else (superclass, extends, base_class, inheritance, delegation)
-			return "extends"
+			return heritageExtends
 		}
 	}
 	return ""
@@ -477,7 +485,7 @@ func extractTypeIdentifiers(node *ts.Node, source []byte, lang *ts.Language) []s
 
 		// Collect type identifiers and plain identifiers/constants that
 		// look like type names (not keywords).
-		if ntype == "type_identifier" || ntype == "constant" {
+		if ntype == nodeTypeIdentifier || ntype == "constant" {
 			text := safeNodeText(n, source)
 			if text != "" && !seen[text] && !isKeyword(text) {
 				seen[text] = true
@@ -506,7 +514,7 @@ func extractTypeIdentifiers(node *ts.Node, source []byte, lang *ts.Language) []s
 // as children of heritage nodes but aren't type names.
 func isKeyword(s string) bool {
 	switch strings.ToLower(s) {
-	case "extends", "implements", "with", "class", "struct", "interface",
+	case heritageExtends, heritageImplements, "with", nodeClass, "struct", "interface",
 		"trait", "mixin", "super", "public", "private", "protected",
 		"open", "abstract", "final", "override", "virtual":
 		return true

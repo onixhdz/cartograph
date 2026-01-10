@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -49,8 +50,9 @@ func main() {
 	// locks) between the CLI and the server.
 	lf := service.NewLockfile(dataDir)
 	if _, addr, network, err := lf.ReadFullInfo(); err == nil && addr != "" {
-		if conn, dialErr := net.DialTimeout(network, addr, 200*time.Millisecond); dialErr == nil {
-			conn.Close()
+		dialer := net.Dialer{Timeout: 200 * time.Millisecond}
+		if conn, dialErr := dialer.DialContext(context.Background(), network, addr); dialErr == nil {
+			_ = conn.Close()
 			cli.Client = service.NewAutoClient(addr)
 			err := ctx.Run(&cli)
 			if err != nil {
@@ -64,11 +66,11 @@ func main() {
 	// No running service — use in-process MemoryClient.
 	mc := service.NewMemoryClient(dataDir)
 	mc.SetBackendFactory(newMemoryBackendFactory(mc))
-	mc.LoadAllFromRegistry() //nolint:errcheck
+	_ = mc.LoadAllFromRegistry() // best-effort preload
 	cli.Client = mc
-	defer mc.Close()
 
 	err = ctx.Run(&cli)
+	mc.Close()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)

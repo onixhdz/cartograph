@@ -31,13 +31,13 @@ func newSpinner(msg string) *spinner {
 		msg:     msg,
 		done:    make(chan struct{}),
 		stopped: make(chan struct{}),
-		isTTY:   term.IsTerminal(int(os.Stdout.Fd())),
+		isTTY:   term.IsTerminal(int(os.Stdout.Fd())), //nolint:gosec // G115: fd is a small integer
 	}
 }
 
 // write outputs s to stdout immediately, bypassing any buffering.
 func write(s string) {
-	os.Stdout.WriteString(s) //nolint:errcheck
+	_, _ = os.Stdout.WriteString(s)
 }
 
 // Start begins the spinner animation in a background goroutine.

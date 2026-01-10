@@ -74,7 +74,7 @@ func (p *OpenAICompatProvider) Embed(ctx context.Context, texts []string) ([][]f
 		return nil, fmt.Errorf("embedding: marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST",
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		p.endpoint+"/v1/embeddings", bytes.NewReader(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("embedding: create request: %w", err)

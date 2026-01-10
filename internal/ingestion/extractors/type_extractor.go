@@ -8,6 +8,14 @@ import (
 	ts "github.com/odvcencio/gotreesitter"
 )
 
+const (
+	nodePatternBinding = "pattern_binding"
+	nodeTypeIdentifier = "type_identifier"
+	nodeIdentifier     = "identifier"
+	nodeName           = "name"
+	nodeSelf           = "self"
+)
+
 // ExtractedTypeBinding represents an inferred type for a variable, parameter,
 // or expression discovered through grammar-agnostic AST walking.
 type ExtractedTypeBinding struct {
@@ -102,7 +110,7 @@ func isVarDeclLike(lower string) bool {
 		"variable_declarator", "variable_declaration",
 		"local_variable_declaration",
 		"property_declaration",   // Kotlin: val/var declarations
-		"pattern_binding",        // Swift: let/var bindings
+		nodePatternBinding,       // Swift: let/var bindings
 		"simple_pattern_binding", // Swift variant
 		"constant_declaration",   // Swift: let
 		"assignment",             // Python: x: int = 0 (has type field)
@@ -175,7 +183,7 @@ func findTypeAnnotation(node *ts.Node, source []byte, lang *ts.Language) string 
 	// Strategy 3: Scan grandchildren (handles Kotlin property_declaration >
 	// variable_declaration > user_type > type_identifier and similar grammars
 	// that wrap type annotations in intermediate nodes).
-	for i := 0; i < int(node.ChildCount()); i++ {
+	for i := range node.ChildCount() {
 		child := node.Child(i)
 		if child == nil || !child.IsNamed() {
 			continue
@@ -196,7 +204,7 @@ func findTypeAnnotation(node *ts.Node, source []byte, lang *ts.Language) string 
 
 // findTypeInChildren scans direct children for type annotation nodes.
 func findTypeInChildren(node *ts.Node, source []byte, lang *ts.Language) string {
-	for i := 0; i < int(node.ChildCount()); i++ {
+	for i := range node.ChildCount() {
 		child := node.Child(i)
 		if child == nil || !child.IsNamed() {
 			continue
@@ -204,7 +212,7 @@ func findTypeInChildren(node *ts.Node, source []byte, lang *ts.Language) string 
 		ctype := strings.ToLower(child.Type(lang))
 
 		// Direct type identifier child.
-		if ctype == "type_identifier" || ctype == "predefined_type" ||
+		if ctype == nodeTypeIdentifier || ctype == "predefined_type" ||
 			ctype == "simple_type" || ctype == "primitive_type" ||
 			ctype == "builtin_type" || ctype == "generic_type" ||
 			ctype == "nullable_type" || ctype == "user_type" {
@@ -237,7 +245,7 @@ func findDeclName(node *ts.Node, source []byte, lang *ts.Language) string {
 		}
 		ctype := strings.ToLower(child.Type(lang))
 		// If it's an identifier, use directly.
-		if strings.Contains(ctype, "identifier") || ctype == "name" {
+		if strings.Contains(ctype, "identifier") || ctype == nodeName {
 			return safeNodeText(child, source)
 		}
 		// If it's a declarator, dig into it for the name.
@@ -263,7 +271,7 @@ func findDeclName(node *ts.Node, source []byte, lang *ts.Language) string {
 
 	// Strategy 3: Scan grandchildren (Kotlin property_declaration >
 	// variable_declaration > simple_identifier).
-	for i := 0; i < int(node.ChildCount()); i++ {
+	for i := range node.ChildCount() {
 		child := node.Child(i)
 		if child == nil || !child.IsNamed() {
 			continue
@@ -282,15 +290,15 @@ func findDeclName(node *ts.Node, source []byte, lang *ts.Language) string {
 
 // firstIdentifierText returns the text of the first identifier-like child.
 func firstIdentifierText(node *ts.Node, source []byte, lang *ts.Language) string {
-	for i := 0; i < int(node.ChildCount()); i++ {
+	for i := range node.ChildCount() {
 		child := node.Child(i)
 		if child == nil {
 			continue
 		}
 		ctype := strings.ToLower(child.Type(lang))
-		if ctype == "identifier" || ctype == "simple_identifier" ||
+		if ctype == nodeIdentifier || ctype == nodeEnhSimpleIdentifier ||
 			ctype == "field_identifier" || ctype == "variable_name" ||
-			ctype == "name" {
+			ctype == nodeName {
 			text := safeNodeText(child, source)
 			if text != "" && !isTypeKeyword(text) {
 				return text
@@ -331,7 +339,7 @@ func extractParamType(node *ts.Node, source []byte, lang *ts.Language, filePath 
 	}
 
 	// Skip "self", "this", "cls" parameters.
-	if paramName == "self" || paramName == "this" || paramName == "cls" {
+	if paramName == nodeSelf || paramName == "this" || paramName == "cls" {
 		return nil
 	}
 
@@ -427,7 +435,7 @@ func findAssignmentValue(node *ts.Node, _ []byte, lang *ts.Language) *ts.Node {
 
 	// For local_variable_declaration (Java), the value is inside a nested
 	// variable_declarator's value field.
-	for i := 0; i < int(node.ChildCount()); i++ {
+	for i := range node.ChildCount() {
 		child := node.Child(i)
 		if child == nil || !child.IsNamed() {
 			continue
@@ -453,7 +461,7 @@ func unwrapSingleChild(node *ts.Node, lang *ts.Language) *ts.Node {
 	if ntype == "expression_list" || ntype == "parenthesized_expression" {
 		namedCount := 0
 		var singleChild *ts.Node
-		for i := 0; i < int(node.ChildCount()); i++ {
+		for i := range node.ChildCount() {
 			c := node.Child(i)
 			if c != nil && c.IsNamed() {
 				namedCount++
@@ -486,13 +494,13 @@ func extractConstructorType(node *ts.Node, source []byte, lang *ts.Language) str
 			}
 		}
 		// Fallback: first type_identifier or identifier child.
-		for i := 0; i < int(node.ChildCount()); i++ {
+		for i := range node.ChildCount() {
 			child := node.Child(i)
 			if child == nil {
 				continue
 			}
 			ctype := strings.ToLower(child.Type(lang))
-			if ctype == "type_identifier" || ctype == "identifier" {
+			if ctype == nodeTypeIdentifier || ctype == nodeIdentifier {
 				text := safeNodeText(child, source)
 				if text != "" && isTypeName(text) {
 					return cleanTypeName(text)
@@ -529,13 +537,13 @@ func extractConstructorType(node *ts.Node, source []byte, lang *ts.Language) str
 	// constructor_invocation (Kotlin): Foo(...)
 	if strings.Contains(ntype, "constructor_invocation") {
 		// Walk children for type_identifier.
-		for i := 0; i < int(node.ChildCount()); i++ {
+		for i := range node.ChildCount() {
 			child := node.Child(i)
 			if child == nil {
 				continue
 			}
 			ctype := strings.ToLower(child.Type(lang))
-			if ctype == "type_identifier" || strings.Contains(ctype, "user_type") {
+			if ctype == nodeTypeIdentifier || strings.Contains(ctype, "user_type") {
 				text := safeNodeText(child, source)
 				if text != "" && isTypeName(text) {
 					return cleanTypeName(text)
@@ -576,7 +584,7 @@ func isPatternMatch(lower string) bool {
 		lower == "is_expression" || lower == "type_check" ||
 		lower == "match_arm" || lower == "when_entry" ||
 		lower == "case_clause" || lower == "switch_label" ||
-		lower == "pattern_binding" ||
+		lower == nodePatternBinding ||
 		lower == "type_pattern" || lower == "deconstruction_pattern"
 }
 
@@ -585,29 +593,29 @@ func extractPatternBindings(node *ts.Node, source []byte, lang *ts.Language, fil
 	var bindings []ExtractedTypeBinding
 	ntype := strings.ToLower(node.Type(lang))
 
-	switch {
+	switch ntype {
 	// Rust: if let Some(x) = expr { ... }
 	// The pattern has a type, and the variable is bound inside it.
-	case ntype == "if_let_expression" || ntype == "if_let_statement":
+	case "if_let_expression", "if_let_statement":
 		bindings = append(bindings, extractIfLetBindings(node, source, lang, filePath)...)
 
 	// Rust let_chain (newer grammar): if let Some(val) = x { ... }
-	case ntype == "let_chain" || ntype == "let_condition":
+	case "let_chain", "let_condition":
 		bindings = append(bindings, extractLetChainBindings(node, source, lang, filePath)...)
 
 	// Java 16+: if (obj instanceof Foo f) { f.bar(); }
 	// C#: if (obj is Foo f) { f.bar(); }
-	case ntype == "instanceof_expression" || ntype == "is_expression" || ntype == "type_check":
+	case "instanceof_expression", "is_expression", "type_check":
 		if b := extractInstanceofBinding(node, source, lang, filePath); b != nil {
 			bindings = append(bindings, *b)
 		}
 
 	// Rust match arm / Kotlin when entry with type pattern.
-	case ntype == "match_arm" || ntype == "when_entry":
+	case "match_arm", "when_entry":
 		bindings = append(bindings, extractMatchArmBindings(node, source, lang, filePath)...)
 
 	// Swift/Kotlin pattern binding with type.
-	case ntype == "pattern_binding" || ntype == "type_pattern" || ntype == "deconstruction_pattern":
+	case "pattern_binding", "type_pattern", "deconstruction_pattern":
 		if b := extractPatternBinding(node, source, lang, filePath); b != nil {
 			bindings = append(bindings, *b)
 		}
@@ -629,7 +637,7 @@ func extractLetChainBindings(node *ts.Node, source []byte, lang *ts.Language, fi
 	var typeName, varName string
 	ts.Walk(patternNode, func(n *ts.Node, depth int) ts.WalkAction {
 		ctype := strings.ToLower(n.Type(lang))
-		if ctype == "identifier" || ctype == "simple_identifier" {
+		if ctype == nodeIdentifier || ctype == nodeEnhSimpleIdentifier {
 			text := safeNodeText(n, source)
 			if text != "" {
 				if typeName == "" && isTypeName(text) {
@@ -664,7 +672,7 @@ func extractIfLetBindings(node *ts.Node, source []byte, lang *ts.Language, fileP
 	patternNode := node.ChildByFieldName("pattern", lang)
 	if patternNode == nil {
 		// Scan children for pattern-like nodes.
-		for i := 0; i < int(node.ChildCount()); i++ {
+		for i := range node.ChildCount() {
 			child := node.Child(i)
 			if child == nil {
 				continue
@@ -685,7 +693,7 @@ func extractIfLetBindings(node *ts.Node, source []byte, lang *ts.Language, fileP
 	varName := ""
 	ts.Walk(patternNode, func(n *ts.Node, depth int) ts.WalkAction {
 		ctype := strings.ToLower(n.Type(lang))
-		if ctype == "identifier" || ctype == "simple_identifier" {
+		if ctype == nodeIdentifier || ctype == nodeEnhSimpleIdentifier {
 			text := safeNodeText(n, source)
 			if text != "" {
 				if typeName == "" && isTypeName(text) {
@@ -719,14 +727,14 @@ func extractInstanceofBinding(node *ts.Node, source []byte, lang *ts.Language, f
 	// C#: expr is Type varName
 	var typeName, varName string
 
-	for i := 0; i < int(node.ChildCount()); i++ {
+	for i := range node.ChildCount() {
 		child := node.Child(i)
 		if child == nil || !child.IsNamed() {
 			continue
 		}
 		ctype := strings.ToLower(child.Type(lang))
 
-		if ctype == "type_identifier" || ctype == "identifier" {
+		if ctype == nodeTypeIdentifier || ctype == nodeIdentifier {
 			text := safeNodeText(child, source)
 			if text == "" {
 				continue
@@ -759,7 +767,7 @@ func extractMatchArmBindings(node *ts.Node, source []byte, lang *ts.Language, fi
 	// Look for pattern children.
 	patternNode := node.ChildByFieldName("pattern", lang)
 	if patternNode == nil {
-		for i := 0; i < int(node.ChildCount()); i++ {
+		for i := range node.ChildCount() {
 			child := node.Child(i)
 			if child != nil && strings.Contains(strings.ToLower(child.Type(lang)), "pattern") {
 				patternNode = child
@@ -775,7 +783,7 @@ func extractMatchArmBindings(node *ts.Node, source []byte, lang *ts.Language, fi
 	var typeName, varName string
 	ts.Walk(patternNode, func(n *ts.Node, depth int) ts.WalkAction {
 		ctype := strings.ToLower(n.Type(lang))
-		if ctype == "identifier" || ctype == "type_identifier" || ctype == "simple_identifier" {
+		if ctype == nodeIdentifier || ctype == nodeTypeIdentifier || ctype == nodeEnhSimpleIdentifier {
 			text := safeNodeText(n, source)
 			if text != "" {
 				if typeName == "" && isTypeName(text) {
@@ -1076,7 +1084,7 @@ func isTypeKeyword(s string) bool {
 		"import", "from", "as", "export", "default",
 		"func", "fn", "def", "fun", "function",
 		"self", "this", "super", "cls",
-		"string", "int", "float", "bool", "byte", "char",
+		rubyNodeString, "int", "float", "bool", "byte", "char",
 		"int8", "int16", "int32", "int64",
 		"uint8", "uint16", "uint32", "uint64",
 		"float32", "float64", "double", "long", "short",

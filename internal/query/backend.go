@@ -5,6 +5,7 @@ package query
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -27,6 +28,8 @@ import (
 // QueryEmbedFn embeds a single query text and returns its vector.
 // Used by the Backend for hybrid (BM25 + vector) search.
 type QueryEmbedFn func(ctx context.Context, text string) ([]float32, error)
+
+const heuristicTestFlow = "Test flow"
 
 // Backend holds the graph and search index for a single repository
 // and exposes the tool implementations.
@@ -71,7 +74,7 @@ func (b *Backend) Query(req service.QueryRequest) (*service.QueryResult, error) 
 		sortByScore(definitions)
 		// Deduplicate by name+filePath then cap per bare name.
 		definitions = deduplicateDefinitions(definitions)
-		definitions = capPerName(definitions, 3)
+		definitions = capPerName(definitions)
 		if len(definitions) > limit {
 			definitions = definitions[:limit]
 		}
@@ -219,7 +222,7 @@ func (b *Backend) Query(req service.QueryRequest) (*service.QueryResult, error) 
 		processSymbols = filtered
 	}
 	// Cap processSymbols per bare name as well.
-	processSymbols = capPerName(processSymbols, 3)
+	processSymbols = capPerName(processSymbols)
 
 	// Normalize relevance with min-max + epsilon smoothing to spread scores.
 	// When there's only one process or all have identical scores, they
@@ -307,7 +310,7 @@ func (b *Backend) Query(req service.QueryRequest) (*service.QueryResult, error) 
 	if req.IncludeTests {
 		var archProcesses []service.ProcessMatch
 		for _, p := range processes {
-			if p.HeuristicLabel == "Test flow" {
+			if p.HeuristicLabel == heuristicTestFlow {
 				testFlows = append(testFlows, p)
 			} else {
 				archProcesses = append(archProcesses, p)
@@ -318,7 +321,7 @@ func (b *Backend) Query(req service.QueryRequest) (*service.QueryResult, error) 
 		// Default: exclude test flows entirely.
 		var archProcesses []service.ProcessMatch
 		for _, p := range processes {
-			if p.HeuristicLabel != "Test flow" {
+			if p.HeuristicLabel != heuristicTestFlow {
 				archProcesses = append(archProcesses, p)
 			}
 		}
@@ -628,7 +631,7 @@ func callTreeFanOut(node *lpg.Node) int {
 //   - count(*) panics (countAtom is unimplemented) → rewrite to count(n)
 func (b *Backend) Cypher(req service.CypherRequest) (result *service.CypherResult, retErr error) {
 	if IsWriteQuery(req.Query) {
-		return nil, fmt.Errorf("write queries are not allowed")
+		return nil, errors.New("write queries are not allowed")
 	}
 
 	defer func() {
@@ -1113,7 +1116,7 @@ func resolveOrderByCols(originalQuery string, orderCols, resultCols []string) []
 		}
 		asIdx := -1
 		u := strings.ToUpper(item)
-		for p := 0; p < len(u)-3; p++ {
+		for p := range len(u) - 3 {
 			if u[p:p+4] == " AS " {
 				asIdx = p
 			}
@@ -1426,7 +1429,7 @@ func rowKey(row map[string]opencypher.Value) string {
 		if v == nil || v.Get() == nil {
 			b.WriteString("<nil>")
 		} else {
-			b.WriteString(fmt.Sprintf("%v", v.Get()))
+			fmt.Fprintf(&b, "%v", v.Get())
 		}
 	}
 	return b.String()
@@ -1455,8 +1458,9 @@ func deduplicateDefinitions(defs []service.SymbolMatch) []service.SymbolMatch {
 	return out
 }
 
-// capPerName limits entries per bare Name to maxPerName highest-scored entries.
-func capPerName(defs []service.SymbolMatch, maxPerName int) []service.SymbolMatch {
+// capPerName limits entries per bare Name to 3 highest-scored entries.
+func capPerName(defs []service.SymbolMatch) []service.SymbolMatch {
+	const maxPerName = 3
 	counts := make(map[string]int, len(defs))
 	out := make([]service.SymbolMatch, 0, len(defs))
 	for _, d := range defs {

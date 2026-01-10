@@ -149,7 +149,7 @@ func ValidateAdjacencyList(adj AdjacencyList) error {
 // ValidateAdjacencyListForObjective checks edge weights against the rules
 // of the specified objective function. NaN and infinite weights are always
 // rejected. Negative weights are rejected for modularity but allowed for CPM
-// (matching igraph's behaviour).
+// (matching igraph's behavior).
 func ValidateAdjacencyListForObjective(adj AdjacencyList, objective LeidenObjective) error {
 	for from, neighbors := range adj {
 		for to, w := range neighbors {

@@ -545,7 +545,7 @@ func resolveRustImport(_ *lpg.Graph, imp ImportInfo, _ *ProjectConfig, idx *file
 
 	// Expand grouped use: {Foo, Bar} → just resolve the module path.
 	if braceIdx := strings.Index(importPath, "{"); braceIdx >= 0 {
-		importPath = strings.TrimRight(importPath[:braceIdx], "::")
+		importPath = strings.TrimRight(importPath[:braceIdx], ":")
 	}
 
 	// Strip any trailing ::* wildcard.

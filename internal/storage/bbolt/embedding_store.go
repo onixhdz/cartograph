@@ -40,7 +40,10 @@ func NewEmbeddingStoreFromDB(db *bolt.DB) (*EmbeddingStore, error) {
 func newEmbeddingStore(db *bolt.DB, ownsDB bool) (*EmbeddingStore, error) {
 	if err := db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(bucketEmbeddings)
-		return err
+		if err != nil {
+			return fmt.Errorf("create embeddings bucket: %w", err)
+		}
+		return nil
 	}); err != nil {
 		return nil, fmt.Errorf("embedding store: create bucket: %w", err)
 	}
@@ -49,10 +52,13 @@ func newEmbeddingStore(db *bolt.DB, ownsDB bool) (*EmbeddingStore, error) {
 
 // Put stores a vector for the given node ID.
 func (s *EmbeddingStore) Put(nodeID string, vector []float32) error {
-	return s.db.Update(func(tx *bolt.Tx) error {
+	if err := s.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bucketEmbeddings)
 		return b.Put([]byte(nodeID), encodeVector(vector))
-	})
+	}); err != nil {
+		return fmt.Errorf("embedding store: put: %w", err)
+	}
+	return nil
 }
 
 // EmbeddingEntry is a node ID + vector pair for batch operations.
@@ -63,15 +69,18 @@ type EmbeddingEntry struct {
 
 // BatchPut stores multiple vectors in a single transaction.
 func (s *EmbeddingStore) BatchPut(entries []EmbeddingEntry) error {
-	return s.db.Update(func(tx *bolt.Tx) error {
+	if err := s.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bucketEmbeddings)
 		for _, e := range entries {
 			if err := b.Put([]byte(e.NodeID), encodeVector(e.Vector)); err != nil {
-				return err
+				return fmt.Errorf("put %q: %w", e.NodeID, err)
 			}
 		}
 		return nil
-	})
+	}); err != nil {
+		return fmt.Errorf("embedding store: batch put: %w", err)
+	}
+	return nil
 }
 
 // Get retrieves the vector for a node ID. Returns nil, nil if not found.
@@ -86,7 +95,10 @@ func (s *EmbeddingStore) Get(nodeID string) ([]float32, error) {
 		vec = decodeVector(data)
 		return nil
 	})
-	return vec, err
+	if err != nil {
+		return nil, fmt.Errorf("embedding store: get: %w", err)
+	}
+	return vec, nil
 }
 
 // Has returns true if a vector exists for the given node ID.
@@ -97,26 +109,32 @@ func (s *EmbeddingStore) Has(nodeID string) (bool, error) {
 		found = b.Get([]byte(nodeID)) != nil
 		return nil
 	})
-	return found, err
+	if err != nil {
+		return false, fmt.Errorf("embedding store: has: %w", err)
+	}
+	return found, nil
 }
 
 // Delete removes vectors for the given node IDs.
 func (s *EmbeddingStore) Delete(nodeIDs []string) error {
-	return s.db.Update(func(tx *bolt.Tx) error {
+	if err := s.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bucketEmbeddings)
 		for _, id := range nodeIDs {
 			if err := b.Delete([]byte(id)); err != nil {
-				return err
+				return fmt.Errorf("delete %q: %w", id, err)
 			}
 		}
 		return nil
-	})
+	}); err != nil {
+		return fmt.Errorf("embedding store: delete: %w", err)
+	}
+	return nil
 }
 
 // Scan iterates over all stored embeddings, calling fn for each.
 // Return false from fn to stop iteration.
 func (s *EmbeddingStore) Scan(fn func(nodeID string, vector []float32) bool) error {
-	return s.db.View(func(tx *bolt.Tx) error {
+	if err := s.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bucketEmbeddings)
 		c := b.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -125,7 +143,10 @@ func (s *EmbeddingStore) Scan(fn func(nodeID string, vector []float32) bool) err
 			}
 		}
 		return nil
-	})
+	}); err != nil {
+		return fmt.Errorf("embedding store: scan: %w", err)
+	}
+	return nil
 }
 
 // HasBatch checks which node IDs already have stored vectors.
@@ -141,7 +162,10 @@ func (s *EmbeddingStore) HasBatch(nodeIDs []string) (map[string]bool, error) {
 		}
 		return nil
 	})
-	return result, err
+	if err != nil {
+		return nil, fmt.Errorf("embedding store: has batch: %w", err)
+	}
+	return result, nil
 }
 
 // Count returns the number of stored embeddings.
@@ -152,24 +176,35 @@ func (s *EmbeddingStore) Count() (int, error) {
 		n = b.Stats().KeyN
 		return nil
 	})
-	return n, err
+	if err != nil {
+		return 0, fmt.Errorf("embedding store: count: %w", err)
+	}
+	return n, nil
 }
 
 // Clear removes all stored embeddings.
 func (s *EmbeddingStore) Clear() error {
-	return s.db.Update(func(tx *bolt.Tx) error {
+	if err := s.db.Update(func(tx *bolt.Tx) error {
 		if err := tx.DeleteBucket(bucketEmbeddings); err != nil {
-			return err
+			return fmt.Errorf("delete embeddings bucket: %w", err)
 		}
 		_, err := tx.CreateBucket(bucketEmbeddings)
-		return err
-	})
+		if err != nil {
+			return fmt.Errorf("recreate embeddings bucket: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("embedding store: clear: %w", err)
+	}
+	return nil
 }
 
 // Close releases resources. If the store owns the DB, it closes it.
 func (s *EmbeddingStore) Close() error {
 	if s.ownsDB {
-		return s.db.Close()
+		if err := s.db.Close(); err != nil {
+			return fmt.Errorf("embedding store: close: %w", err)
+		}
 	}
 	return nil
 }

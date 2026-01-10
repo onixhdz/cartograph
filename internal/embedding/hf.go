@@ -1,6 +1,7 @@
 package embedding
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -30,12 +31,6 @@ type hfSibling struct {
 // hfRepoInfo is the subset of the HF API /api/models/{repo} response we need.
 type hfRepoInfo struct {
 	Siblings []hfSibling `json:"siblings"`
-}
-
-// hfFileInfo is the subset of a HF file metadata response.
-type hfFileInfo struct {
-	OID  string `json:"oid"`  // SHA256 of the LFS blob
-	Size int64  `json:"size"` // file size in bytes
 }
 
 // hfBaseURL is the Hugging Face API base URL. Overridable for testing.
@@ -68,7 +63,7 @@ func FetchModelInfo(repoID, quantHint string) (*HFModelInfo, error) {
 
 	// List files in the repo.
 	url := fmt.Sprintf("%s/api/models/%s", hfBaseURL, repoID)
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("hf: build request: %w", err)
 	}
@@ -167,7 +162,7 @@ func selectGGUF(files []string, quantHint string) string {
 func fetchFileMeta(client *http.Client, repoID, filename string) (sha string, size int64, err error) {
 	// Use the file header endpoint to get LFS info.
 	url := fmt.Sprintf("%s/api/models/%s/tree/main", hfBaseURL, repoID)
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
 	if err != nil {
 		return "", 0, fmt.Errorf("hf: build tree request: %w", err)
 	}
@@ -214,7 +209,7 @@ func fetchFileMeta(client *http.Client, repoID, filename string) (sha string, si
 // Returns the path to the cached file.
 func DownloadModel(info *HFModelInfo, cacheDir string, progress func(downloaded, total int64)) (string, error) {
 	destDir := filepath.Join(cacheDir, info.RepoID)
-	if err := os.MkdirAll(destDir, 0o755); err != nil {
+	if err := os.MkdirAll(destDir, 0o750); err != nil {
 		return "", fmt.Errorf("hf: create cache dir: %w", err)
 	}
 
@@ -228,7 +223,7 @@ func DownloadModel(info *HFModelInfo, cacheDir string, progress func(downloaded,
 	}
 
 	url := fmt.Sprintf("%s/%s/resolve/main/%s", hfBaseURL, info.RepoID, info.Filename)
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
 	if err != nil {
 		return "", fmt.Errorf("hf: build download request: %w", err)
 	}
@@ -271,7 +266,7 @@ func DownloadModel(info *HFModelInfo, cacheDir string, progress func(downloaded,
 	} else {
 		flags |= os.O_TRUNC
 	}
-	f, err := os.OpenFile(partPath, flags, 0o644)
+	f, err := os.OpenFile(partPath, flags, 0o600)
 	if err != nil {
 		return "", fmt.Errorf("hf: open partial file: %w", err)
 	}
@@ -285,7 +280,7 @@ func DownloadModel(info *HFModelInfo, cacheDir string, progress func(downloaded,
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
 			if _, writeErr := f.Write(buf[:n]); writeErr != nil {
-				f.Close()
+				_ = f.Close()
 				return "", fmt.Errorf("hf: write: %w", writeErr)
 			}
 			downloaded += int64(n)
@@ -297,11 +292,13 @@ func DownloadModel(info *HFModelInfo, cacheDir string, progress func(downloaded,
 			break
 		}
 		if readErr != nil {
-			f.Close()
+			_ = f.Close()
 			return "", fmt.Errorf("hf: read: %w", readErr)
 		}
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		return "", fmt.Errorf("hf: close partial file: %w", err)
+	}
 
 	// Verify SHA256 if available.
 	if info.SHA256 != "" {
@@ -310,7 +307,7 @@ func DownloadModel(info *HFModelInfo, cacheDir string, progress func(downloaded,
 			return "", fmt.Errorf("hf: hash verification: %w", err)
 		}
 		if hash != info.SHA256 {
-			os.Remove(partPath)
+			_ = os.Remove(partPath)
 			return "", fmt.Errorf("hf: SHA256 mismatch for %s: expected %s, got %s", info.Filename, info.SHA256, hash)
 		}
 	}
@@ -390,13 +387,13 @@ func findInHFCache(repoID, filename string) string {
 func hashFile(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("hf: open file for hashing: %w", err)
 	}
 	defer f.Close()
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
-		return "", err
+		return "", fmt.Errorf("hf: compute hash: %w", err)
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }

@@ -1,6 +1,7 @@
 package ingestion
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 
@@ -117,7 +118,7 @@ func c3Merge(seqs [][]string) ([]string, error) {
 		}
 
 		if found == "" {
-			return nil, fmt.Errorf("inconsistent hierarchy: cannot resolve merge order")
+			return nil, errors.New("inconsistent hierarchy: cannot resolve merge order")
 		}
 
 		result = append(result, found)

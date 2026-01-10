@@ -291,13 +291,13 @@ func writeProcessContext(b *strings.Builder, node *lpg.Node) {
 		role := graph.GetStringProp(p, graph.PropHeuristicLabel)
 		if role != "" && !genericLabels[role] {
 			best := p
-			bestImp := getFloatProp(p, graph.PropImportance)
+			bestImp := getFloatProp(p)
 			for _, q := range processes {
 				r := graph.GetStringProp(q, graph.PropHeuristicLabel)
 				if r == "" || genericLabels[r] {
 					continue
 				}
-				if imp := getFloatProp(q, graph.PropImportance); imp > bestImp {
+				if imp := getFloatProp(q); imp > bestImp {
 					best = q
 					bestImp = imp
 				}
@@ -336,7 +336,7 @@ const budgetPkgDoc = 40
 // graph signals. Small embedding models match intent queries ("how does
 // auth work?") better against prose than structured key:value metadata.
 // Budget: ~30 tokens max — kept short to avoid stealing from code snippet.
-func writeProseSummary(b *strings.Builder, node *lpg.Node, g *lpg.Graph, label string) {
+func writeProseSummary(b *strings.Builder, node *lpg.Node, _ *lpg.Graph, label string) {
 	name := graph.GetStringProp(node, graph.PropName)
 	if name == "" {
 		return
@@ -399,9 +399,9 @@ func writeProseSummary(b *strings.Builder, node *lpg.Node, g *lpg.Graph, label s
 	processes := graph.GetNeighbors(node, lpg.OutgoingEdge, graph.RelStepInProcess)
 	if len(processes) > 0 {
 		best := processes[0]
-		bestImp := getFloatProp(best, graph.PropImportance)
+		bestImp := getFloatProp(best)
 		for _, p := range processes[1:] {
-			if imp := getFloatProp(p, graph.PropImportance); imp > bestImp {
+			if imp := getFloatProp(p); imp > bestImp {
 				best = p
 				bestImp = imp
 			}
@@ -432,7 +432,7 @@ func bestProcessLabel(node *lpg.Node) string {
 		if role == "" || genericLabels[role] {
 			continue
 		}
-		if imp := getFloatProp(p, graph.PropImportance); bestLabel == "" || imp > bestImp {
+		if imp := getFloatProp(p); bestLabel == "" || imp > bestImp {
 			bestLabel = role
 			bestImp = imp
 		}
@@ -464,8 +464,8 @@ func writePackageDoc(b *strings.Builder, node *lpg.Node) {
 }
 
 // getFloatProp returns a float64 property or 0.
-func getFloatProp(node *lpg.Node, key string) float64 {
-	v, ok := node.GetProperty(key)
+func getFloatProp(node *lpg.Node) float64 {
+	v, ok := node.GetProperty(graph.PropImportance)
 	if !ok {
 		return 0
 	}

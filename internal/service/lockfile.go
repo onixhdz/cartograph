@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -56,13 +57,13 @@ func (l *Lockfile) Acquire(socketPath string, network ...string) error {
 		return fmt.Errorf("lockfile: flock: %w", err)
 	}
 	if !locked {
-		return fmt.Errorf("lockfile: already locked (another service instance is running)")
+		return errors.New("lockfile: already locked (another service instance is running)")
 	}
 
 	l.pid = os.Getpid()
 	l.socketPath = socketPath
 
-	net := "unix"
+	net := networkUnix
 	if len(network) > 0 && network[0] != "" {
 		net = network[0]
 	}
@@ -75,14 +76,14 @@ func (l *Lockfile) Acquire(socketPath string, network ...string) error {
 	}
 	data, err := json.Marshal(info)
 	if err != nil {
-		l.flock.Unlock() //nolint:errcheck
+		_ = l.flock.Unlock() // best-effort unlock on marshal failure
 		return fmt.Errorf("lockfile: marshal: %w", err)
 	}
 	// Atomic write: write to a temp file in the same directory, then
 	// rename over the target. This prevents readers from seeing a
 	// half-written file if the process crashes mid-write.
 	if err := atomicWriteFile(l.path, data, 0o644); err != nil {
-		l.flock.Unlock() //nolint:errcheck
+		_ = l.flock.Unlock() // best-effort unlock on write failure
 		return fmt.Errorf("lockfile: write: %w", err)
 	}
 	return nil
@@ -95,33 +96,39 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".lockfile-*.tmp")
 	if err != nil {
-		return err
+		return fmt.Errorf("create temp: %w", err)
 	}
 	tmpName := tmp.Name()
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
-		return err
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("write temp: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
-		return err
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("close temp: %w", err)
 	}
 	// On Windows, rename fails if the target exists and is open.
 	// The flock prevents concurrent writers, so this is safe.
 	if err := os.Rename(tmpName, path); err != nil {
-		os.Remove(tmpName)
-		return err
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("rename temp: %w", err)
 	}
-	return os.Chmod(path, perm)
+	if err := os.Chmod(path, perm); err != nil {
+		return fmt.Errorf("chmod: %w", err)
+	}
+	return nil
 }
 
 // Release unlocks the flock and removes both lockfile and data file.
 func (l *Lockfile) Release() error {
 	err := l.flock.Unlock()
-	os.Remove(l.path)     // best-effort: remove JSON data
-	os.Remove(l.lockPath) // best-effort: remove flock file
-	return err
+	_ = os.Remove(l.path)     // best-effort: remove JSON data
+	_ = os.Remove(l.lockPath) // best-effort: remove flock file
+	if err != nil {
+		return fmt.Errorf("lockfile: unlock: %w", err)
+	}
+	return nil
 }
 
 // IsStale returns true if the lockfile exists but:
@@ -175,7 +182,7 @@ func (l *Lockfile) ReadFullInfo() (pid int, addr, network string, err error) {
 	}
 	net := info.Network
 	if net == "" {
-		net = "unix" // backward compat
+		net = networkUnix // backward compat
 	}
 	return info.PID, info.SocketPath, net, nil
 }

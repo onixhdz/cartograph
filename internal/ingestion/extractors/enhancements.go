@@ -8,6 +8,14 @@ import (
 	"github.com/realxen/cartograph/internal/graph"
 )
 
+const (
+	nodeEnhIdentifier       = "identifier"
+	nodeEnhSimpleIdentifier = "simple_identifier"
+	nodeEnhInterface        = "interface"
+	nodeEnhName             = "name"
+	nodeEnhString           = "string"
+)
+
 // extractPrimaryConstructorParams emits Constructor symbols for primary
 // constructor parameters (C# 12, Kotlin, Scala) found via AST structure.
 func extractPrimaryConstructorParams(existing []ExtractedSymbol, rootNode *ts.Node, source []byte, filePath string, lang *ts.Language, language string) []ExtractedSymbol {
@@ -34,13 +42,13 @@ func extractPrimaryConstructorParams(existing []ExtractedSymbol, rootNode *ts.No
 		}
 		if className == "" {
 			// Fallback: first type_identifier or identifier child.
-			for i := 0; i < int(node.ChildCount()); i++ {
+			for i := range node.ChildCount() {
 				child := node.Child(i)
 				if child == nil {
 					continue
 				}
 				ct := strings.ToLower(child.Type(lang))
-				if ct == "type_identifier" || ct == "identifier" {
+				if ct == nodeTypeIdentifier || ct == nodeEnhIdentifier {
 					className = safeNodeText(child, source)
 					break
 				}
@@ -51,7 +59,7 @@ func extractPrimaryConstructorParams(existing []ExtractedSymbol, rootNode *ts.No
 		}
 
 		var paramListNode *ts.Node
-		for i := 0; i < int(node.ChildCount()); i++ {
+		for i := range node.ChildCount() {
 			child := node.Child(i)
 			if child == nil || !child.IsNamed() {
 				continue
@@ -67,7 +75,7 @@ func extractPrimaryConstructorParams(existing []ExtractedSymbol, rootNode *ts.No
 		}
 
 		paramCount := 0
-		for i := 0; i < int(paramListNode.ChildCount()); i++ {
+		for i := range paramListNode.ChildCount() {
 			child := paramListNode.Child(i)
 			if child == nil || !child.IsNamed() {
 				continue
@@ -123,13 +131,13 @@ func reclassifyInterfaceDeclarations(symbols []ExtractedSymbol, rootNode *ts.Nod
 
 		// Check if any anonymous (non-named) child is the keyword "interface".
 		hasInterfaceKeyword := false
-		for i := 0; i < int(node.ChildCount()); i++ {
+		for i := range node.ChildCount() {
 			child := node.Child(i)
 			if child == nil || child.IsNamed() {
 				continue
 			}
 			text := safeNodeText(child, source)
-			if text == "interface" {
+			if text == nodeEnhInterface {
 				hasInterfaceKeyword = true
 				break
 			}
@@ -142,13 +150,13 @@ func reclassifyInterfaceDeclarations(symbols []ExtractedSymbol, rootNode *ts.Nod
 				name = safeNodeText(nameNode, source)
 			}
 			if name == "" {
-				for i := 0; i < int(node.ChildCount()); i++ {
+				for i := range node.ChildCount() {
 					child := node.Child(i)
 					if child == nil {
 						continue
 					}
 					ct := strings.ToLower(child.Type(lang))
-					if ct == "type_identifier" || ct == "identifier" || ct == "simple_identifier" {
+					if ct == nodeTypeIdentifier || ct == nodeEnhIdentifier || ct == nodeEnhSimpleIdentifier {
 						name = safeNodeText(child, source)
 						break
 					}
@@ -185,7 +193,7 @@ func extractInfixCalls(rootNode *ts.Node, source []byte, filePath string, lang *
 		// Infix expression structure: <left> <operator_identifier> <right>
 		// The middle child (index 1 if 3 children, or the one that is an
 		// identifier but not the first or last) is the function name.
-		childCount := int(node.ChildCount())
+		childCount := node.ChildCount()
 		if childCount < 3 {
 			return ts.WalkContinue
 		}
@@ -279,13 +287,13 @@ func enrichCallReceivers(calls []ExtractedCall, rootNode *ts.Node, source []byte
 			// Fallback: first and last identifiers.
 			if receiver == "" || methodName == "" {
 				var ids []string
-				for i := 0; i < int(funcNode.ChildCount()); i++ {
+				for i := range funcNode.ChildCount() {
 					child := funcNode.Child(i)
 					if child == nil {
 						continue
 					}
 					ct := strings.ToLower(child.Type(lang))
-					if strings.Contains(ct, "identifier") || ct == "name" {
+					if strings.Contains(ct, "identifier") || ct == nodeEnhName {
 						ids = append(ids, safeNodeText(child, source))
 					}
 				}
@@ -338,13 +346,13 @@ func enrichImportBindings(imports []ExtractedImport, rootNode *ts.Node, source [
 			}
 		}
 		if importSource == "" {
-			for i := 0; i < int(node.ChildCount()); i++ {
+			for i := range node.ChildCount() {
 				child := node.Child(i)
 				if child == nil {
 					continue
 				}
 				ct := strings.ToLower(child.Type(lang))
-				if ct == "string" || strings.Contains(ct, "string_literal") {
+				if ct == nodeEnhString || strings.Contains(ct, "string_literal") {
 					importSource = trimQuotes(safeNodeText(child, source))
 					break
 				}
@@ -389,13 +397,13 @@ func enrichImportBindings(imports []ExtractedImport, rootNode *ts.Node, source [
 
 			// Default import: import_clause > identifier (not inside named_imports)
 			if ct == "import_clause" {
-				for i := 0; i < int(n.ChildCount()); i++ {
+				for i := range n.ChildCount() {
 					child := n.Child(i)
 					if child == nil {
 						continue
 					}
 					childType := strings.ToLower(child.Type(lang))
-					if childType == "identifier" || childType == "simple_identifier" {
+					if childType == "identifier" || childType == nodeEnhSimpleIdentifier {
 						bindings = append(bindings, ImportBinding{Original: "default", Alias: safeNodeText(child, source)})
 					}
 				}
@@ -419,13 +427,13 @@ func enrichImportBindings(imports []ExtractedImport, rootNode *ts.Node, source [
 // collectIdentifiers returns all identifier text values from direct children.
 func collectIdentifiers(node *ts.Node, source []byte, lang *ts.Language) []string {
 	var ids []string
-	for i := 0; i < int(node.ChildCount()); i++ {
+	for i := range node.ChildCount() {
 		child := node.Child(i)
 		if child == nil {
 			continue
 		}
 		ct := strings.ToLower(child.Type(lang))
-		if strings.Contains(ct, "identifier") || ct == "name" {
+		if strings.Contains(ct, "identifier") || ct == nodeEnhName {
 			text := safeNodeText(child, source)
 			if text != "" {
 				ids = append(ids, text)
@@ -467,7 +475,7 @@ func extractInterfaceMethodSpecs(rootNode *ts.Node, source []byte, filePath stri
 			return ts.WalkContinue
 		}
 
-		for i := 0; i < int(node.ChildCount()); i++ {
+		for i := range node.ChildCount() {
 			child := node.Child(i)
 			if child == nil || !child.IsNamed() {
 				continue
@@ -480,13 +488,13 @@ func extractInterfaceMethodSpecs(rootNode *ts.Node, source []byte, filePath stri
 			nameNode := child.ChildByFieldName("name", lang)
 			if nameNode == nil {
 				// Fallback: first field_identifier or identifier child.
-				for j := 0; j < int(child.ChildCount()); j++ {
+				for j := range child.ChildCount() {
 					c := child.Child(j)
 					if c == nil {
 						continue
 					}
 					ct := strings.ToLower(c.Type(lang))
-					if ct == "field_identifier" || ct == "identifier" {
+					if ct == "field_identifier" || ct == nodeEnhIdentifier {
 						nameNode = c
 						break
 					}

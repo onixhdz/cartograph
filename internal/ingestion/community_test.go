@@ -2,6 +2,7 @@ package ingestion
 
 import (
 	"fmt"
+	"strconv"
 	"testing"
 
 	"github.com/cloudprivacylabs/lpg/v2"
@@ -10,7 +11,7 @@ import (
 )
 
 // makeClique creates a fully connected set of Function nodes with CALLS edges.
-func makeClique(g *lpg.Graph, prefix string, n int) []*lpg.Node {
+func makeClique(g *lpg.Graph, prefix string, n int) []*lpg.Node { //nolint:unparam
 	nodes := make([]*lpg.Node, n)
 	for i := range n {
 		id := prefix + string(rune('A'+i))
@@ -272,7 +273,7 @@ func TestApplyCommunities_MultipleCommunities(t *testing.T) {
 
 // zacharyKarateClub returns the Zachary Karate Club adjacency list (34 nodes, 78 edges)
 // and ground-truth faction membership.
-func zacharyKarateClub() (AdjacencyList, map[string]int) {
+func zacharyKarateClub() AdjacencyList {
 	// Edge list from Zachary (1977).
 	edges := [][2]int{
 		{1, 2},
@@ -357,32 +358,20 @@ func zacharyKarateClub() (AdjacencyList, map[string]int) {
 
 	adj := make(AdjacencyList, 34)
 	for i := 1; i <= 34; i++ {
-		adj[fmt.Sprintf("%d", i)] = make(map[string]float64)
+		adj[strconv.Itoa(i)] = make(map[string]float64)
 	}
 	for _, e := range edges {
-		a := fmt.Sprintf("%d", e[0])
-		b := fmt.Sprintf("%d", e[1])
+		a := strconv.Itoa(e[0])
+		b := strconv.Itoa(e[1])
 		adj[a][b] = 1.0
 		adj[b][a] = 1.0
 	}
 
-	// Ground truth: the actual factions after the club split.
-	groundTruth := map[string]int{}
-	mrHiFaction := []int{1, 2, 3, 4, 5, 6, 7, 8, 11, 12, 13, 14, 17, 18, 20, 22}
-	officerFaction := []int{9, 10, 15, 16, 19, 21, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34}
-
-	for _, n := range mrHiFaction {
-		groundTruth[fmt.Sprintf("%d", n)] = 0
-	}
-	for _, n := range officerFaction {
-		groundTruth[fmt.Sprintf("%d", n)] = 1
-	}
-
-	return adj, groundTruth
+	return adj
 }
 
 func TestLeiden_KarateClub_Modularity(t *testing.T) {
-	adj, _ := zacharyKarateClub()
+	adj := zacharyKarateClub()
 
 	communities := Leiden(adj)
 
@@ -402,7 +391,7 @@ func TestLeiden_KarateClub_Modularity(t *testing.T) {
 }
 
 func TestLeiden_KarateClub_CommunityCount(t *testing.T) {
-	adj, _ := zacharyKarateClub()
+	adj := zacharyKarateClub()
 
 	communities := Leiden(adj)
 
@@ -424,7 +413,7 @@ func TestLeiden_KarateClub_CommunityCount(t *testing.T) {
 }
 
 func TestLeiden_KarateClub_FactionAlignment(t *testing.T) {
-	adj, _ := zacharyKarateClub()
+	adj := zacharyKarateClub()
 
 	communities := Leiden(adj)
 
@@ -485,7 +474,7 @@ func TestLeiden_KarateClub_FactionAlignment(t *testing.T) {
 }
 
 func TestLeiden_KarateClub_Determinism(t *testing.T) {
-	adj, _ := zacharyKarateClub()
+	adj := zacharyKarateClub()
 
 	// Run Leiden multiple times — it should be deterministic given fixed seed.
 	reference := Leiden(adj)
@@ -558,11 +547,11 @@ func TestLeiden_ChainGraph(t *testing.T) {
 	// Linear chain: 1-2-3-4-5-6-7-8
 	adj := make(AdjacencyList, 8)
 	for i := 1; i <= 8; i++ {
-		adj[fmt.Sprintf("%d", i)] = make(map[string]float64)
+		adj[strconv.Itoa(i)] = make(map[string]float64)
 	}
 	for i := 1; i < 8; i++ {
-		a := fmt.Sprintf("%d", i)
-		b := fmt.Sprintf("%d", i+1)
+		a := strconv.Itoa(i)
+		b := strconv.Itoa(i + 1)
 		adj[a][b] = 1.0
 		adj[b][a] = 1.0
 	}
@@ -654,7 +643,7 @@ func TestLeiden_DisconnectedWithIsolates(t *testing.T) {
 func TestLeiden_DisjointRings(t *testing.T) {
 	g := lpg.NewGraph()
 
-	makeRing := func(prefix string, n int) []*lpg.Node {
+	makeRing := func(prefix string, n int) {
 		nodes := make([]*lpg.Node, n)
 		for i := range n {
 			id := fmt.Sprintf("%s%d", prefix, i)
@@ -668,7 +657,6 @@ func TestLeiden_DisjointRings(t *testing.T) {
 		for i := range n {
 			graph.AddEdge(g, nodes[i], nodes[(i+1)%n], graph.RelCalls, nil)
 		}
-		return nodes
 	}
 
 	makeRing("r1:", 10)
