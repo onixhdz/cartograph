@@ -4,6 +4,9 @@ on:
   push:
     tags: ['v*']
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 permissions:
   contents: write
   id-token: write
@@ -18,9 +21,9 @@ jobs:
       CC: zig cc
       CXX: zig c++
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
