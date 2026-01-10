@@ -74,10 +74,6 @@ tasks:
     deps:
       - task: build:embedding:lib
         vars: { TARGET: '{{.ZIG_TARGET}}' }
-    env:
-      CGO_ENABLED: '1'
-      CC: 'zig cc -target {{.ZIG_TARGET}}'
-      CXX: 'zig c++ -target {{.ZIG_TARGET}}'
     sources:
       - ./**/*.go
       - go.mod
@@ -86,6 +82,9 @@ tasks:
       - '{{.BIN_NAME}}'
     cmds:
       - >
+        CGO_ENABLED=1
+        CC='zig cc -target {{.ZIG_TARGET}}'
+        CXX='zig c++ -target {{.ZIG_TARGET}}'
         go build -trimpath
         -ldflags "{{.GO_LDFLAGS}} {{.EXTRA_LDFLAGS}}"
         -o {{.BIN_NAME}}
@@ -109,12 +108,6 @@ tasks:
     deps:
       - task: build:embedding:lib
         vars: { TARGET: 'x86_64-linux-musl' }
-    env:
-      CGO_ENABLED: '1'
-      CC: 'zig cc -target x86_64-linux-musl'
-      CXX: 'zig c++ -target x86_64-linux-musl'
-      GOOS: linux
-      GOARCH: amd64
     sources:
       - ./**/*.go
       - go.mod
@@ -123,6 +116,11 @@ tasks:
       - cartograph-linux-amd64
     cmds:
       - >
+        CGO_ENABLED=1
+        GOOS=linux
+        GOARCH=amd64
+        CC='zig cc -target x86_64-linux-musl'
+        CXX='zig c++ -target x86_64-linux-musl'
         go build -trimpath
         -ldflags "{{.GO_LDFLAGS}} -linkmode external -extldflags '-static'"
         -o cartograph-linux-amd64
@@ -132,12 +130,6 @@ tasks:
     deps:
       - task: build:embedding:lib
         vars: { TARGET: 'aarch64-linux-musl' }
-    env:
-      CGO_ENABLED: '1'
-      CC: 'zig cc -target aarch64-linux-musl'
-      CXX: 'zig c++ -target aarch64-linux-musl'
-      GOOS: linux
-      GOARCH: arm64
     sources:
       - ./**/*.go
       - go.mod
@@ -146,6 +138,11 @@ tasks:
       - cartograph-linux-arm64
     cmds:
       - >
+        CGO_ENABLED=1
+        GOOS=linux
+        GOARCH=arm64
+        CC='zig cc -target aarch64-linux-musl'
+        CXX='zig c++ -target aarch64-linux-musl'
         go build -trimpath
         -ldflags "{{.GO_LDFLAGS}} -linkmode external -extldflags '-static'"
         -o cartograph-linux-arm64
@@ -155,12 +152,6 @@ tasks:
     deps:
       - task: build:embedding:lib
         vars: { TARGET: 'aarch64-macos' }
-    env:
-      CGO_ENABLED: '1'
-      CC: 'zig cc -target aarch64-macos'
-      CXX: 'zig c++ -target aarch64-macos'
-      GOOS: darwin
-      GOARCH: arm64
     sources:
       - ./**/*.go
       - go.mod
@@ -169,6 +160,11 @@ tasks:
       - cartograph-darwin-arm64
     cmds:
       - >
+        CGO_ENABLED=1
+        GOOS=darwin
+        GOARCH=arm64
+        CC='zig cc -target aarch64-macos'
+        CXX='zig c++ -target aarch64-macos'
         go build -trimpath
         -ldflags "{{.GO_LDFLAGS}} -extldflags '-undefined dynamic_lookup'"
         -o cartograph-darwin-arm64
@@ -185,12 +181,6 @@ tasks:
     deps:
       - task: build:embedding:lib
         vars: { TARGET: 'x86_64-windows-gnu' }
-    env:
-      CGO_ENABLED: '1'
-      CC: 'zig cc -target x86_64-windows-gnu'
-      CXX: 'zig c++ -target x86_64-windows-gnu'
-      GOOS: windows
-      GOARCH: amd64
     sources:
       - ./**/*.go
       - go.mod
@@ -199,6 +189,11 @@ tasks:
       - cartograph-windows-amd64.exe
     cmds:
       - >
+        CGO_ENABLED=1
+        GOOS=windows
+        GOARCH=amd64
+        CC='zig cc -target x86_64-windows-gnu'
+        CXX='zig c++ -target x86_64-windows-gnu'
         go build -trimpath
         -ldflags "{{.GO_LDFLAGS}}"
         -o cartograph-windows-amd64.exe
