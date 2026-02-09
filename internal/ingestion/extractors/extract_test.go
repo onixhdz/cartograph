@@ -1835,3 +1835,85 @@ int add<int>(int a, int b) { return a + b + 1; }
 		t.Error("expected specialized template function add<int>")
 	}
 }
+
+// TestExtractFile_Scala_Patterns tests extraction of common Scala patterns
+// that were found to produce zero symbols in gatling/gatling: case classes,
+// private classes, traits with abstract methods, companion objects.
+func TestExtractFile_Scala_Patterns(t *testing.T) {
+	src := `package io.gatling.core.action
+
+trait Action {
+  def name: String
+  def execute(session: String): Unit
+}
+
+trait ChainableAction extends Action {
+  def next: Action
+}
+
+private final class Pause(
+    pauseDuration: Long,
+    override val name: String,
+    override val next: Action
+) extends ChainableAction {
+  override def execute(session: String): Unit = {
+    println(s"Pausing for $pauseDuration ms")
+    next.execute(session)
+  }
+}
+
+class ActorDelegatingAction(val name: String) extends Action {
+  def execute(session: String): Unit = println(name)
+}
+
+final case class GeneralStats(min: Int, max: Int, count: Long, mean: Int)
+
+object StatsEngine {
+  val ErrorMessageMaxLength: Int = 200
+}
+
+trait StatsEngine {
+  def start(): Unit
+  def stop(): Unit
+  def logResponse(scenario: String, status: String): Unit
+}
+`
+	result, err := ExtractFile("/tmp/test_patterns.scala", []byte(src), "scala")
+	if err != nil {
+		t.Fatalf("ExtractFile (scala patterns) failed: %v", err)
+	}
+
+	t.Logf("Symbols found: %d", len(result.Symbols))
+	for _, sym := range result.Symbols {
+		t.Logf("  %s: %s (line %d)", sym.Label, sym.Name, sym.StartLine)
+	}
+	t.Logf("Calls found: %d", len(result.Calls))
+	t.Logf("Heritage found: %d", len(result.Heritage))
+	for _, h := range result.Heritage {
+		t.Logf("  %s extends %s", h.ClassName, h.ParentName)
+	}
+
+	names := make(map[string]bool)
+	for _, sym := range result.Symbols {
+		names[sym.Name] = true
+	}
+
+	// These are the patterns that produce zero symbols in gatling:
+	expected := []string{
+		"Action",                // trait
+		"ChainableAction",       // trait extends trait
+		"Pause",                 // private final class with constructor params
+		"ActorDelegatingAction", // class with constructor params
+		"GeneralStats",          // final case class
+		"StatsEngine",           // both object and trait
+	}
+	for _, name := range expected {
+		if !names[name] {
+			t.Errorf("MISSING symbol %q — not extracted from Scala source", name)
+		}
+	}
+
+	if len(result.Symbols) < 6 {
+		t.Errorf("expected at least 6 symbols (traits, classes, objects), got %d", len(result.Symbols))
+	}
+}
