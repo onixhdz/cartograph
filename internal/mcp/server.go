@@ -68,6 +68,13 @@ func (s *Server) Run(ctx context.Context) error {
 	return nil
 }
 
+// SDKServer returns the underlying SDK server for use with HTTP
+// transports (StreamableHTTPHandler). This allows mounting the same
+// MCP server on an HTTP endpoint alongside the stdio transport.
+func (s *Server) SDKServer() *sdkmcp.Server {
+	return s.server
+}
+
 // detectRepo attempts to determine the repository name from the current
 // working directory by checking for a git toplevel or falling back to
 // the directory basename.

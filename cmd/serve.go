@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -12,6 +13,9 @@ import (
 	"syscall"
 	"time"
 
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	mcpserver "github.com/realxen/cartograph/internal/mcp"
 	"github.com/realxen/cartograph/internal/query"
 	"github.com/realxen/cartograph/internal/service"
 	"github.com/realxen/cartograph/internal/sysutil"
@@ -32,6 +36,7 @@ type ServeStartCmd struct {
 	NoIdle  bool   `help:"Disable idle auto-shutdown timer."`
 	Timeout int    `help:"Idle timeout in minutes before auto-shutdown (0 = no timeout)." default:"30"`
 	Detach  bool   `help:"Detach and run in the background (use --no-detach for foreground)." short:"d" default:"true" negatable:""`
+	NoMCP   bool   `help:"Disable the built-in MCP endpoint at /mcp."`
 }
 
 func (c *ServeStartCmd) Run(cli *CLI) error {
@@ -84,6 +89,9 @@ func (c *ServeStartCmd) runDetached() error {
 	if c.Socket != "" {
 		args = append(args, "--socket="+c.Socket)
 	}
+	if c.NoMCP {
+		args = append(args, "--no-mcp")
+	}
 
 	cmd := exec.CommandContext(context.Background(), exe, args...)
 	cmd.Stdout = logFile
@@ -134,7 +142,7 @@ func (c *ServeStartCmd) runDetached() error {
 	return errors.New("serve: background service not ready")
 }
 
-func (c *ServeStartCmd) runForeground(_ *CLI) error {
+func (c *ServeStartCmd) runForeground(cli *CLI) error {
 	dataDir := DefaultDataDir()
 	socketPath := c.Socket
 	if socketPath == "" {
@@ -166,6 +174,22 @@ func (c *ServeStartCmd) runForeground(_ *CLI) error {
 	}
 	srv.SetBackendFactory(newServerBackendFactory(srv))
 
+	if !c.NoMCP {
+		appVersion := cli.AppVersion
+		if appVersion == "" {
+			appVersion = "dev"
+		}
+		mcpBackend := &serverMCPClient{srv: srv}
+		mcpSrv := mcpserver.NewServer(appVersion, mcpBackend)
+		handler := sdkmcp.NewStreamableHTTPHandler(
+			func(_ *http.Request) *sdkmcp.Server {
+				return mcpSrv.SDKServer()
+			},
+			&sdkmcp.StreamableHTTPOptions{Stateless: true},
+		)
+		srv.EnableMCP(handler)
+	}
+
 	if c.NoIdle || c.Timeout == 0 {
 		srv.SetIdleTimeout(0)
 	} else {
@@ -189,6 +213,9 @@ func (c *ServeStartCmd) runForeground(_ *CLI) error {
 	}
 
 	fmt.Printf("Listening on %s (%s)\n", srv.Addr, srv.Network)
+	if !c.NoMCP {
+		fmt.Println("MCP endpoint:  /mcp (Streamable HTTP)")
+	}
 	if c.NoIdle || c.Timeout == 0 {
 		fmt.Println("Idle timeout: disabled")
 	} else {
@@ -370,6 +397,148 @@ func newServerBackendFactory(s *service.Server) service.BackendFactory {
 			EmbedFn:  s.QueryEmbed,
 		}
 	}
+}
+
+// serverMCPClient adapts *service.Server to the mcp.Client interface,
+// allowing the MCP handler to call server backends directly without
+// HTTP round-tripping.
+type serverMCPClient struct {
+	srv *service.Server
+}
+
+func (c *serverMCPClient) resolveBackend(repo string) (string, service.ToolBackend, error) {
+	resolved, err := c.srv.ResolveRepoName(repo)
+	if err != nil {
+		return "", nil, fmt.Errorf("resolve repo: %w", err)
+	}
+	be, err := c.srv.GetBackend(resolved)
+	if err != nil {
+		return "", nil, fmt.Errorf("get backend: %w", err)
+	}
+	if be == nil {
+		return "", nil, &service.APIError{
+			Code:    service.ErrCodeRepoNotFound,
+			Message: fmt.Sprintf("repository %q not indexed", resolved),
+		}
+	}
+	return resolved, be, nil
+}
+
+func (c *serverMCPClient) Query(req service.QueryRequest) (*service.QueryResult, error) {
+	repo, be, err := c.resolveBackend(req.Repo)
+	if err != nil {
+		return nil, err
+	}
+	req.Repo = repo
+	res, err := be.Query(req)
+	if err != nil {
+		return nil, fmt.Errorf("query: %w", err)
+	}
+	return res, nil
+}
+
+func (c *serverMCPClient) Context(req service.ContextRequest) (*service.ContextResult, error) {
+	repo, be, err := c.resolveBackend(req.Repo)
+	if err != nil {
+		return nil, err
+	}
+	req.Repo = repo
+	res, err := be.Context(req)
+	if err != nil {
+		return nil, fmt.Errorf("context: %w", err)
+	}
+	return res, nil
+}
+
+func (c *serverMCPClient) Cypher(req service.CypherRequest) (*service.CypherResult, error) {
+	repo, be, err := c.resolveBackend(req.Repo)
+	if err != nil {
+		return nil, err
+	}
+	req.Repo = repo
+	res, err := be.Cypher(req)
+	if err != nil {
+		return nil, fmt.Errorf("cypher: %w", err)
+	}
+	return res, nil
+}
+
+func (c *serverMCPClient) Impact(req service.ImpactRequest) (*service.ImpactResult, error) {
+	repo, be, err := c.resolveBackend(req.Repo)
+	if err != nil {
+		return nil, err
+	}
+	req.Repo = repo
+	res, err := be.Impact(req)
+	if err != nil {
+		return nil, fmt.Errorf("impact: %w", err)
+	}
+	return res, nil
+}
+
+func (c *serverMCPClient) Cat(req service.CatRequest) (*service.CatResult, error) {
+	resolved, err := c.srv.ResolveRepoName(req.Repo)
+	if err != nil {
+		return nil, fmt.Errorf("resolve repo: %w", err)
+	}
+	req.Repo = resolved
+	cr := c.srv.GetContentResolver(req.Repo)
+	if cr == nil {
+		return nil, &service.APIError{
+			Code:    service.ErrCodeRepoNotFound,
+			Message: fmt.Sprintf("repository %q has no content resolver", req.Repo),
+		}
+	}
+	lineStart, lineEnd, err := service.ParseLineRange(req.Lines)
+	if err != nil {
+		return nil, fmt.Errorf("parse line range: %w", err)
+	}
+	result := service.CatResult{Files: make([]service.CatFile, 0, len(req.Files))}
+	for _, path := range req.Files {
+		data, readErr := cr.ReadFile(path)
+		if readErr != nil {
+			result.Files = append(result.Files, service.CatFile{Path: path, Error: readErr.Error()})
+			continue
+		}
+		content := string(data)
+		lineCount := strings.Count(content, "\n")
+		if !strings.HasSuffix(content, "\n") && len(content) > 0 {
+			lineCount++
+		}
+		if lineStart > 0 && lineEnd > 0 {
+			lines := strings.Split(content, "\n")
+			if lineStart > len(lines) {
+				lineStart = len(lines)
+			}
+			if lineEnd > len(lines) {
+				lineEnd = len(lines)
+			}
+			content = strings.Join(lines[lineStart-1:lineEnd], "\n")
+		}
+		result.Files = append(result.Files, service.CatFile{
+			Path:      path,
+			Content:   content,
+			LineCount: lineCount,
+		})
+	}
+	return &result, nil
+}
+
+func (c *serverMCPClient) Schema(req service.SchemaRequest) (*service.SchemaResult, error) {
+	repo, be, err := c.resolveBackend(req.Repo)
+	if err != nil {
+		return nil, err
+	}
+	req.Repo = repo
+	res, err := be.Schema(req)
+	if err != nil {
+		return nil, fmt.Errorf("schema: %w", err)
+	}
+	return res, nil
+}
+
+func (c *serverMCPClient) Status() (*service.StatusResult, error) {
+	return c.srv.BuildStatus(), nil
 }
 
 // printLogTail prints the last n lines of a log file to stderr.

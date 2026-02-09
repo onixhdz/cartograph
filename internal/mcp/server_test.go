@@ -3,6 +3,8 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -440,4 +442,131 @@ func extractText(t *testing.T, res *sdkmcp.CallToolResult) string {
 		t.Fatalf("content[0] is %T, want *TextContent", res.Content[0])
 	}
 	return tc.Text
+}
+
+// TestStreamableHTTPTransport verifies that MCP tools work over the
+// Streamable HTTP transport (the same transport used by cartograph serve).
+func TestStreamableHTTPTransport(t *testing.T) {
+	mock := &mockClient{
+		queryResult: &service.QueryResult{
+			Processes: []service.ProcessMatch{
+				{Name: "handleHTTP", Relevance: 0.9},
+			},
+		},
+		statusResult: &service.StatusResult{Running: true},
+	}
+
+	mcpSrv := NewServer("test", mock)
+	handler := sdkmcp.NewStreamableHTTPHandler(
+		func(_ *http.Request) *sdkmcp.Server {
+			return mcpSrv.SDKServer()
+		},
+		&sdkmcp.StreamableHTTPOptions{Stateless: true},
+	)
+
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	client := sdkmcp.NewClient(
+		&sdkmcp.Implementation{Name: "test-http-client", Version: "v0.0.1"},
+		nil,
+	)
+
+	ctx := context.Background()
+	session, err := client.Connect(ctx, &sdkmcp.StreamableClientTransport{
+		Endpoint: ts.URL,
+	}, nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer session.Close()
+
+	tools, err := session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	if len(tools.Tools) != 7 {
+		t.Errorf("tool count = %d, want 7", len(tools.Tools))
+	}
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "cartograph_query",
+		Arguments: map[string]any{"repo": "myrepo", "query": "HTTP handler"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("tool returned error: %v", res.Content)
+	}
+
+	text := extractText(t, res)
+	var result service.QueryResult
+	if err := json.Unmarshal([]byte(text), &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(result.Processes) != 1 || result.Processes[0].Name != "handleHTTP" {
+		t.Errorf("unexpected processes: %+v", result.Processes)
+	}
+}
+
+// TestStreamableHTTPStatus verifies the status tool over HTTP.
+func TestStreamableHTTPStatus(t *testing.T) {
+	mock := &mockClient{
+		statusResult: &service.StatusResult{
+			Running: true,
+			Ready:   true,
+			LoadedRepos: []service.RepoStatus{
+				{Name: "testrepo", NodeCount: 100, EdgeCount: 500},
+			},
+		},
+	}
+
+	mcpSrv := NewServer("test", mock)
+	handler := sdkmcp.NewStreamableHTTPHandler(
+		func(_ *http.Request) *sdkmcp.Server {
+			return mcpSrv.SDKServer()
+		},
+		&sdkmcp.StreamableHTTPOptions{Stateless: true},
+	)
+
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	client := sdkmcp.NewClient(
+		&sdkmcp.Implementation{Name: "test-http-client", Version: "v0.0.1"},
+		nil,
+	)
+
+	ctx := context.Background()
+	session, err := client.Connect(ctx, &sdkmcp.StreamableClientTransport{
+		Endpoint: ts.URL,
+	}, nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer session.Close()
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "cartograph_status",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("tool error: %v", res.Content)
+	}
+
+	text := extractText(t, res)
+	var result service.StatusResult
+	if err := json.Unmarshal([]byte(text), &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !result.Running {
+		t.Error("expected running=true")
+	}
+	if len(result.LoadedRepos) != 1 {
+		t.Errorf("loadedRepos count = %d, want 1", len(result.LoadedRepos))
+	}
 }

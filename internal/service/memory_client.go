@@ -251,7 +251,7 @@ func (mc *MemoryClient) Cat(req CatRequest) (*CatResult, error) {
 		return nil, fmt.Errorf("repository %q has no content resolver", req.Repo)
 	}
 
-	lineStart, lineEnd, err := parseLineRange(req.Lines)
+	lineStart, lineEnd, err := ParseLineRange(req.Lines)
 	if err != nil {
 		return nil, err
 	}

@@ -45,6 +45,7 @@ type Server struct {
 	backendFactory BackendFactory                      // creates ToolBackend per repo
 	dataDir        string                              // base data directory for lazy resolver init
 	mu             sync.RWMutex
+	mux            *http.ServeMux
 	httpServer     *http.Server
 	listener       net.Listener
 	lockfile       *Lockfile
@@ -125,9 +126,10 @@ func NewServer(socketPath string, lockfile *Lockfile, dataDir string) (*Server, 
 		Network:     network,
 	}
 
-	mux := s.SetupRoutes()
+	mux := s.setupRoutes()
+	s.mux = mux
 	s.httpServer = &http.Server{
-		Handler:           mux,
+		Handler:           recoveryMiddleware(mux),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,
@@ -474,8 +476,8 @@ func (s *Server) SetContentResolver(repo string, cr *storage.ContentResolver) {
 	s.mu.Unlock()
 }
 
-// getContentResolver returns the ContentResolver for a repo, or nil.
-func (s *Server) getContentResolver(repo string) *storage.ContentResolver {
+// GetContentResolver returns the ContentResolver for a repo, or nil.
+func (s *Server) GetContentResolver(repo string) *storage.ContentResolver {
 	s.mu.RLock()
 	cr := s.resolvers[repo]
 	s.mu.RUnlock()
@@ -530,10 +532,48 @@ func (s *Server) SetBackendFactory(f BackendFactory) {
 	s.backendFactory = f
 }
 
-// resolveRepoName normalises a repo identifier (hash, full name, or
+// BuildStatus returns a StatusResult snapshot of the server's current state.
+func (s *Server) BuildStatus() *StatusResult {
+	s.mu.RLock()
+	repos := make([]RepoStatus, 0, len(s.graph))
+	for name, g := range s.graph {
+		nodeCount := 0
+		edgeCount := 0
+		if g != nil {
+			nodes := g.GetNodes()
+			for nodes.Next() {
+				nodeCount++
+			}
+			edges := g.GetEdges()
+			for edges.Next() {
+				edgeCount++
+			}
+		}
+		repos = append(repos, RepoStatus{
+			Name:      name,
+			NodeCount: nodeCount,
+			EdgeCount: edgeCount,
+		})
+	}
+	s.mu.RUnlock()
+
+	var uptime string
+	if !s.startTime.IsZero() {
+		uptime = time.Since(s.startTime).Round(time.Second).String()
+	}
+
+	return &StatusResult{
+		Running:     true,
+		Ready:       s.ready.Load(),
+		LoadedRepos: repos,
+		Uptime:      uptime,
+	}
+}
+
+// ResolveRepoName normalises a repo identifier (hash, full name, or
 // short name) into its canonical registry name. Returns an error when
 // a short name is ambiguous. Returns as-is if already loaded in memory.
-func (s *Server) resolveRepoName(name string) (string, error) {
+func (s *Server) ResolveRepoName(name string) (string, error) {
 	s.mu.RLock()
 	if _, ok := s.graph[name]; ok {
 		s.mu.RUnlock()
@@ -548,11 +588,11 @@ func (s *Server) resolveRepoName(name string) (string, error) {
 	return resolved, nil
 }
 
-// getBackend returns a ToolBackend for the given repo via the factory.
+// GetBackend returns a ToolBackend for the given repo via the factory.
 // If the graph is not yet loaded, it triggers a lazy load from disk.
 // Returns a non-nil error for version incompatibilities that should be
 // surfaced to the user (distinct from "not found" which returns nil, nil).
-func (s *Server) getBackend(repo string) (ToolBackend, error) {
+func (s *Server) GetBackend(repo string) (ToolBackend, error) {
 	if s.backendFactory != nil {
 		be := s.backendFactory(repo)
 		if be != nil {
@@ -571,9 +611,8 @@ func (s *Server) getBackend(repo string) (ToolBackend, error) {
 	return nil, nil
 }
 
-// SetupRoutes creates and returns the http.ServeMux with all API routes,
-// wrapped in panic-recovery middleware.
-func (s *Server) SetupRoutes() http.Handler {
+// setupRoutes creates the http.ServeMux with all API routes.
+func (s *Server) setupRoutes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc(RouteQuery, s.handleQuery)
 	mux.HandleFunc(RouteContext, s.handleContext)
@@ -586,7 +625,16 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc(RouteShutdown, s.handleShutdown)
 	mux.HandleFunc(RouteEmbed, s.handleEmbed)
 	mux.HandleFunc(RouteEmbedStatus, s.handleEmbedStatus)
-	return recoveryMiddleware(mux)
+	return mux
+}
+
+// EnableMCP mounts an MCP (Streamable HTTP) handler at /mcp. Requests
+// through this path also reset the idle timer. Must be called before Start.
+func (s *Server) EnableMCP(h http.Handler) {
+	s.mux.Handle("/mcp", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.resetIdleTimer(r.Context())
+		h.ServeHTTP(w, r)
+	}))
 }
 
 // GetEmbedJob returns a snapshot of the embed job for a repo, or nil.
