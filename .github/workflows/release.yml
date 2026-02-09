@@ -24,6 +24,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          fetch-tags: true
 
       - uses: actions/setup-go@v6
         with:
@@ -72,10 +73,14 @@ jobs:
 
       - name: Extract tag annotation
         run: |
+          # Fetch annotated tag objects (checkout may not include them).
+          git fetch origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}" --force 2>/dev/null || true
           # Extract raw tag message (preserves markdown ## headers that
           # git's %(contents) format functions strip as comments).
-          # Skip the object header lines, keep everything after the first blank line.
-          git cat-file tag "${GITHUB_REF_NAME}" | sed '1,/^$/d' > release-notes.md
+          # -p prints the object, sed strips the header lines.
+          git cat-file -p "${GITHUB_REF_NAME}" | sed '1,/^$/d' > release-notes.md
+          echo "--- release-notes.md ---"
+          cat release-notes.md
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
