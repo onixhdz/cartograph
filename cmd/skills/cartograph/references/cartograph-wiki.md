@@ -93,10 +93,31 @@ parallel sub-agents in a single message.
 3. The system prompt below
 4. The output file path
 
+**IMPORTANT — sub-agent delegation rules:**
+Sub-agents must write the page directly from the provided context. Tell
+each sub-agent explicitly:
+- This is a **single-pass write task** — read the context once, write
+  the markdown file, and you are done.
+- Do NOT loop, revise, or iterate on the output. The first draft is
+  the final draft.
+- Do NOT read additional files unless the context has an obvious gap
+  (e.g., a truncated config reference). If you do read, read ONE
+  specific file, then finish writing.
+- Do NOT use search/grep tools to explore the codebase.
+- Write the full page content using the Write tool in a single call.
+
+These rules prevent sub-agents from burning through their context window
+by looping. Most sub-agents should finish in under 30 seconds.
+
 **System prompt for module pages:**
 
 > You are a technical documentation writer. Write clear, developer-focused
 > documentation for a code module. Be direct and efficient.
+>
+> This is a single-pass write task. All the data you need is provided
+> below — module files, call edges, execution flows, and full source
+> code. Read it once, write the page, and finish. Do not loop, revise,
+> or explore further.
 >
 > Rules:
 > - Start with the module heading — no preamble or meta-commentary
@@ -123,11 +144,15 @@ parallel sub-agents in a single message.
 ### Step 3: Write overview page
 
 Write `<wiki_dir>/overview.md` AFTER all module pages are complete.
+This is also a single-pass write task.
 
 **System prompt for overview:**
 
 > You are a technical documentation writer. Write the top-level overview
 > for a repository wiki — the first page a new developer reads.
+>
+> This is a single-pass write task. All the data you need is provided.
+> Read it, write the page, and finish.
 >
 > Rules:
 > - Start with the project heading — no preamble
