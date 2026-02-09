@@ -55,10 +55,15 @@ type CLI struct {
 	Cypher     CypherCmd        `cmd:"" help:"Execute raw Cypher query against the knowledge graph."`
 	Schema     SchemaCmd        `cmd:"" help:"Show graph schema (node labels, edge types, properties) to assist Cypher queries."`
 	Serve      ServeCmd         `cmd:"" help:"Manage the long-running HTTP service (for MCP / editor integrations)." needs-client:"false"`
+	Mcp        McpCmd           `cmd:"" help:"Start MCP server over stdin/stdout (for AI editor integration)." needs-client:"false"`
 	Skills     SkillsCmd        `cmd:"" help:"Install/manage cartograph skills for AI coding agents."`
 	Models     ModelsCmd        `cmd:"" help:"Manage embedding models (download, list, remove)."`
 	Completion completionCmd    `cmd:"" help:"Set up shell tab-completion (bash, zsh, fish)." needs-client:"false"`
 	Version    kong.VersionFlag `help:"Print version and exit." short:"v"`
+
+	// AppVersion is the application version string set by main.go from
+	// ldflags. Used by McpCmd to report the server version.
+	AppVersion string `kong:"-"`
 
 	// Client is the service client used by subcommands. It is hidden
 	// from kong and injected by the caller.
