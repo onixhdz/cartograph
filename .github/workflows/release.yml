@@ -22,6 +22,9 @@ jobs:
       CXX: zig c++
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - uses: actions/setup-go@v6
         with:
@@ -68,9 +71,21 @@ jobs:
             cartograph-darwin-arm64
             cartograph-windows-amd64.exe
 
+      - name: Extract tag annotation
+        run: |
+          # Fetch annotated tag objects (checkout may not include them).
+          git fetch origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}" --force 2>/dev/null || true
+          # Extract raw tag message (preserves markdown ## headers that
+          # git's %(contents) format functions strip as comments).
+          # -p prints the object, sed strips the header lines.
+          git cat-file -p "${GITHUB_REF_NAME}" | sed '1,/^$/d' > release-notes.md
+          echo "--- release-notes.md ---"
+          cat release-notes.md
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          body_path: release-notes.md
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
           files: |
