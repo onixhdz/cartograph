@@ -31,6 +31,7 @@ var LanguageQueries = map[string]string{
 	"kotlin":     ktQueries,
 	"swift":      swiftQueries,
 	"csharp":     csQueries,
+	"scala":      scalaQueries,
 }
 
 const goQueries = "(function_declaration name: (identifier) @name) @definition.function\n" +
@@ -356,6 +357,31 @@ const swiftQueries = "(class_declaration \"class\" name: (type_identifier) @name
 	"(call_expression (simple_identifier) @_fn (#eq? @_fn \"Task\")) @spawn\n" +
 	// Swift delegate: identifier passed as function argument
 	"(call_expression (value_arguments (value_argument (simple_identifier) @delegate.target))) @delegate\n"
+
+const scalaQueries = // Class-like definitions.
+"(class_definition name: (identifier) @name) @definition.class\n" +
+	"(object_definition name: (identifier) @name) @definition.class\n" +
+	"(trait_definition name: (identifier) @name) @definition.interface\n" +
+	"(enum_definition name: (identifier) @name) @definition.enum\n" +
+	// Functions and methods (promoted to Method when nested inside a class body).
+	"(function_definition name: (identifier) @name) @definition.function\n" +
+	// Type aliases.
+	"(type_definition name: (type_identifier) @name) @definition.type\n" +
+	// Abstract val/var declarations (trait/abstract class members — always class-level).
+	"(val_declaration name: (identifier) @name) @definition.property\n" +
+	"(var_declaration name: (identifier) @name) @definition.property\n" +
+	// Enum cases.
+	"(full_enum_case name: (identifier) @name) @definition.const\n" +
+	"(simple_enum_case name: (identifier) @name) @definition.const\n" +
+	// Imports: capture the full import path.
+	"(import_declaration path: (_) @import.source) @import\n" +
+	// Calls.
+	"(call_expression function: (identifier) @call.name) @call\n" +
+	"(call_expression function: (field_expression field: (identifier) @call.name)) @call\n" +
+	// Heritage: class/trait/object extending other types.
+	"(class_definition name: (identifier) @heritage.class (extends_clause (type_identifier) @heritage.extends)) @heritage\n" +
+	"(trait_definition name: (identifier) @heritage.class (extends_clause (type_identifier) @heritage.extends)) @heritage\n" +
+	"(object_definition name: (identifier) @heritage.class (extends_clause (type_identifier) @heritage.extends)) @heritage\n"
 
 const csQueries = "(class_declaration name: (identifier) @name) @definition.class\n" +
 	"(interface_declaration name: (identifier) @name) @definition.interface\n" +

@@ -20,7 +20,7 @@ task build:dev
 ./cartograph-darwin-arm64 serve start --no-detach --no-idle &
 
 # 1. Index all test repos (clean + re-embed)
-for repo in turbot/steampipe excalidraw/excalidraw fastapi/fastapi hashicorp/nomad; do
+for repo in turbot/steampipe excalidraw/excalidraw fastapi/fastapi hashicorp/nomad gatling/gatling; do
   ./cartograph-darwin-arm64 clean "$repo"
   ./cartograph-darwin-arm64 analyze "$repo" --embed=sync
 done
@@ -42,6 +42,7 @@ with keyword + intent query pairs and ground-truth expected symbols:
 | `batteries/excalidraw.md` | TypeScript | 1253  | 8      | rendering, export, undo/redo, collaboration, elements   |
 | `batteries/fastapi.md`    | Python     | 756   | 8      | routing, DI, validation, middleware, OpenAPI            |
 | `batteries/nomad.md`      | Go         | 37587 | **15** | startup, scheduling, node failure, raft, client-server  |
+| `batteries/gatling.md`    | Scala      | 8438  | 8      | simulation exec, HTTP protocol, session/stats, actions, assertions |
 
 ### Query Types
 
@@ -136,7 +137,7 @@ python3 .agents/skills/benchmark-test/score.py /tmp/bat-steampipe.txt \
 | 5K-20K nodes  | `-l 10` | Moderate dilution                                       |
 | > 20K nodes   | `-l 15` | Large codebases need more slots to surface deep symbols |
 
-## Current Baseline (2026-04-05, prose summary build)
+## Current Baseline (2026-04-16, prose summary build + Scala support)
 
 ```
 Project      Lang    Nodes    KW          INT         Criteria
@@ -145,8 +146,9 @@ steampipe    Go      882      36/40 (90%) 24/40 (60%) 5/5
 excalidraw   TS      1253     30/40 (75%) 28/40 (70%) 5/5
 fastapi      Python  756      22/39 (56%) 25/39 (64%) 5/5
 nomad        Go      37587    26/41 (63%) 17/41 (41%) 4/5
+gatling      Scala   8438     20/40 (50%) 15/40 (37%) 5/5
 ─────────────────────────────────────────────────────────────
-TOTAL                         114/160(71%) 94/160(59%) 19/20(95%)
+TOTAL                         134/200(67%) 109/200(55%) 24/25(96%)
 ```
 
 **Model:** bge-small (384d, 24MB)
@@ -300,7 +302,7 @@ existing batteries don't have:
 | Architecture              | Clear subsystems (routing, auth, storage, scheduling…)   |
 | Familiarity               | Well-known OSS projects make ground-truth easier to verify |
 
-Existing coverage: Go (steampipe, nomad), TypeScript (excalidraw), Python (fastapi).
+Existing coverage: Go (steampipe, nomad), TypeScript (excalidraw), Python (fastapi), Scala (gatling).
 
 ### 1. Resolve and index the project
 
@@ -532,5 +534,6 @@ Add a row to the "Current Baseline" table in this file with:
     ├── steampipe.md      ← Go (882 nodes) — fastest for feedback loops
     ├── excalidraw.md     ← TypeScript (1253 nodes)
     ├── fastapi.md        ← Python (756 nodes)
-    └── nomad.md          ← Go (37587 nodes) — stress test for large codebases
+    ├── nomad.md          ← Go (37587 nodes) — stress test for large codebases
+    └── gatling.md        ← Scala (8438 nodes) — first Scala coverage
 ```

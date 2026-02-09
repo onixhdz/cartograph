@@ -285,6 +285,8 @@ var compoundIgnoredSuffixes = []string{
 	".twirp.go",                  // Twirp RPC
 	"_easyjson.go", "_ffjson.go", // JSON codegen
 	".mock.go", "_mock.go", // mockgen
+	// Scala code generators
+	".pb.scala", // ScalaPB protobuf
 }
 
 // shouldIgnoreFile checks if a file should be ignored based on its exact name

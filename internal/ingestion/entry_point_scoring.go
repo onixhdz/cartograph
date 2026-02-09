@@ -171,6 +171,12 @@ var langPatterns = map[string][]*regexp.Regexp{
 		regexp.MustCompile(`^On[A-Z]`),
 		regexp.MustCompile(`^on_`),
 	},
+	"scala": {
+		regexp.MustCompile(`^apply$`),   // Factory method convention
+		regexp.MustCompile(`^receive$`), // Akka actor message handler
+		regexp.MustCompile(`^props$`),   // Akka actor factory
+		regexp.MustCompile(`^routes?$`), // Akka HTTP / Play Framework routing
+	},
 }
 
 // namePatternMultiplier checks if the function name matches entry-point
@@ -333,6 +339,12 @@ func IsTestFile(filePath string) bool {
 		return true
 	}
 
+	// Scala: *Spec.scala, *Suite.scala, *Test.scala, *Tests.scala suffix (ScalaTest, specs2, munit)
+	if strings.HasSuffix(lower, "spec.scala") || strings.HasSuffix(lower, "suite.scala") ||
+		strings.HasSuffix(lower, "test.scala") || strings.HasSuffix(lower, "tests.scala") {
+		return true
+	}
+
 	// C/C++: _test.c, _test.cpp, _test.cc, _test.cxx suffixes
 	// Also _unittest variants (Google Test convention)
 	for _, ext := range []string{".c", ".cpp", ".cc", ".cxx"} {
@@ -404,6 +416,14 @@ func IsExampleFile(filePath string) bool {
 	// Kotlin: *Example.kt, *Demo.kt
 	if strings.HasSuffix(base, ".kt") {
 		stem := base[:len(base)-3]
+		if strings.HasSuffix(stem, "example") || strings.HasSuffix(stem, "demo") {
+			return true
+		}
+	}
+
+	// Scala: *Example.scala, *Demo.scala
+	if strings.HasSuffix(base, ".scala") {
+		stem := base[:len(base)-6]
 		if strings.HasSuffix(stem, "example") || strings.HasSuffix(stem, "demo") {
 			return true
 		}

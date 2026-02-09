@@ -810,6 +810,9 @@ func detectExported(defNode *ts.Node, name, language string, lang *ts.Language, 
 	case "swift":
 		// Swift: default is internal; check for public/open.
 		return hasVisibilityModifier(defNode, lang, source, "public", "open")
+	case "scala":
+		// Scala: default visibility is public; check for private/protected.
+		return !hasVisibilityModifier(defNode, lang, source, "private", "protected")
 	default:
 		return true
 	}
