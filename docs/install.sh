@@ -332,6 +332,14 @@ main() {
   printf '\n' >&2
   completed "Cartograph ${VERSION} installed to ${INSTALL_DIR}/${BINARY}"
 
+  # Post-install: upgrade any previously installed agent skills.
+  # Mirrors the Homebrew post_install behavior — silently no-ops on fresh installs.
+  if [ -x "${INSTALL_DIR}/${BINARY}" ]; then
+    info "Updating agent skills..."
+    "${INSTALL_DIR}/${BINARY}" skills install --upgrade 2>/dev/null || true
+    completed "Agent skills updated"
+  fi
+
   # Post-install PATH advice.
   if ! check_path "$INSTALL_DIR"; then
     printf '\n' >&2
