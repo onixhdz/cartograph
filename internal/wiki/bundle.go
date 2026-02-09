@@ -13,6 +13,7 @@ type ModuleTreeNode struct {
 	Name     string           `json:"name"`
 	Slug     string           `json:"slug"`
 	Files    []string         `json:"files"`
+	Sources  []string         `json:"sources,omitempty"`
 	Children []ModuleTreeNode `json:"children,omitempty"`
 }
 

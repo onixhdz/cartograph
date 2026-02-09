@@ -6,8 +6,10 @@
 package wiki
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -604,6 +606,222 @@ func (r *GenerateResult) Format() string {
 	}
 
 	return b.String()
+}
+
+// FormatProject renders a compact project-level summary without source
+// code. This is what the orchestrating agent reads to plan pages and
+// write the overview. It includes module names and a file listing for
+// each module so sub-agents can be dispatched with file paths.
+func (r *GenerateResult) FormatProject() string {
+	var b strings.Builder
+
+	b.WriteString("# Wiki Context: ")
+	b.WriteString(r.Project.Name)
+	b.WriteString("\n\n")
+
+	// Module summary table.
+	b.WriteString("## Modules\n\n")
+	b.WriteString("| Module | Files | Symbols | Internal Calls | External Calls | Processes |\n")
+	b.WriteString("|--------|-------|---------|----------------|----------------|-----------|\n")
+	for _, m := range r.Modules {
+		fmt.Fprintf(&b, "| %s | %d | %d | %d | %d in / %d out | %d |\n",
+			m.Name, len(m.Files), m.Size, len(m.IntraCalls),
+			len(m.InCalls), len(m.OutCalls), len(m.Processes))
+	}
+	b.WriteString("\n")
+
+	// Inter-module edges.
+	if len(r.Project.InterModule) > 0 {
+		b.WriteString("## Inter-Module Dependencies\n\n")
+		b.WriteString("| From | To | Call Count |\n")
+		b.WriteString("|------|----|-----------|\n")
+		for _, e := range r.Project.InterModule {
+			fmt.Fprintf(&b, "| %s | %s | %d |\n", e.From, e.To, e.Count)
+		}
+		b.WriteString("\n")
+	}
+
+	// Top processes — names and importance only (details in module files).
+	if len(r.Project.TopProcs) > 0 {
+		b.WriteString("## Key Execution Flows\n\n")
+		b.WriteString("| Flow | Steps | Importance |\n")
+		b.WriteString("|------|-------|-----------|\n")
+		for _, p := range r.Project.TopProcs {
+			label := p.HeuristicLabel
+			if label == "" {
+				label = p.Name
+			}
+			fmt.Fprintf(&b, "| %s | %d | %.2f |\n", label, p.StepCount, p.Importance)
+		}
+		b.WriteString("\n")
+	}
+
+	// Config files — README only for the overview, truncated.
+	for _, f := range r.Project.ConfigFiles {
+		lower := strings.ToLower(f.Path)
+		if strings.HasPrefix(lower, "readme") {
+			content := f.Content
+			if len(content) > 2000 {
+				content = content[:2000] + "\n\n... (truncated)"
+			}
+			ext := filepath.Ext(f.Path)
+			lang := langFromExt(ext)
+			fmt.Fprintf(&b, "## README\n\n```%s\n%s\n```\n\n", lang, content)
+			break
+		}
+	}
+
+	return b.String()
+}
+
+// FormatModule renders a self-contained context document for a single
+// module. Includes call edges, execution flows, source code, and a
+// compact inter-module summary so the agent can reference other modules.
+func (r *GenerateResult) FormatModule(idx int) string {
+	m := r.Modules[idx]
+
+	var b strings.Builder
+
+	fmt.Fprintf(&b, "# Module: %s\n\n", m.Name)
+	fmt.Fprintf(&b, "Files: %d, Symbols: %d\n\n", len(m.Files), m.Size)
+
+	// File list.
+	b.WriteString("## Files\n\n")
+	for _, f := range m.Files {
+		fmt.Fprintf(&b, "- `%s`\n", f)
+	}
+	b.WriteString("\n")
+
+	// Call graph.
+	if len(m.IntraCalls) > 0 {
+		b.WriteString("## Internal Calls\n\n")
+		for _, e := range m.IntraCalls {
+			fmt.Fprintf(&b, "- `%s` (%s) → `%s` (%s)\n",
+				e.FromName, shortPath(e.FromFile), e.ToName, shortPath(e.ToFile))
+		}
+		b.WriteString("\n")
+	}
+
+	if len(m.OutCalls) > 0 {
+		b.WriteString("## Outgoing Calls\n\n")
+		for _, e := range m.OutCalls {
+			fmt.Fprintf(&b, "- `%s` (%s) → `%s` (%s)\n",
+				e.FromName, shortPath(e.FromFile), e.ToName, shortPath(e.ToFile))
+		}
+		b.WriteString("\n")
+	}
+
+	if len(m.InCalls) > 0 {
+		b.WriteString("## Incoming Calls\n\n")
+		for _, e := range m.InCalls {
+			fmt.Fprintf(&b, "- `%s` (%s) → `%s` (%s)\n",
+				e.FromName, shortPath(e.FromFile), e.ToName, shortPath(e.ToFile))
+		}
+		b.WriteString("\n")
+	}
+
+	// Processes.
+	if len(m.Processes) > 0 {
+		b.WriteString("## Execution Flows\n\n")
+		for _, p := range m.Processes {
+			label := p.HeuristicLabel
+			if label == "" {
+				label = p.Name
+			}
+			fmt.Fprintf(&b, "- **%s** (%d steps)\n", label, p.StepCount)
+		}
+		b.WriteString("\n")
+	}
+
+	// Compact inter-module summary so the agent can reference other modules.
+	b.WriteString("## Other Modules (for cross-references)\n\n")
+	for i, other := range r.Modules {
+		if i == idx {
+			continue
+		}
+		fmt.Fprintf(&b, "- **%s** (%d files)\n", other.Name, len(other.Files))
+	}
+	b.WriteString("\n")
+
+	// Source code.
+	if len(m.Source) > 0 {
+		b.WriteString("## Source Code\n\n")
+		for _, s := range m.Source {
+			ext := filepath.Ext(s.Path)
+			lang := langFromExt(ext)
+			fmt.Fprintf(&b, "### %s\n\n```%s\n%s\n```\n\n", s.Path, lang, s.Content)
+		}
+	}
+
+	return b.String()
+}
+
+// ModuleSlug returns a URL-safe slug for the module at the given index.
+func (r *GenerateResult) ModuleSlug(idx int) string {
+	return toSlug(r.Modules[idx].Name)
+}
+
+// toSlug converts a module name to a URL-safe lowercase slug.
+func toSlug(name string) string {
+	s := strings.ToLower(name)
+	s = strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			return r
+		}
+		return '-'
+	}, s)
+	// Collapse multiple hyphens.
+	for strings.Contains(s, "--") {
+		s = strings.ReplaceAll(s, "--", "-")
+	}
+	return strings.Trim(s, "-")
+}
+
+// ModuleTree builds a deterministic module_tree.json structure from
+// the generate result. Slugs match the per-module context file names.
+func (r *GenerateResult) ModuleTree() []ModuleTreeNode {
+	tree := make([]ModuleTreeNode, len(r.Modules))
+	for i, m := range r.Modules {
+		tree[i] = ModuleTreeNode{
+			Name:  m.Name,
+			Slug:  toSlug(m.Name),
+			Files: m.Files,
+		}
+	}
+	return tree
+}
+
+// WriteContext writes all context files to wikiDir: context/project.md,
+// context/<slug>.md for each module, and module_tree.json.
+func (r *GenerateResult) WriteContext(wikiDir string) error {
+	ctxDir := filepath.Join(wikiDir, "context")
+	if err := os.MkdirAll(ctxDir, 0o750); err != nil {
+		return fmt.Errorf("create context dir: %w", err)
+	}
+
+	// Project summary.
+	if err := os.WriteFile(filepath.Join(ctxDir, "project.md"), []byte(r.FormatProject()), 0o600); err != nil {
+		return fmt.Errorf("write project context: %w", err)
+	}
+
+	// Per-module context files.
+	for i := range r.Modules {
+		slug := r.ModuleSlug(i)
+		if err := os.WriteFile(filepath.Join(ctxDir, slug+".md"), []byte(r.FormatModule(i)), 0o600); err != nil {
+			return fmt.Errorf("write module context %q: %w", slug, err)
+		}
+	}
+
+	// module_tree.json — deterministic, matches context file slugs.
+	treeJSON, err := json.MarshalIndent(r.ModuleTree(), "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal module tree: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(wikiDir, "module_tree.json"), treeJSON, 0o600); err != nil {
+		return fmt.Errorf("write module tree: %w", err)
+	}
+
+	return nil
 }
 
 // --- helpers ---

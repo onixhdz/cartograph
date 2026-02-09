@@ -7,8 +7,12 @@ gathers all the data; the agent writes the prose.
 
 1. **Generate context** — `cartograph wiki generate` collects modules,
    call edges, execution flows, source code, and project metadata.
-2. **Write pages** — The agent reads the context and writes markdown.
-3. **Bundle** — `cartograph wiki bundle` produces a self-contained HTML
+2. **Consolidate modules** — The agent reads `project.md`, merges
+   related micro-communities in `module_tree.json`, and gives them
+   business-oriented names.
+3. **Write pages** — The agent dispatches parallel sub-agents to write
+   markdown pages, then writes the overview.
+4. **Bundle** — `cartograph wiki bundle` produces a self-contained HTML
    viewer.
 
 ## Phase 1: Generate Context
@@ -18,86 +22,129 @@ gathers all the data; the agent writes the prose.
 cartograph wiki generate
 
 # Explicit repo and output:
-cartograph wiki generate -r <repo> -o path/to/context.md
+cartograph wiki generate -r <repo> -o path/to/wiki/
 ```
 
-Default output: `<project>/.cartograph/wiki/context.md` (local projects)
-or `<data_dir>/wiki/<repo>/context.md` (remote clones). Override with
-`-o`.
+Default output: `<project>/.cartograph/wiki/` (local projects) or
+`<data_dir>/wiki/<repo>/` (remote clones). Override with `-o`.
 
-The output is a structured markdown document. Everything the agent needs
-is already in this file — no further exploration or tool calls required.
+This produces a `context/` subdirectory with split files:
 
-**Contents:**
-- Module summary table (files, symbols, call edges, processes per module)
+```
+<wiki_dir>/context/
+  project.md            # project summary (no source code) — compact
+  auth-sessions.md      # per-module context with full source
+  database-layer.md     # per-module context with full source
+  ...
+```
+
+**`project.md`** — compact project-level summary for the orchestrating
+agent and overview page writer:
+- Module summary table (files, symbols, call edges, processes)
+- Module file listings (which files belong to each module)
 - Directory tree
-- Inter-module dependency table (aggregated call counts)
-- Top execution flows with ordered step traces
+- Inter-module dependency table
+- Top execution flows with step traces
 - Project config files (README, manifests, Dockerfile, CI — 4KB each)
-- Per-module details: member files, internal/outgoing/incoming call
-  edges, execution flows, and full source code
+
+**`<slug>.md`** — self-contained module context for each sub-agent:
+- Module name, file list, symbol count
+- Internal / outgoing / incoming call edges
+- Execution flows touching this module
+- Other modules list (for cross-references)
+- Full source code for every file in the module
 
 ## Phase 2: Write Pages
 
-The context file contains all graph data and source code. It should be
-sufficient for most pages. If something is genuinely unclear or missing
-— a truncated config file, an ambiguous call chain — read the specific
-file to clarify. But do not re-explore the codebase from scratch.
+Read `<wiki_dir>/context/project.md` to understand the project structure
+and plan pages. This file is compact (no source code) and fits easily
+in context. Do NOT read the per-module context files yourself — those
+are for sub-agents.
 
 ### Speed rules
 
-- **Trust the data.** The context file is the primary source of truth.
+- **Trust the data.** The context files are the primary source of truth.
   Module groupings, call edges, and execution flows are computed from
   the graph — treat them as accurate.
-- **Write first, read only if needed.** The context includes full source
-  code for every module file. Only reach for additional reads when the
+- **Write first, read only if needed.** Each module's context file
+  includes full source code. Only reach for additional reads when the
   context is genuinely insufficient (e.g., a config reference outside
   the module, a truncated file).
-- **One pass per page.** Read the module's section, write the page.
+- **One pass per page.** Read the module's context file, write the page.
   Do not re-read the context multiple times.
 - **Parallelize aggressively.** Launch ALL module pages as parallel
   sub-agents in one batch. Do not wait between launches.
 - **Keep pages focused.** 200-500 lines per module page is the sweet
   spot. Avoid exhaustive function-by-function listings.
 
-### Step 1: Generate module_tree.json (catalog-first)
+### Step 0: Consolidate and rename modules
 
-Before writing any content, generate the navigation structure. This
-ensures consistent slugs and page titles across all pages.
+`module_tree.json` is generated automatically by `cartograph wiki
+generate`. The auto-generated entries come from graph community
+detection, which often produces too many small modules (e.g., separate
+entries for `deletepolicy`, `getpolicy`, `listpolicies` that should be
+one "Policy Engine" module) and cryptic path-based names.
 
-Write `<wiki_dir>/module_tree.json`:
+Before dispatching sub-agents, consolidate and rename:
+
+1. Read `<wiki_dir>/context/project.md` and `<wiki_dir>/module_tree.json`
+2. **Merge related modules.** Look for entries that share a domain
+   (e.g., multiple policy CRUD operations, adapter variants for the same
+   subsystem, or small utility fragments). Combine their `files` arrays
+   into a single entry. Target **10-25 modules** for a typical project.
+3. **Rename each module** with a concise business-oriented name (2-4
+   words). Name by what it does, not by file paths.
+   - `adapters-stream` → "Event Streaming"
+   - `domain-orchestrator-app` → "Orchestrator Core"
+   - `deletepolicy` + `getpolicy` + `listpolicies` → "Policy Engine"
+4. **Set a new slug** for each merged module (URL-safe, lowercase,
+   hyphens). This becomes the wiki page filename.
+5. **Add a `sources` array** listing the original context file slugs
+   (without `.md`) that were merged into this module. Sub-agents use
+   this to know which context files to read.
+6. Write back `module_tree.json`.
+
+**Output format:**
 
 ```json
 [
-  {"name": "Authentication & Sessions", "slug": "authentication-sessions", "files": ["auth/login.go", "auth/session.go"]},
-  {"name": "Database Layer", "slug": "database-layer", "files": ["db/pool.go", "db/query.go"]}
+  {
+    "name": "Policy Engine",
+    "slug": "policy-engine",
+    "files": ["policy/delete.go", "policy/get.go", "policy/list.go"],
+    "sources": ["deletepolicy", "getpolicy", "listpolicies"]
+  }
 ]
 ```
 
-**Naming rules:**
-- Name modules by **what they do**, not by file paths. "Request
-  Pipeline" not "cmd/middleware". "User Authentication" not
-  "internal/auth".
-- Slugs must be URL-safe lowercase with hyphens.
-- Include the files array from the context's member file list.
+If a module was not merged (1:1 mapping), `sources` has one entry
+matching the original slug. Every original slug must appear in exactly
+one module's `sources` — do not drop any.
 
-### Step 2: Write module pages (parallel)
+This is a fast, lightweight step — just reading a compact summary and
+rewriting JSON. Do NOT read per-module context files for this.
 
-For each module, write `<wiki_dir>/<slug>.md`. Launch ALL modules as
-parallel sub-agents in a single message.
+### Step 1: Write module pages (parallel)
+
+For each module in `module_tree.json`, write `<wiki_dir>/<slug>.md`.
+Launch ALL modules as parallel sub-agents in a single message.
 
 **Each sub-agent receives:**
-1. The module's section from the context (between its `## Module:` header
-   and the next module header)
-2. The inter-module dependency table (for cross-references)
+1. The paths to its context files — one per entry in `sources`:
+   `<wiki_dir>/context/<source>.md` — tell the sub-agent to Read these
+   files (most modules have 1-3 source files)
+2. The display name from `module_tree.json` (use this as the page title)
 3. The system prompt below
 4. The output file path
 
+Do NOT paste the module context into the sub-agent's prompt. Give it
+the file paths and let it Read them. This keeps the initial prompt
+small and avoids context window overflow.
+
 **IMPORTANT — sub-agent delegation rules:**
-Sub-agents must write the page directly from the provided context. Tell
-each sub-agent explicitly:
-- This is a **single-pass write task** — read the context once, write
-  the markdown file, and you are done.
+Tell each sub-agent explicitly:
+- This is a **single-pass write task** — Read the context file(s), write
+  the markdown page, and you are done.
 - Do NOT loop, revise, or iterate on the output. The first draft is
   the final draft.
 - Do NOT read additional files unless the context has an obvious gap
@@ -105,23 +152,25 @@ each sub-agent explicitly:
   specific file, then finish writing.
 - Do NOT use search/grep tools to explore the codebase.
 - Write the full page content using the Write tool in a single call.
+- If you received multiple context files, read all of them first, then
+  write a single unified page that covers the combined scope.
 
 These rules prevent sub-agents from burning through their context window
-by looping. Most sub-agents should finish in under 30 seconds.
+by looping. Most sub-agents should finish in under 60 seconds.
 
 **System prompt for module pages:**
 
 > You are a technical documentation writer. Write clear, developer-focused
 > documentation for a code module. Be direct and efficient.
 >
-> This is a single-pass write task. All the data you need is provided
-> below — module files, call edges, execution flows, and full source
-> code. Read it once, write the page, and finish. Do not loop, revise,
-> or explore further.
+> This is a single-pass write task. Read the context file(s) you are
+> given, write the documentation page, and finish. The context files
+> contain everything — call edges, execution flows, and full source
+> code. Do not loop, revise, or explore further.
 >
 > Rules:
-> - Start with the module heading — no preamble or meta-commentary
-> - Name the page by what the module does, not its file paths
+> - Start with the module heading using the display name you were given
+>   — no preamble or meta-commentary
 > - Reference actual function/class names from the source with file:line
 >   attribution (e.g., `handleRequest` in `server/handler.go:45`)
 > - Use call edges and execution flows for accuracy, but synthesize them
@@ -141,10 +190,12 @@ by looping. Most sub-agents should finish in under 30 seconds.
 - Important execution flows passing through it
 - Configuration, env vars, or setup (if visible in source)
 
-### Step 3: Write overview page
+### Step 2: Write overview page
 
 Write `<wiki_dir>/overview.md` AFTER all module pages are complete.
-This is also a single-pass write task.
+The overview agent should Read `<wiki_dir>/context/project.md` and
+`<wiki_dir>/module_tree.json` (for display names and slugs). This is
+also a single-pass write task.
 
 **System prompt for overview:**
 
@@ -159,7 +210,8 @@ This is also a single-pass write task.
 > - Include a Mermaid architecture diagram showing the most important
 >   modules and their relationships (max 10 nodes, use inter-module edge
 >   data)
-> - Link to module pages naturally in the text using `[Name](slug.md)`
+> - Link to module pages using names from module_tree.json:
+>   `[Display Name](slug.md)`
 > - Do NOT create module index tables
 > - Never fabricate — only reference what's in the provided data
 > - Keep it welcoming and scannable
@@ -191,8 +243,10 @@ Report the output path to the user.
 
 ```bash
 # Full workflow (in an indexed project directory):
-cartograph wiki generate          # generate context
-# ... agent writes wiki pages ... # parallel sub-agents
+cartograph wiki generate          # writes context/ + module_tree.json
+# ... agent consolidates & renames modules in module_tree.json ...
+# ... agent dispatches sub-agents (one per module, parallel) ...
+# ... each sub-agent reads context/<source>.md files, writes <slug>.md ...
 cartograph wiki bundle            # bundle into HTML
 
 # Explicit repo:
@@ -200,10 +254,26 @@ cartograph wiki generate -r owner/repo
 # ... agent writes wiki pages ...
 cartograph wiki bundle -r owner/repo
 
-# Custom paths:
-cartograph wiki generate -r repo -o /tmp/ctx.md
-# ... agent writes to /tmp/wiki/ ...
+# Custom output directory:
+cartograph wiki generate -r repo -o /tmp/wiki/
+# ... agent writes pages to /tmp/wiki/ ...
 cartograph wiki bundle -o /tmp/wiki/ -n "Project Name"
+```
+
+**Output structure after full workflow:**
+
+```
+<wiki_dir>/
+  context/              # generated by cartograph wiki generate
+    project.md          # project summary (read this first)
+    community-a.md      # per-community context files (original slugs)
+    community-b.md
+    community-c.md
+  module_tree.json      # generated, then consolidated & renamed by agent
+  overview.md           # written by agent
+  module-a.md           # written by sub-agents (consolidated slugs)
+  module-b.md
+  index.html            # generated by cartograph wiki bundle
 ```
 
 ## Anti-Fabrication Rules

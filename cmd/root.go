@@ -1632,7 +1632,7 @@ type WikiCmd struct {
 // metadata needed for an agent to generate wiki documentation.
 type WikiGenerateCmd struct {
 	Repo   string `help:"Repository name." short:"r"`
-	Output string `help:"Output path (default: <project>/.cartograph/wiki/context.md)." short:"o"`
+	Output string `help:"Output directory (default: <project>/.cartograph/wiki/)." short:"o"`
 }
 
 func (c *WikiGenerateCmd) Run(cli *CLI) error {
@@ -1651,25 +1651,23 @@ func (c *WikiGenerateCmd) Run(cli *CLI) error {
 		return fmt.Errorf("wiki generate: %w", err)
 	}
 
-	output := result.Format()
-
-	// Determine output path: explicit -o, or default to <source>/.cartograph/wiki/context.md.
-	outPath := c.Output
-	if outPath == "" {
-		wikiDir, err := resolveWikiDir(repo)
+	// Determine output directory.
+	wikiDir := c.Output
+	if wikiDir == "" {
+		wikiDir, err = resolveWikiDir(repo)
 		if err != nil {
 			return err
 		}
-		outPath = filepath.Join(wikiDir, "context.md")
 	}
 
-	if err := os.MkdirAll(filepath.Dir(outPath), 0o750); err != nil {
-		return fmt.Errorf("wiki: create output dir: %w", err)
+	if err := result.WriteContext(wikiDir); err != nil {
+		return fmt.Errorf("wiki generate: %w", err)
 	}
-	if err := os.WriteFile(outPath, []byte(output), 0o600); err != nil {
-		return fmt.Errorf("wiki: write output: %w", err)
-	}
-	fmt.Printf("Wiki context written to %s\n", outPath)
+
+	fmt.Printf("Wiki context written to %s/\n", filepath.Join(wikiDir, "context"))
+	fmt.Printf("  project.md       (project summary — read this first)\n")
+	fmt.Printf("  %d module files   (one per module — pass to sub-agents)\n", len(result.Modules))
+	fmt.Printf("  module_tree.json (navigation structure)\n")
 	return nil
 }
 
