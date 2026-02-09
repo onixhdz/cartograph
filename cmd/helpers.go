@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/realxen/cartograph/internal/service"
+	"github.com/realxen/cartograph/internal/storage"
 )
 
 // ServiceClient defines the operations that CLI commands need from the
@@ -44,6 +45,33 @@ func detectRepo() (string, error) {
 		return "", fmt.Errorf("cannot determine repository name: %w", err)
 	}
 	return filepath.Base(cwd), nil
+}
+
+// resolveWikiDir looks up the indexed project from the registry and
+// returns the wiki directory path. For local projects the wiki lives at
+// <source_path>/.cartograph/wiki/; for remote clones it lives at
+// <data_dir>/wiki/<repo_name>/.
+func resolveWikiDir(repoName string) (string, error) {
+	registry, err := storage.NewRegistry(DefaultDataDir())
+	if err != nil {
+		return "", fmt.Errorf("open registry: %w", err)
+	}
+
+	entry, err := registry.Resolve(repoName)
+	if err != nil {
+		return "", fmt.Errorf("resolve repo %q: %w", repoName, err)
+	}
+
+	// Local project: wiki alongside the source.
+	if entry.URL == "" {
+		if entry.Meta.SourcePath == "" {
+			return "", fmt.Errorf("repo %q has no source path on disk — use -o to specify the output path", repoName)
+		}
+		return filepath.Join(entry.Meta.SourcePath, ".cartograph", "wiki"), nil
+	}
+
+	// Remote clone: wiki under the global data directory.
+	return filepath.Join(DefaultDataDir(), "wiki", entry.Name), nil
 }
 
 // DefaultSocketPath returns the default unix socket path used by the

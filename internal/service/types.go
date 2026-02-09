@@ -2,6 +2,11 @@
 // Transport: HTTP/JSON over a unix domain socket (POST /api/{method}).
 package service
 
+import "errors"
+
+// ErrWriteQuery is returned when a Cypher query contains write keywords.
+var ErrWriteQuery = errors.New("write queries are not allowed")
+
 const (
 	// APIPrefix is the base path for all API endpoints.
 	APIPrefix = "/api"

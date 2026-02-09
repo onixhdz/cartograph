@@ -30,6 +30,7 @@ import (
 	"github.com/realxen/cartograph/internal/storage/bbolt"
 	"github.com/realxen/cartograph/internal/sysutil"
 	"github.com/realxen/cartograph/internal/version"
+	"github.com/realxen/cartograph/internal/wiki"
 )
 
 const (
@@ -48,7 +49,7 @@ type CLI struct {
 	List       ListCmd          `cmd:"" help:"List all indexed repositories."`
 	Status     StatusCmd        `cmd:"" help:"Show index status for a repository (defaults to current directory)."`
 	Clean      CleanCmd         `cmd:"" help:"Delete index for a repository (defaults to current directory)."`
-	Wiki       WikiCmd          `cmd:"" help:"Generate repository wiki from knowledge graph."`
+	Wiki       WikiCmd          `cmd:"" help:"Wiki generation: generate context or bundle markdown into HTML viewer."`
 	Query      QueryCmd         `cmd:"" help:"Search the knowledge graph for execution flows."`
 	Context    ContextCmd       `cmd:"" help:"360-degree view of a code symbol."`
 	Impact     ImpactCmd        `cmd:"" help:"Blast radius: what breaks if you change a symbol."`
@@ -1620,16 +1621,103 @@ func (c *CleanCmd) Run(cli *CLI) error {
 	return nil
 }
 
-// WikiCmd generates a repository wiki from the knowledge graph.
+// WikiCmd is the top-level "wiki" command group with subcommands for
+// context generation and HTML bundling.
 type WikiCmd struct {
-	Path   string `arg:"" optional:"" help:"Path to repository root."`
-	Model  string `help:"LLM model to use for wiki generation."`
-	APIKey string `help:"API key for LLM provider." name:"api-key"`
-	Output string `help:"Output directory for wiki files." short:"o"`
+	Generate WikiGenerateCmd `cmd:"" default:"withargs" aliases:"gen" help:"Generate graph context for wiki documentation (default)."`
+	Bundle   WikiBundleCmd   `cmd:"" help:"Bundle markdown files into a self-contained HTML wiki viewer." needs-client:"false"`
 }
 
-func (c *WikiCmd) Run(cli *CLI) error {
-	fmt.Println("Wiki generation not yet implemented.")
+// WikiGenerateCmd collects all graph data, source code, and project
+// metadata needed for an agent to generate wiki documentation.
+type WikiGenerateCmd struct {
+	Repo   string `help:"Repository name." short:"r"`
+	Output string `help:"Output path (default: <project>/.cartograph/wiki/context.md)." short:"o"`
+}
+
+func (c *WikiGenerateCmd) Run(cli *CLI) error {
+	if cli.Client == nil {
+		fmt.Println(errNoService)
+		return nil
+	}
+
+	repo, err := resolveRepo(c.Repo)
+	if err != nil {
+		return err
+	}
+
+	result, err := wiki.Generate(cli.Client, repo)
+	if err != nil {
+		return fmt.Errorf("wiki generate: %w", err)
+	}
+
+	output := result.Format()
+
+	// Determine output path: explicit -o, or default to <source>/.cartograph/wiki/context.md.
+	outPath := c.Output
+	if outPath == "" {
+		wikiDir, err := resolveWikiDir(repo)
+		if err != nil {
+			return err
+		}
+		outPath = filepath.Join(wikiDir, "context.md")
+	}
+
+	if err := os.MkdirAll(filepath.Dir(outPath), 0o750); err != nil {
+		return fmt.Errorf("wiki: create output dir: %w", err)
+	}
+	if err := os.WriteFile(outPath, []byte(output), 0o600); err != nil {
+		return fmt.Errorf("wiki: write output: %w", err)
+	}
+	fmt.Printf("Wiki context written to %s\n", outPath)
+	return nil
+}
+
+// WikiBundleCmd reads markdown files from a directory and produces
+// a self-contained index.html wiki viewer.
+type WikiBundleCmd struct {
+	Repo   string `help:"Repository name." short:"r"`
+	Output string `help:"Wiki directory to bundle (default: <project>/.cartograph/wiki/)." short:"o"`
+	Name   string `help:"Project name for the viewer title." short:"n" default:""`
+}
+
+func (c *WikiBundleCmd) Run(_ *CLI) error {
+	// Determine wiki directory: explicit -o, or resolve from indexed project.
+	dir := c.Output
+	repoName := ""
+	if dir == "" {
+		repo, err := resolveRepo(c.Repo)
+		if err != nil {
+			return err
+		}
+		repoName = repo
+		dir, err = resolveWikiDir(repo)
+		if err != nil {
+			return err
+		}
+	}
+
+	name := c.Name
+	if name == "" {
+		// Prefer the repo name for the viewer title.
+		if repoName != "" {
+			name = repoName
+		} else {
+			abs, err := filepath.Abs(dir)
+			if err == nil {
+				name = filepath.Base(filepath.Dir(abs))
+			}
+		}
+		if name == "" || name == "." {
+			name = "Wiki"
+		}
+	}
+
+	outputPath, err := wiki.Bundle(dir, name)
+	if err != nil {
+		return fmt.Errorf("wiki bundle: %w", err)
+	}
+	fmt.Printf("Wiki viewer written to %s\n", outputPath)
 	return nil
 }
 

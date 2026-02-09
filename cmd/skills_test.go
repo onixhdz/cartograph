@@ -236,9 +236,9 @@ func TestCountFiles(t *testing.T) {
 		t.Fatalf("installSkillFiles: %v", err)
 	}
 	n := countFiles(filepath.Join(dir, "cartograph"))
-	// SKILL.md + 4 reference files = 5
-	if n != 5 {
-		t.Errorf("expected 5 files, got %d", n)
+	// SKILL.md + 5 reference files = 6
+	if n != 6 {
+		t.Errorf("expected 6 files, got %d", n)
 	}
 }
 

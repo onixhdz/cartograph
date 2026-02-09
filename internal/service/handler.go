@@ -7,15 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 
 	"github.com/realxen/cartograph/internal/storage"
 )
-
-// cypherWriteRE matches Cypher write keywords that are disallowed for
-// security (the service provides read-only access to the graph).
-var cypherWriteRE = regexp.MustCompile(`(?i)\b(CREATE|DELETE|SET|MERGE|DROP|ALTER|COPY|DETACH)\b`)
 
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -181,12 +176,6 @@ func (s *Server) handleCypher(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Repo = repo
 
-	// Block write queries at the handler level (defense in depth).
-	if cypherWriteRE.MatchString(req.Query) {
-		writeError(w, ErrCodeQueryBlocked, "write queries are not allowed")
-		return
-	}
-
 	backend, err := s.GetBackend(req.Repo)
 	if err != nil {
 		writeError(w, ErrCodeIncompatible, err.Error())
@@ -199,7 +188,11 @@ func (s *Server) handleCypher(w http.ResponseWriter, r *http.Request) {
 
 	result, err := backend.Cypher(req)
 	if err != nil {
-		writeError(w, ErrCodeInternal, err.Error())
+		if errors.Is(err, ErrWriteQuery) {
+			writeError(w, ErrCodeQueryBlocked, err.Error())
+		} else {
+			writeError(w, ErrCodeInternal, err.Error())
+		}
 		return
 	}
 	writeJSON(w, result)
@@ -510,11 +503,6 @@ func (s *Server) handleEmbedStatus(w http.ResponseWriter, r *http.Request) {
 		DownloadFile:    job.DownloadFile,
 		DownloadPercent: job.DownloadPercent,
 	})
-}
-
-// isCypherWriteQuery reports whether q contains a Cypher write keyword.
-func isCypherWriteQuery(q string) bool {
-	return cypherWriteRE.MatchString(strings.TrimSpace(q))
 }
 
 // ParseLineRange parses a "start-end" line range string.

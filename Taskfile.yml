@@ -110,13 +110,14 @@ tasks:
   # ── Dev symlink ─────────────────────────────────────────────────────
 
   ln:
-    desc: Symlink the host-matching binary to /usr/local/bin/cartograph
+    desc: Symlink the host-matching binary to ~/.local/bin/cartograph
     vars:
       BIN:
         sh: echo "$(pwd)/cartograph-$(go env GOOS)-$(go env GOARCH)"
     cmds:
-      - sudo ln -sf {{.BIN}} /usr/local/bin/cartograph
-      - echo "✓ /usr/local/bin/cartograph → {{.BIN}}"
+      - mkdir -p ~/.local/bin
+      - ln -sf {{.BIN}} ~/.local/bin/cartograph
+      - echo "✓ ~/.local/bin/cartograph → {{.BIN}}"
 
   # ── Platform targets (all native CGO) ───────────────────────────────
 

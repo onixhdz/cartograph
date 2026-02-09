@@ -5,7 +5,6 @@ package query
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -631,7 +630,7 @@ func callTreeFanOut(node *lpg.Node) int {
 //   - count(*) panics (countAtom is unimplemented) → rewrite to count(n)
 func (b *Backend) Cypher(req service.CypherRequest) (result *service.CypherResult, retErr error) {
 	if IsWriteQuery(req.Query) {
-		return nil, errors.New("write queries are not allowed")
+		return nil, service.ErrWriteQuery
 	}
 
 	defer func() {

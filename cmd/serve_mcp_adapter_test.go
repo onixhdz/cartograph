@@ -14,10 +14,10 @@ import (
 )
 
 // newTestServerMCPClient creates a serverMCPClient backed by a real
-// service.Server with testutil.SampleGraph loaded under the given repo
-// name. It also sets up a ContentResolver using sourceDir as the on-disk
+// service.Server with testutil.SampleGraph loaded under "testrepo".
+// It also sets up a ContentResolver using sourceDir as the on-disk
 // source root. The server is started and cleaned up automatically.
-func newTestServerMCPClient(t *testing.T, repo, sourceDir string) *serverMCPClient {
+func newTestServerMCPClient(t *testing.T, sourceDir string) *serverMCPClient {
 	t.Helper()
 
 	tmpDir := t.TempDir()
@@ -46,10 +46,10 @@ func newTestServerMCPClient(t *testing.T, repo, sourceDir string) *serverMCPClie
 	if _, err := idx.IndexGraph(g); err != nil {
 		t.Fatalf("index graph: %v", err)
 	}
-	srv.LoadGraphDirect(repo, g, idx)
+	srv.LoadGraphDirect("testrepo", g, idx)
 
 	if sourceDir != "" {
-		srv.SetContentResolver(repo, &storage.ContentResolver{
+		srv.SetContentResolver("testrepo", &storage.ContentResolver{
 			SourcePath: sourceDir,
 		})
 	}
@@ -64,7 +64,7 @@ func newTestServerMCPClient(t *testing.T, repo, sourceDir string) *serverMCPClie
 }
 
 func TestServerMCPClient_Query(t *testing.T) {
-	client := newTestServerMCPClient(t, "testrepo", "")
+	client := newTestServerMCPClient(t, "")
 
 	result, err := client.Query(service.QueryRequest{
 		Repo:  "testrepo",
@@ -86,7 +86,7 @@ func TestServerMCPClient_Query(t *testing.T) {
 }
 
 func TestServerMCPClient_Context(t *testing.T) {
-	client := newTestServerMCPClient(t, "testrepo", "")
+	client := newTestServerMCPClient(t, "")
 
 	result, err := client.Context(service.ContextRequest{
 		Repo: "testrepo",
@@ -104,7 +104,7 @@ func TestServerMCPClient_Context(t *testing.T) {
 }
 
 func TestServerMCPClient_Schema(t *testing.T) {
-	client := newTestServerMCPClient(t, "testrepo", "")
+	client := newTestServerMCPClient(t, "")
 
 	result, err := client.Schema(service.SchemaRequest{
 		Repo: "testrepo",
@@ -124,7 +124,7 @@ func TestServerMCPClient_Schema(t *testing.T) {
 }
 
 func TestServerMCPClient_Impact(t *testing.T) {
-	client := newTestServerMCPClient(t, "testrepo", "")
+	client := newTestServerMCPClient(t, "")
 
 	result, err := client.Impact(service.ImpactRequest{
 		Repo:      "testrepo",
@@ -141,7 +141,7 @@ func TestServerMCPClient_Impact(t *testing.T) {
 }
 
 func TestServerMCPClient_Cypher(t *testing.T) {
-	client := newTestServerMCPClient(t, "testrepo", "")
+	client := newTestServerMCPClient(t, "")
 
 	result, err := client.Cypher(service.CypherRequest{
 		Repo:  "testrepo",
@@ -164,7 +164,7 @@ func TestServerMCPClient_Cat(t *testing.T) {
 		"src/main.go": "package main\n\nfunc main() {\n\tfmt.Println(\"hello\")\n}\n",
 	})
 
-	client := newTestServerMCPClient(t, "testrepo", sourceDir)
+	client := newTestServerMCPClient(t, sourceDir)
 
 	result, err := client.Cat(service.CatRequest{
 		Repo:  "testrepo",
@@ -193,7 +193,7 @@ func TestServerMCPClient_CatLineRange(t *testing.T) {
 		"src/main.go": "line1\nline2\nline3\nline4\nline5\n",
 	})
 
-	client := newTestServerMCPClient(t, "testrepo", sourceDir)
+	client := newTestServerMCPClient(t, sourceDir)
 
 	result, err := client.Cat(service.CatRequest{
 		Repo:  "testrepo",
@@ -220,7 +220,7 @@ func TestServerMCPClient_CatInvalidLineRange(t *testing.T) {
 		"src/main.go": "line1\nline2\n",
 	})
 
-	client := newTestServerMCPClient(t, "testrepo", sourceDir)
+	client := newTestServerMCPClient(t, sourceDir)
 
 	_, err := client.Cat(service.CatRequest{
 		Repo:  "testrepo",
@@ -240,7 +240,7 @@ func TestServerMCPClient_CatMissingFile(t *testing.T) {
 		"src/main.go": "package main\n",
 	})
 
-	client := newTestServerMCPClient(t, "testrepo", sourceDir)
+	client := newTestServerMCPClient(t, sourceDir)
 
 	result, err := client.Cat(service.CatRequest{
 		Repo:  "testrepo",
@@ -258,7 +258,7 @@ func TestServerMCPClient_CatMissingFile(t *testing.T) {
 }
 
 func TestServerMCPClient_Status(t *testing.T) {
-	client := newTestServerMCPClient(t, "testrepo", "")
+	client := newTestServerMCPClient(t, "")
 
 	result, err := client.Status()
 	if err != nil {
@@ -279,7 +279,7 @@ func TestServerMCPClient_Status(t *testing.T) {
 }
 
 func TestServerMCPClient_RepoNotFound(t *testing.T) {
-	client := newTestServerMCPClient(t, "testrepo", "")
+	client := newTestServerMCPClient(t, "")
 
 	_, err := client.Query(service.QueryRequest{
 		Repo: "nonexistent",

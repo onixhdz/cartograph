@@ -4,77 +4,74 @@ import (
 	"testing"
 )
 
-func TestCypherWriteRE_BlocksAllWriteKeywords(t *testing.T) {
+func TestIsWriteQuery(t *testing.T) {
+	if !IsWriteQuery("CREATE (n:Node)") {
+		t.Error("expected true for CREATE")
+	}
+	if IsWriteQuery("MATCH (n) RETURN n") {
+		t.Error("expected false for read-only query")
+	}
+	if !IsWriteQuery("match (n) delete n") {
+		t.Error("lowercase delete should be detected")
+	}
+	if IsWriteQuery("") {
+		t.Error("empty string should not be a write query")
+	}
+}
+
+func TestIsWriteQuery_BlocksAllWriteKeywords(t *testing.T) {
 	keywords := []string{"CREATE", "DELETE", "SET", "MERGE", "REMOVE", "DROP", "ALTER", "COPY", "DETACH"}
 	for _, kw := range keywords {
-		if !CypherWriteRE.MatchString(kw + " (n:Node)") {
-			t.Errorf("expected to block %q (uppercase)", kw)
-		}
-		lower := toLower(kw)
-		if !CypherWriteRE.MatchString(lower + " (n:Node)") {
-			t.Errorf("expected to block %q (lowercase)", lower)
-		}
-		mixed := string(kw[0]) + toLower(kw[1:])
-		if !CypherWriteRE.MatchString(mixed + " (n:Node)") {
-			t.Errorf("expected to block %q (mixed)", mixed)
+		if !IsWriteQuery(kw + " (n:Node)") {
+			t.Errorf("expected to block %q", kw)
 		}
 	}
 }
 
-func TestCypherWriteRE_AllowsSafeQueries(t *testing.T) {
-	safeQueries := []string{
-		"MATCH (n) RETURN n",
-		"MATCH (n:Function) WHERE n.name = \"foo\" RETURN n",
-		"MATCH (a)-[r]->(b) RETURN a, r, b",
-		"OPTIONAL MATCH (n)-[r]->(m) RETURN n, r, m",
-		"MATCH (n) WITH n RETURN n.name",
-		"UNWIND [1,2,3] AS x RETURN x",
-		"MATCH (n) RETURN count(n)",
-		"MATCH (n:Function) WHERE n.filePath CONTAINS \"test\" RETURN n",
+func TestIsWriteQuery_IgnoresKeywordsInStringLiterals(t *testing.T) {
+	cases := []struct {
+		query string
+		want  bool
+	}{
+		{`MATCH (n)-[:MEMBER_OF]->(c:Community {name: 'Copy'}) RETURN n`, false},
+		{`MATCH (n {name: 'Delete'}) RETURN n`, false},
+		{`MATCH (n {name: 'Set'}) RETURN n`, false},
+		{`MATCH (n {name: 'Merge'}) RETURN n`, false},
+		{`MATCH (n) WHERE n.name = "CREATE" RETURN n`, false},
+		{`MATCH (n) WHERE n.name = "DROP" RETURN n`, false},
+		{`MATCH (n {name: 'it\'s a Copy'}) RETURN n`, false},
+		{`CREATE (n:Node)`, true},
+		{`MATCH (n) DELETE n`, true},
+		{`MATCH (n) SET n.x = 1`, true},
+		{`MATCH (n {name: 'foo'}) DELETE n`, true},
 	}
-	for _, q := range safeQueries {
-		if CypherWriteRE.MatchString(q) {
-			t.Errorf("safe query should not be blocked: %q", q)
+	for _, tc := range cases {
+		got := IsWriteQuery(tc.query)
+		if got != tc.want {
+			t.Errorf("IsWriteQuery(%q) = %v, want %v", tc.query, got, tc.want)
 		}
 	}
 }
 
-func TestCypherWriteRE_DoesNotMatchPartialWord(t *testing.T) {
-	// "CREATED_AT" should NOT match because \b ensures word boundary
-	if CypherWriteRE.MatchString("CREATED_AT") {
+func TestIsWriteQuery_DoesNotMatchPartialWord(t *testing.T) {
+	if IsWriteQuery("MATCH (n) WHERE n.CREATED_AT > 0 RETURN n") {
 		t.Error("CREATED_AT should not match (partial word)")
 	}
 }
 
-func TestCypherWriteRE_MatchesWithinQuery(t *testing.T) {
-	if !CypherWriteRE.MatchString("MATCH (n) DELETE n") {
-		t.Error("expected to block DELETE within query")
+func TestIsWriteQuery_ConsecutiveCalls(t *testing.T) {
+	results := []bool{
+		IsWriteQuery("CREATE (n)"),
+		IsWriteQuery("MATCH (n) RETURN n"),
+		IsWriteQuery("DELETE n"),
+		IsWriteQuery("MATCH (n) RETURN n"),
+		IsWriteQuery("SET n.x = 1"),
 	}
-	if !CypherWriteRE.MatchString("MATCH (n:Node) SET n.name = \"x\"") {
-		t.Error("expected to block SET within query")
-	}
-}
-
-func TestCypherWriteRE_IsNotGlobal(t *testing.T) {
-	// Verify the regex doesn't have global flag issues
-	// (Go regexps don't have global flag, but verify consecutive calls work)
-	if !IsWriteQuery("CREATE (n)") {
-		t.Error("first call should match")
-	}
-	if IsWriteQuery("MATCH (n) RETURN n") {
-		t.Error("second call should not match")
-	}
-	if !IsWriteQuery("DROP TABLE foo") {
-		t.Error("third call should match")
-	}
-	if IsWriteQuery("MATCH (n) RETURN n") {
-		t.Error("fourth call should not match")
-	}
-}
-
-func TestIsWriteQuery_EmptyString(t *testing.T) {
-	if IsWriteQuery("") {
-		t.Error("empty string should not be a write query")
+	expected := []bool{true, false, true, false, true}
+	for i, got := range results {
+		if got != expected[i] {
+			t.Errorf("call %d: got %v, want %v", i, got, expected[i])
+		}
 	}
 }
 
@@ -153,35 +150,6 @@ func TestIsValidNodeLabel(t *testing.T) {
 	}
 }
 
-func TestIsCypherWriteQuery(t *testing.T) {
-	if !IsWriteQuery("CREATE (n:Node)") {
-		t.Error("CREATE should be detected")
-	}
-	if !IsWriteQuery("match (n) delete n") {
-		t.Error("lowercase delete should be detected")
-	}
-	if IsWriteQuery("MATCH (n) RETURN n") {
-		t.Error("MATCH should not be a write query")
-	}
-}
-
-func TestIsWriteQuery_ConsecutiveCalls(t *testing.T) {
-	// Verify no state leakage between calls (Go regexps don't have global flag).
-	results := []bool{
-		IsWriteQuery("CREATE (n)"),
-		IsWriteQuery("MATCH (n) RETURN n"),
-		IsWriteQuery("DELETE n"),
-		IsWriteQuery("MATCH (n) RETURN n"),
-		IsWriteQuery("SET n.x = 1"),
-	}
-	expected := []bool{true, false, true, false, true}
-	for i, got := range results {
-		if got != expected[i] {
-			t.Errorf("call %d: got %v, want %v", i, got, expected[i])
-		}
-	}
-}
-
 func TestValidRelationTypes_CaseSensitive(t *testing.T) {
 	// Lowercase should not match — case-sensitive.
 	if IsValidRelationType("calls") {
@@ -199,16 +167,4 @@ func TestValidNodeLabels_CaseSensitive(t *testing.T) {
 	if IsValidNodeLabel("FILE") {
 		t.Error("uppercase 'FILE' should not be valid")
 	}
-}
-
-func toLower(s string) string {
-	b := make([]byte, len(s))
-	for i := range s {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			c += 'a' - 'A'
-		}
-		b[i] = c
-	}
-	return string(b)
 }

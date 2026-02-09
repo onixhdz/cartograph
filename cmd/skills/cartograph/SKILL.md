@@ -185,6 +185,10 @@ Load only the reference(s) needed for the user's request.
 - **Sub-agent delegation** (prompt templates, parallel explore agents) →
   [references/cartograph-delegation.md](references/cartograph-delegation.md)
 
+- **Wiki generation** (generate repository documentation from the knowledge
+  graph, create wiki pages, bundle into HTML viewer) →
+  [references/cartograph-wiki.md](references/cartograph-wiki.md)
+
 - **Remote / URL-based exploration** → Read **both** CLI + Workflows
   (index first, then explore)
 
@@ -287,6 +291,14 @@ risk, finding entry points, or mapping call sites for a rename.
 
 **Action:** Read `references/cartograph-workflows.md`.
 
+### 1c. Wiki Generation
+
+**Triggers:** User asks to generate a wiki, generate documentation, create
+docs from the knowledge graph, document a repository, produce a wiki page,
+or mentions "wiki" in the context of documentation generation.
+
+**Action:** Read `references/cartograph-wiki.md`.
+
 ### 2. CLI Commands
 
 **Triggers:** User mentions a specific command (`analyze`, `query`, `context`,
@@ -323,6 +335,7 @@ do. Do NOT guess — force disambiguation. Cartograph can help with:
 - Managing embedding models for semantic search
 - Running a background service for embedding, fast queries, and MCP
 - MCP integration for AI editors (Cursor, Claude Code, OpenCode)
+- Generating repository wiki documentation from the knowledge graph
 
 ## Edge Cases
 
@@ -335,3 +348,4 @@ These clarify ambiguous routing where two rules could plausibly match:
 - **"sub-agents"**, **"agent prompt template"**, **"launch explore agents"** → [references/cartograph-delegation.md](references/cartograph-delegation.md)
 - **Bare name** ("analyze docker") vs **shorthand** ("analyze moby/moby") → Bare names trigger confirm-first (rule 0c); shorthands go directly (rule 0)
 - **"analyze this repo: <url>"** → CLI Commands only (just indexing, no exploration workflow)
+- **"wiki"** as a CLI command reference ("what flags does wiki take") → CLI Commands; as a generation workflow ("generate wiki for this repo") → Wiki Generation (rule 1c)

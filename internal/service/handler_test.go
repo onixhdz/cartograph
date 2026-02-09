@@ -288,15 +288,6 @@ func TestUnknownRoute404(t *testing.T) {
 	}
 }
 
-func TestIsCypherWriteQuery(t *testing.T) {
-	if !isCypherWriteQuery("CREATE (n:Node)") {
-		t.Error("expected true for CREATE")
-	}
-	if isCypherWriteQuery("MATCH (n) RETURN n") {
-		t.Error("expected false for read-only query")
-	}
-}
-
 func TestDecodeJSON_BodyTooLarge(t *testing.T) {
 	big := make([]byte, maxRequestBody+1024)
 	for i := range big {
