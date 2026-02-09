@@ -22,6 +22,8 @@ jobs:
       CXX: zig c++
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-go@v6
         with:
