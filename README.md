@@ -117,6 +117,20 @@ Any GGUF model on Hugging Face works: `--embed-model "org/model-GGUF"`. Models a
 
 ---
 
+## Wiki Generation
+
+Generate a documentation wiki from the knowledge graph. Cartograph gathers the data; your AI agent writes the prose.
+
+```bash
+cartograph wiki generate    # collect context from the graph
+# ... agent writes markdown pages via the wiki skill ...
+cartograph wiki bundle      # package into a self-contained HTML viewer
+```
+
+The wiki skill is included in `cartograph skills install`.
+
+---
+
 ## Language Support
 
 **206 languages** detected via tree-sitter. **13 Tier 1 languages** get full extraction (symbols, imports, calls, heritage, types, assignments):

@@ -260,6 +260,18 @@ Delete index for current repository.
 **Flags:**
 - `--all` — Delete indexes for all repositories
 
+### `cartograph wiki generate` (alias: `wiki gen`)
+
+Generate graph context for wiki documentation. See the wiki reference for the full workflow.
+
+**Flags:** `-r, --repo <name>`, `-o, --output <path>`
+
+### `cartograph wiki bundle`
+
+Bundle markdown wiki pages into a self-contained `index.html`.
+
+**Flags:** `-r, --repo <name>`, `-o, --output <path>`, `-n, --name <name>`
+
 ### `cartograph schema [repo]`
 
 Show the graph schema for a repository — node labels, relationship types, property keys, and counts. Invaluable before writing Cypher queries.
