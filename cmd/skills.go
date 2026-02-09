@@ -65,9 +65,10 @@ type SkillsCmd struct {
 
 // SkillsInstallCmd installs skill files to one or more agent skill directories.
 type SkillsInstallCmd struct {
-	Path   string   `arg:"" optional:"" help:"Target directory (defaults to global install)."`
-	Agent  []string `help:"Agent ID(s) to install for (non-interactive). Use 'all' for all agents." short:"a" sep:","`
-	Global bool     `help:"Install globally (user-level). This is the default." default:"true" negatable:""`
+	Path    string   `arg:"" optional:"" help:"Target directory (defaults to global install)."`
+	Agent   []string `help:"Agent ID(s) to install for (non-interactive). Use 'all' for all agents." short:"a" sep:","`
+	Global  bool     `help:"Install globally (user-level). This is the default." default:"true" negatable:""`
+	Upgrade bool     `help:"Update only already-installed targets. Useful for package manager post-install hooks." short:"u"`
 }
 
 func (c *SkillsInstallCmd) Run(cli *CLI) error {
@@ -77,6 +78,15 @@ func (c *SkillsInstallCmd) Run(cli *CLI) error {
 		}
 		fmt.Printf("✓ Installed cartograph skills to %s\n", c.Path)
 		return nil
+	}
+
+	// Non-interactive upgrade: only update already-installed targets.
+	if c.Upgrade {
+		installed := discoverInstalled(c.Global)
+		if len(installed) == 0 {
+			return nil
+		}
+		return doInstall(installed, c.Global)
 	}
 
 	// Non-interactive: --agent flag provided.
