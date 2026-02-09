@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -69,6 +70,9 @@ func (c *McpCmd) Run(cli *CLI) error {
 	defer cancel()
 
 	if err := srv.Run(ctx); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil
+		}
 		return fmt.Errorf("cartograph mcp: %w", err)
 	}
 	return nil
