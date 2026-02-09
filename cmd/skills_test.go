@@ -236,9 +236,9 @@ func TestCountFiles(t *testing.T) {
 		t.Fatalf("installSkillFiles: %v", err)
 	}
 	n := countFiles(filepath.Join(dir, "cartograph"))
-	// SKILL.md + 3 reference files = 4
-	if n != 4 {
-		t.Errorf("expected 4 files, got %d", n)
+	// SKILL.md + 4 reference files = 5
+	if n != 5 {
+		t.Errorf("expected 5 files, got %d", n)
 	}
 }
 
@@ -287,5 +287,65 @@ func TestSkillsUninstallCmdAgent(t *testing.T) {
 	skillDir := filepath.Join(dir, "test", "cartograph")
 	if _, err := os.Stat(skillDir); !os.IsNotExist(err) {
 		t.Error("skill dir still exists after --agent uninstall")
+	}
+}
+
+// TestSkillsInstallCmdUpgrade verifies that --upgrade only updates
+// already-installed targets and skips uninstalled ones.
+func TestSkillsInstallCmdUpgrade(t *testing.T) {
+	dir := t.TempDir()
+	origTargets := agentTargets
+	defer func() { agentTargets = origTargets }()
+
+	agentTargets = []agentTarget{
+		{Name: "Installed Agent", ID: "installed", GlobalDir: filepath.Join(dir, "installed")},
+		{Name: "Not Installed Agent", ID: "notinstalled", GlobalDir: filepath.Join(dir, "notinstalled")},
+	}
+
+	// Pre-install only the first target.
+	if err := installSkillFiles(filepath.Join(dir, "installed")); err != nil {
+		t.Fatalf("installSkillFiles: %v", err)
+	}
+
+	cli := &CLI{}
+	installCmd := &SkillsInstallCmd{Upgrade: true, Global: true}
+	if err := installCmd.Run(cli); err != nil {
+		t.Fatalf("SkillsInstallCmd.Run --upgrade: %v", err)
+	}
+
+	// Installed target should still have skills.
+	skillMD := filepath.Join(dir, "installed", "cartograph", "SKILL.md")
+	if _, err := os.Stat(skillMD); err != nil {
+		t.Errorf("SKILL.md missing for installed target after upgrade: %v", err)
+	}
+
+	// Not-installed target should NOT have been created.
+	notInstalled := filepath.Join(dir, "notinstalled", "cartograph", "SKILL.md")
+	if _, err := os.Stat(notInstalled); !os.IsNotExist(err) {
+		t.Error("--upgrade created skills for a target that was not previously installed")
+	}
+}
+
+// TestSkillsInstallCmdUpgradeNoop verifies that --upgrade is a no-op
+// when nothing is installed (no error, no output).
+func TestSkillsInstallCmdUpgradeNoop(t *testing.T) {
+	dir := t.TempDir()
+	origTargets := agentTargets
+	defer func() { agentTargets = origTargets }()
+
+	agentTargets = []agentTarget{
+		{Name: "Agent", ID: "agent", GlobalDir: filepath.Join(dir, "agent")},
+	}
+
+	cli := &CLI{}
+	installCmd := &SkillsInstallCmd{Upgrade: true, Global: true}
+	if err := installCmd.Run(cli); err != nil {
+		t.Fatalf("SkillsInstallCmd.Run --upgrade (noop): %v", err)
+	}
+
+	// Nothing should have been created.
+	skillMD := filepath.Join(dir, "agent", "cartograph", "SKILL.md")
+	if _, err := os.Stat(skillMD); !os.IsNotExist(err) {
+		t.Error("--upgrade created skills when nothing was previously installed")
 	}
 }

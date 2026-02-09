@@ -75,7 +75,7 @@ func TestServerSetupRoutesRegistered(t *testing.T) {
 		graph:     make(map[string]*lpg.Graph),
 		searchIdx: make(map[string]*search.Index),
 	}
-	handler := s.SetupRoutes()
+	handler := s.setupRoutes()
 
 	routes := []struct {
 		method string
@@ -108,7 +108,7 @@ func TestServerStartStop(t *testing.T) {
 		idleTimeout: DefaultIdleTimeout,
 		done:        make(chan struct{}),
 	}
-	mux := s.SetupRoutes()
+	mux := s.setupRoutes()
 
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
@@ -248,7 +248,7 @@ func TestServerResolveRepoName_InMemoryFastPath(t *testing.T) {
 	}
 	s.graph["myorg/myrepo"] = lpg.NewGraph()
 
-	got, err := s.resolveRepoName("myorg/myrepo")
+	got, err := s.ResolveRepoName("myorg/myrepo")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestServerResolveRepoName_ShortNameViaRegistry(t *testing.T) {
 		dataDir:   dir,
 	}
 
-	got, err := s.resolveRepoName("nomad")
+	got, err := s.ResolveRepoName("nomad")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -289,7 +289,7 @@ func TestServerResolveRepoName_AmbiguousShortName(t *testing.T) {
 		dataDir:   dir,
 	}
 
-	_, err := s.resolveRepoName("sdk")
+	_, err := s.ResolveRepoName("sdk")
 	if err == nil {
 		t.Fatal("expected ambiguity error")
 	}
@@ -304,7 +304,7 @@ func TestServerResolveRepoName_NoDataDir(t *testing.T) {
 		searchIdx: make(map[string]*search.Index),
 	}
 
-	got, err := s.resolveRepoName("anything")
+	got, err := s.ResolveRepoName("anything")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

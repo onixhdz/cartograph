@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/realxen/cartograph/internal/storage"
 )
@@ -95,14 +94,14 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	repo, err := s.resolveRepoName(req.Repo)
+	repo, err := s.ResolveRepoName(req.Repo)
 	if err != nil {
 		writeError(w, ErrCodeRepoNotFound, err.Error())
 		return
 	}
 	req.Repo = repo
 
-	backend, err := s.getBackend(req.Repo)
+	backend, err := s.GetBackend(req.Repo)
 	if err != nil {
 		writeError(w, ErrCodeIncompatible, err.Error())
 		return
@@ -135,14 +134,14 @@ func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	repo, err := s.resolveRepoName(req.Repo)
+	repo, err := s.ResolveRepoName(req.Repo)
 	if err != nil {
 		writeError(w, ErrCodeRepoNotFound, err.Error())
 		return
 	}
 	req.Repo = repo
 
-	backend, err := s.getBackend(req.Repo)
+	backend, err := s.GetBackend(req.Repo)
 	if err != nil {
 		writeError(w, ErrCodeIncompatible, err.Error())
 		return
@@ -175,7 +174,7 @@ func (s *Server) handleCypher(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	repo, err := s.resolveRepoName(req.Repo)
+	repo, err := s.ResolveRepoName(req.Repo)
 	if err != nil {
 		writeError(w, ErrCodeRepoNotFound, err.Error())
 		return
@@ -188,7 +187,7 @@ func (s *Server) handleCypher(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	backend, err := s.getBackend(req.Repo)
+	backend, err := s.GetBackend(req.Repo)
 	if err != nil {
 		writeError(w, ErrCodeIncompatible, err.Error())
 		return
@@ -221,14 +220,14 @@ func (s *Server) handleImpact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	repo, err := s.resolveRepoName(req.Repo)
+	repo, err := s.ResolveRepoName(req.Repo)
 	if err != nil {
 		writeError(w, ErrCodeRepoNotFound, err.Error())
 		return
 	}
 	req.Repo = repo
 
-	backend, err := s.getBackend(req.Repo)
+	backend, err := s.GetBackend(req.Repo)
 	if err != nil {
 		writeError(w, ErrCodeIncompatible, err.Error())
 		return
@@ -265,20 +264,20 @@ func (s *Server) handleCat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	repo, err := s.resolveRepoName(req.Repo)
+	repo, err := s.ResolveRepoName(req.Repo)
 	if err != nil {
 		writeError(w, ErrCodeRepoNotFound, err.Error())
 		return
 	}
 	req.Repo = repo
 
-	cr := s.getContentResolver(req.Repo)
+	cr := s.GetContentResolver(req.Repo)
 	if cr == nil {
 		writeError(w, ErrCodeRepoNotFound, fmt.Sprintf("repository %q has no content resolver", req.Repo))
 		return
 	}
 
-	lineStart, lineEnd, err := parseLineRange(req.Lines)
+	lineStart, lineEnd, err := ParseLineRange(req.Lines)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -335,7 +334,7 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	repo, err := s.resolveRepoName(req.Repo)
+	repo, err := s.ResolveRepoName(req.Repo)
 	if err != nil {
 		writeError(w, ErrCodeRepoNotFound, err.Error())
 		return
@@ -355,41 +354,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed: use GET")
 		return
 	}
-
-	s.mu.RLock()
-	repos := make([]RepoStatus, 0, len(s.graph))
-	for name, g := range s.graph {
-		nodeCount := 0
-		edgeCount := 0
-		if g != nil {
-			nodes := g.GetNodes()
-			for nodes.Next() {
-				nodeCount++
-			}
-			edges := g.GetEdges()
-			for edges.Next() {
-				edgeCount++
-			}
-		}
-		repos = append(repos, RepoStatus{
-			Name:      name,
-			NodeCount: nodeCount,
-			EdgeCount: edgeCount,
-		})
-	}
-	s.mu.RUnlock()
-
-	var uptime string
-	if !s.startTime.IsZero() {
-		uptime = time.Since(s.startTime).Round(time.Second).String()
-	}
-
-	writeJSON(w, &StatusResult{
-		Running:     true,
-		Ready:       s.ready.Load(),
-		LoadedRepos: repos,
-		Uptime:      uptime,
-	})
+	writeJSON(w, s.BuildStatus())
 }
 
 func (s *Server) handleSchema(w http.ResponseWriter, r *http.Request) {
@@ -407,14 +372,14 @@ func (s *Server) handleSchema(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	repo, err := s.resolveRepoName(req.Repo)
+	repo, err := s.ResolveRepoName(req.Repo)
 	if err != nil {
 		writeError(w, ErrCodeRepoNotFound, err.Error())
 		return
 	}
 	req.Repo = repo
 
-	backend, err := s.getBackend(req.Repo)
+	backend, err := s.GetBackend(req.Repo)
 	if err != nil {
 		writeError(w, ErrCodeIncompatible, err.Error())
 		return
@@ -458,7 +423,7 @@ func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	repo, err := s.resolveRepoName(req.Repo)
+	repo, err := s.ResolveRepoName(req.Repo)
 	if err != nil {
 		writeError(w, ErrCodeRepoNotFound, err.Error())
 		return
@@ -493,7 +458,7 @@ func (s *Server) handleEmbedStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	repo, err := s.resolveRepoName(req.Repo)
+	repo, err := s.ResolveRepoName(req.Repo)
 	if err != nil {
 		writeError(w, ErrCodeRepoNotFound, err.Error())
 		return
@@ -552,9 +517,9 @@ func isCypherWriteQuery(q string) bool {
 	return cypherWriteRE.MatchString(strings.TrimSpace(q))
 }
 
-// parseLineRange parses a "start-end" line range string.
+// ParseLineRange parses a "start-end" line range string.
 // Returns (0, 0, nil) if s is empty (no range requested).
-func parseLineRange(s string) (start, end int, err error) {
+func ParseLineRange(s string) (start, end int, err error) {
 	if s == "" {
 		return 0, 0, nil
 	}

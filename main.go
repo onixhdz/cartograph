@@ -31,7 +31,7 @@ func versionString() string {
 }
 
 func main() {
-	cli := cmd.CLI{}
+	cli := cmd.CLI{AppVersion: ver}
 	parser := kong.Must(&cli,
 		kong.Name("cartograph"),
 		kong.Description("Graph-powered code intelligence tool"),

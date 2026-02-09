@@ -32,7 +32,7 @@ func testClientServer(t *testing.T) *Client {
 		return stubBackend{}
 	}
 
-	mux := s.SetupRoutes()
+	mux := s.setupRoutes()
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)
 

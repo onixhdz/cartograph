@@ -278,7 +278,7 @@ func TestHandleShutdown(t *testing.T) {
 
 func TestUnknownRoute404(t *testing.T) {
 	s := newTestServer()
-	handler := s.SetupRoutes()
+	handler := s.setupRoutes()
 	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/nonexistent", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
