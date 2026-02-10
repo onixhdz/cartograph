@@ -332,19 +332,16 @@ main() {
   printf '\n' >&2
   completed "Cartograph ${VERSION} installed to ${INSTALL_DIR}/${BINARY}"
 
-  # Post-install: update or install agent skills.
-  # On upgrade: refreshes any previously installed agent skill files.
-  # On fresh install: installs the universal agent target as a baseline.
+  # Post-install: update any previously installed agent skills.
+  # On fresh installs, print a hint instead of auto-installing.
   if [ -x "${INSTALL_DIR}/${BINARY}" ]; then
-    info "Updating agent skills..."
     _skills_output="$("${INSTALL_DIR}/${BINARY}" skills install --upgrade 2>&1 || true)"
     if [ -n "$_skills_output" ]; then
+      info "Updating agent skills..."
       printf '%s\n' "$_skills_output" >&2
       completed "Agent skills updated"
     else
-      info "Fresh install — installing universal agent skills..."
-      "${INSTALL_DIR}/${BINARY}" skills install --agent universal 2>&1 || true
-      completed "Agent skills installed"
+      info "Run ${BOLD}cartograph skills${RESET} to set up AI agent integration."
     fi
   fi
 
