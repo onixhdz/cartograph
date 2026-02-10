@@ -12,8 +12,33 @@
 
 ## Install
 
+### macOS (Homebrew — recommended)
+
 ```bash
 brew install realxen/tap/cartograph
+```
+
+### Shell script (Linux & macOS)
+
+```bash
+curl -sSfL https://realxen.github.io/cartograph/install.sh | sh
+```
+
+Install a specific version or to a custom directory:
+
+```bash
+curl -sSfL https://realxen.github.io/cartograph/install.sh | sh -s -- --version v0.1.2
+curl -sSfL https://realxen.github.io/cartograph/install.sh | sh -s -- --install-dir ~/bin
+```
+
+### Windows
+
+Download the latest binary from [GitHub Releases](https://github.com/realxen/cartograph/releases/latest/download/cartograph-windows-amd64.exe) and add it to your `PATH`.
+
+### Verify
+
+```bash
+cartograph --version
 ```
 
 ---
