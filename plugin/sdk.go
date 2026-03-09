@@ -59,7 +59,7 @@ type Plugin interface {
 	// Info returns metadata about this plugin. Called once after launch.
 	Info() Info
 
-	// Configure is called once with the connection name from sources.toml.
+	// Configure is called once with the connection name from config.toml.
 	// Use host.ConfigGet to retrieve credentials and settings.
 	Configure(ctx context.Context, host Host, connection string) error
 
@@ -107,7 +107,7 @@ type IngestResult struct {
 // Ingest so the plugin can retrieve config, cache data, emit graph
 // elements, and log messages.
 type Host interface {
-	// ConfigGet retrieves a config value from the connection's sources.toml
+	// ConfigGet retrieves a config value from the connection's config.toml
 	// section. Environment variable resolution (_env suffix) has already
 	// been applied — you get the resolved value.
 	ConfigGet(ctx context.Context, key string) (string, error)

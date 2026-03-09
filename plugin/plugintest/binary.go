@@ -117,7 +117,7 @@ func (r *BinaryResult) AssertEdgeExists(t testing.TB, fromID, toID, relType stri
 
 // RunBinaryOptions configures RunBinary.
 type RunBinaryOptions struct {
-	// Config is the plugin configuration (same as sources.toml Extra fields).
+	// Config is the plugin configuration (same as config.toml Extra fields).
 	Config Config
 	// Connection is the connection name passed to configure. Default: "test".
 	Connection string
@@ -155,8 +155,8 @@ func RunBinary(t testing.TB, binaryPath string, opts RunBinaryOptions) *BinaryRe
 
 	ds := &internalPlugin.PluginDataSource{
 		BinaryPath: binaryPath,
-		SourceConfig: cloudgraph.SourceConfig{
-			Type:  "test",
+		PluginConfig: cloudgraph.PluginConfig{
+			Bin:   "test",
 			Extra: extra,
 		},
 		ConnectionName: opts.Connection,

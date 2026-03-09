@@ -12,7 +12,7 @@ type SourceBinding struct {
 
 // LabelRegistry maps vendor labels and normalized kinds to the data source
 // connections that provide them. It is rebuilt in-memory on startup from
-// the sources.toml configuration and plugin ResourceTypes metadata.
+// the config.toml configuration and plugin ResourceTypes metadata.
 //
 // Both vendor labels and normalized kinds are registered:
 //

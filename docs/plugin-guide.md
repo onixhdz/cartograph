@@ -87,15 +87,22 @@ cartograph plugin install ./my-source
 
 ### 4. Configure a connection
 
-Create or edit `~/.local/share/cartograph/sources.toml`:
+Create or edit `~/.local/share/cartograph/config.toml`:
 
 ```toml
-[sources.my_connection]
-type = "my-source"
+[plugin.my_connection]
+bin = "my-source"
 api_key_env = "MY_API_KEY"   # resolved from $MY_API_KEY at runtime
 ```
 
 Keys ending in `_env` are resolved from environment variables automatically.
+
+If the binary name matches the section key, `bin` can be omitted:
+
+```toml
+[plugin.my-source]
+api_key_env = "MY_API_KEY"
+```
 
 ### 5. Run ingestion
 
@@ -131,7 +138,7 @@ The `host` parameter in `Configure` and `Ingest` provides these services:
 
 | Method                 | What it does                                          |
 |------------------------|-------------------------------------------------------|
-| `host.ConfigGet`       | Get a config value from sources.toml                  |
+| `host.ConfigGet`       | Get a config value from config.toml                   |
 | `host.CacheGet`        | Retrieve a cached value (survives across runs)        |
 | `host.CacheSet`        | Store a value with TTL in seconds                     |
 | `host.HTTPRequest`     | HTTP request through the host (for proxied auth)      |
@@ -167,7 +174,7 @@ Examples: `github:repo:acme/api`, `aws:ec2:i-0abc123`, `jira:issue:PROJ-42`
 ### Config
 
 `host.ConfigGet(ctx, "token")` retrieves the value from your connection's
-`sources.toml` section. The `_env` suffix resolution happens before you
+`config.toml` section. The `_env` suffix resolution happens before you
 see the value — you get the final string.
 
 ### Caching
@@ -211,18 +218,17 @@ Log messages are displayed to the user during ingestion.
 cartograph plugin install <path>    # Install a plugin binary
 cartograph plugin list              # List installed plugins (probes each for info)
 cartograph plugin rm <name>         # Remove a plugin
-cartograph ingest <connection>      # Run ingestion for a sources.toml connection
+cartograph ingest <connection>      # Run ingestion for a config.toml connection
 cartograph ingest <conn> -t repos   # Filter to specific resource types
 ```
 
 ## Configuration
 
-### `sources.toml` options
+### `config.toml` options
 
 ```toml
-[sources.my_connection]
-type = "my-source"              # matches the plugin name
-plugin = "custom-binary-name"   # override binary name (default: same as type)
+[plugin.my_connection]
+bin = "custom-binary-name"      # override binary name (default: section key name)
 checksum = "sha256:abc123..."   # verify binary integrity before each launch
 
 timeout = "10m"                 # max ingestion time (default: 5m)
@@ -251,7 +257,7 @@ GOOS=darwin GOARCH=arm64 go build -o my-source-darwin-arm64 .
   a help message. The SDK handles this automatically.
 
 - **Checksum verification** — pin plugins to a SHA-256 hash in
-  `sources.toml`. The host verifies before every launch.
+  `config.toml`. The host verifies before every launch.
 
 - **Emission limits** — the host enforces max nodes/edges per ingestion
   (default: 100K nodes, 500K edges). Exceeding limits cancels the run.

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -8,23 +9,31 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/cloudprivacylabs/lpg/v2"
 
 	"github.com/realxen/cartograph/internal/cloudgraph"
+	"github.com/realxen/cartograph/internal/datasource"
 	"github.com/realxen/cartograph/internal/plugin"
 )
 
 // PluginCmd is the top-level "plugin" command group.
 type PluginCmd struct {
-	Install PluginInstallCmd `cmd:"" default:"withargs" help:"Install a plugin binary."`
+	Install PluginInstallCmd `cmd:"" default:"withargs" help:"Install a plugin binary and run initial ingestion."`
 	List    PluginListCmd    `cmd:"" help:"List installed plugins."`
-	Rm      PluginRmCmd      `cmd:"" help:"Remove an installed plugin."`
+	Rm      PluginRmCmd      `cmd:"" help:"Remove an installed plugin and its data."`
+	Ingest  PluginIngestCmd  `cmd:"" help:"Run data ingestion for an installed plugin."`
 }
 
-// PluginInstallCmd installs a plugin binary to ~/.cartograph/plugins/<name>.
+// --- plugin install ---
+
+// PluginInstallCmd installs a plugin binary and runs initial ingestion.
 type PluginInstallCmd struct {
 	Path     string `arg:"" help:"Path to the plugin binary."`
 	Name     string `help:"Override plugin name (default: binary filename)." short:"n"`
 	Checksum string `help:"Expected SHA-256 checksum (sha256:<hex>)." short:"c"`
+	NoIngest bool   `help:"Skip automatic ingestion after install." name:"no-ingest"`
 }
 
 func (c *PluginInstallCmd) Run(_ *CLI) error {
@@ -51,12 +60,18 @@ func (c *PluginInstallCmd) Run(_ *CLI) error {
 		name = filepath.Base(src)
 	}
 
-	pluginsDir := PluginsDir()
-	if err := os.MkdirAll(pluginsDir, 0o750); err != nil {
-		return fmt.Errorf("plugin install: create plugins dir: %w", err)
+	binDir := PluginBinDir()
+	if err := os.MkdirAll(binDir, 0o750); err != nil {
+		return fmt.Errorf("plugin install: create bin dir: %w", err)
 	}
 
-	dst := filepath.Join(pluginsDir, name)
+	// Create per-plugin data directory.
+	dataDir := PluginDataDir(name)
+	if err := os.MkdirAll(dataDir, 0o750); err != nil {
+		return fmt.Errorf("plugin install: create data dir: %w", err)
+	}
+
+	dst := filepath.Join(binDir, name)
 
 	sp := newSpinner("Installing plugin...")
 	sp.Start()
@@ -78,15 +93,28 @@ func (c *PluginInstallCmd) Run(_ *CLI) error {
 		fmt.Printf("  Checksum: sha256:%s\n", hash)
 	}
 
+	// Auto-ingest unless --no-ingest.
+	if !c.NoIngest {
+		fmt.Println()
+		pc := resolvePluginConfig(name)
+		if err := runIngest(name, name, pc); err != nil {
+			fmt.Printf("  Warning: initial ingestion failed: %v\n", err)
+			fmt.Println("  You can retry with: cartograph plugin ingest", name)
+			// Don't fail the install — the binary is already installed.
+		}
+	}
+
 	return nil
 }
+
+// --- plugin list ---
 
 // PluginListCmd lists all installed plugins.
 type PluginListCmd struct{}
 
 func (c *PluginListCmd) Run(_ *CLI) error {
-	pluginsDir := PluginsDir()
-	entries, err := os.ReadDir(pluginsDir)
+	binDir := PluginBinDir()
+	entries, err := os.ReadDir(binDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			fmt.Println("No plugins installed.")
@@ -114,7 +142,7 @@ func (c *PluginListCmd) Run(_ *CLI) error {
 	rows := make([][]string, 0, len(plugins))
 
 	for _, e := range plugins {
-		binPath := filepath.Join(pluginsDir, e.Name())
+		binPath := filepath.Join(binDir, e.Name())
 		name, version, resources := probePluginInfo(binPath)
 
 		resStr := "-"
@@ -129,34 +157,187 @@ func (c *PluginListCmd) Run(_ *CLI) error {
 	return nil
 }
 
-// PluginRmCmd removes an installed plugin binary.
+// --- plugin rm ---
+
+// PluginRmCmd removes an installed plugin binary and its data.
 type PluginRmCmd struct {
 	Name string `arg:"" help:"Plugin name to remove."`
 }
 
 func (c *PluginRmCmd) Run(_ *CLI) error {
-	pluginsDir := PluginsDir()
-	binPath := filepath.Join(pluginsDir, c.Name)
+	binDir := PluginBinDir()
+	binPath := filepath.Join(binDir, c.Name)
 
 	if _, err := os.Stat(binPath); os.IsNotExist(err) {
-		fmt.Printf("Plugin %q not found in %s\n", c.Name, pluginsDir)
+		fmt.Printf("Plugin %q not found in %s\n", c.Name, binDir)
 		return nil
 	}
 
-	// Warn if the plugin is referenced in sources.toml.
+	// Warn if the plugin is referenced in config.toml.
 	warnIfReferenced(c.Name)
 
 	if err := os.Remove(binPath); err != nil {
 		return fmt.Errorf("plugin rm: %w", err)
 	}
 
+	// Remove per-plugin data directory.
+	dataDir := PluginDataDir(c.Name)
+	if err := os.RemoveAll(dataDir); err != nil {
+		fmt.Printf("  Warning: failed to remove data directory %s: %v\n", dataDir, err)
+	}
+
 	fmt.Printf("Removed plugin %q\n", c.Name)
 	return nil
 }
 
-// PluginsDir returns the directory where plugins are installed.
-func PluginsDir() string {
-	return filepath.Join(DefaultDataDir(), "plugins")
+// --- plugin ingest ---
+
+// PluginIngestCmd runs data ingestion for an installed plugin. Config.toml
+// is optional — if absent, the plugin runs with defaults.
+type PluginIngestCmd struct {
+	Name          string   `arg:"" help:"Plugin name (matches installed binary)."`
+	Config        string   `help:"Path to config.toml." short:"c" type:"existingfile"`
+	ResourceTypes []string `help:"Limit ingestion to these resource types." short:"t" sep:","`
+	Concurrency   int      `help:"Maximum concurrent API calls (overrides config)." default:"0"`
+}
+
+func (c *PluginIngestCmd) Run(_ *CLI) error {
+	pc := resolvePluginConfig(c.Name)
+
+	// Apply CLI overrides.
+	if len(c.ResourceTypes) > 0 {
+		if pc.Extra == nil {
+			pc.Extra = make(map[string]any)
+		}
+		pc.Extra["_cli_resource_types"] = c.ResourceTypes
+	}
+
+	return runIngest(c.Name, c.Name, pc)
+}
+
+// --- Shared helpers ---
+
+// PluginBinDir returns the directory where plugin binaries are installed.
+func PluginBinDir() string {
+	return filepath.Join(DefaultDataDir(), "plugins", "bin")
+}
+
+// PluginDataDir returns the per-plugin data directory for the given plugin name.
+func PluginDataDir(name string) string {
+	return filepath.Join(DefaultDataDir(), "plugins", "data", name)
+}
+
+// resolvePluginBinary looks for a plugin binary in the plugins bin directory.
+// Returns the full path if found, empty string otherwise.
+func resolvePluginBinary(name string) string {
+	binPath := filepath.Join(PluginBinDir(), name)
+	if _, err := os.Stat(binPath); err == nil {
+		return binPath
+	}
+	return ""
+}
+
+// resolvePluginConfig loads config.toml and looks up the plugin. If the
+// config file doesn't exist or the plugin isn't in it, returns an empty
+// PluginConfig (the plugin runs with its own defaults).
+func resolvePluginConfig(name string) cloudgraph.PluginConfig {
+	configPath := filepath.Join(DefaultDataDir(), "config.toml")
+	cfg, err := cloudgraph.LoadConfig(configPath)
+	if err == nil {
+		if pc, ok := cfg.Plugins[name]; ok {
+			return pc
+		}
+	}
+	return cloudgraph.PluginConfig{}
+}
+
+// runIngest runs the full ingestion lifecycle for an installed plugin.
+// pluginName is the binary name; connectionName is the config key (often the same).
+func runIngest(pluginName, connectionName string, pc cloudgraph.PluginConfig) error {
+	// Resolve binary name: Bin override or use plugin name.
+	binName := pc.Bin
+	if binName == "" {
+		binName = pluginName
+	}
+	binPath := resolvePluginBinary(binName)
+	if binPath == "" {
+		return fmt.Errorf("plugin %q not found in %s", binName, PluginBinDir())
+	}
+
+	fmt.Printf("Ingesting %q (plugin: %s)\n", connectionName, binName)
+
+	g := lpg.NewGraph()
+	builder := datasource.NewLPGGraphBuilder(g, datasource.LPGGraphBuilderOptions{
+		Transactional: true,
+	})
+
+	logger := func(name string, level string, msg string) {
+		fmt.Printf("  [%s] %s: %s\n", name, level, msg)
+	}
+	stderrFn := func(name string, line string) {
+		fmt.Fprintf(os.Stderr, "  [%s/stderr] %s\n", name, line)
+	}
+
+	ds := &plugin.PluginDataSource{
+		BinaryPath:     binPath,
+		PluginConfig:   pc,
+		ConnectionName: connectionName,
+		Logger:         logger,
+		Stderr:         stderrFn,
+	}
+
+	opts := datasource.IngestOptions{}
+	if pc.CacheTTL.Duration > 0 {
+		opts.CacheTTL = pc.CacheTTL.Duration
+	}
+	if pc.Concurrency > 0 {
+		opts.Concurrency = pc.Concurrency
+	}
+
+	sp := newSpinner("Running ingestion...")
+	sp.Start()
+	start := time.Now()
+
+	ctx := context.Background()
+	if err := ds.Ingest(ctx, builder, opts); err != nil {
+		sp.StopWithFailure("Ingestion failed")
+		return fmt.Errorf("ingest: %w", err)
+	}
+
+	nodes, edges := builder.Commit()
+	duration := time.Since(start)
+
+	sp.StopWithSuccess(fmt.Sprintf("Ingestion complete (%s)", duration.Round(time.Millisecond)))
+	fmt.Printf("  Graph: %d nodes, %d edges\n", nodes, edges)
+
+	if nodes > 0 {
+		labelCounts := make(map[string]int)
+		for iter := g.GetNodes(); iter.Next(); {
+			n := iter.Node()
+			for _, l := range n.GetLabels().Slice() {
+				labelCounts[l]++
+			}
+		}
+		fmt.Println("  Labels:")
+		for label, count := range labelCounts {
+			fmt.Printf("    %s: %d\n", label, count)
+		}
+	}
+
+	if edges > 0 {
+		edgeCounts := make(map[string]int)
+		for iter := g.GetEdges(); iter.Next(); {
+			e := iter.Edge()
+			edgeCounts[e.GetLabel()]++
+		}
+		fmt.Println("  Edge types:")
+		for edgeType, count := range edgeCounts {
+			fmt.Printf("    %s: %d\n", edgeType, count)
+		}
+	}
+
+	fmt.Printf("Done in %s.\n", time.Since(start).Round(time.Millisecond))
+	return nil
 }
 
 // copyFile copies src to dst, creating or truncating dst.
@@ -205,8 +386,8 @@ func hashPluginFile(path string) (string, error) {
 func probePluginInfo(binPath string) (name, version string, resources []string) {
 	ds := &plugin.PluginDataSource{
 		BinaryPath: binPath,
-		SourceConfig: cloudgraph.SourceConfig{
-			Type: filepath.Base(binPath),
+		PluginConfig: cloudgraph.PluginConfig{
+			Bin: filepath.Base(binPath),
 		},
 	}
 
@@ -228,26 +409,26 @@ func probePluginInfo(binPath string) (name, version string, resources []string) 
 }
 
 // warnIfReferenced checks if a plugin is referenced in the default
-// sources.toml and prints a warning if so.
+// config.toml and prints a warning if so.
 func warnIfReferenced(pluginName string) {
-	configPath := filepath.Join(DefaultDataDir(), "sources.toml")
+	configPath := filepath.Join(DefaultDataDir(), "config.toml")
 	cfg, err := cloudgraph.LoadConfig(configPath)
 	if err != nil {
 		return // No config or can't read — skip warning.
 	}
 
 	var refs []string
-	for connName, sc := range cfg.Sources {
-		p := sc.Plugin
-		if p == "" {
-			p = sc.Type
+	for connName, pc := range cfg.Plugins {
+		bin := pc.Bin
+		if bin == "" {
+			bin = connName
 		}
-		if p == pluginName {
+		if bin == pluginName {
 			refs = append(refs, connName)
 		}
 	}
 
 	if len(refs) > 0 {
-		fmt.Printf("  Warning: plugin %q is referenced by source(s): %s\n", pluginName, strings.Join(refs, ", "))
+		fmt.Printf("  Warning: plugin %q is referenced by connection(s): %s\n", pluginName, strings.Join(refs, ", "))
 	}
 }

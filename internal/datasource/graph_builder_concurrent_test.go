@@ -252,7 +252,7 @@ func BenchmarkLPGGraphBuilder_AddNode(b *testing.B) {
 	props := map[string]any{"name": "bench-node"}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := range b.N {
 		builder.AddNode("BenchNode", fmt.Sprintf("bench:%d", i), props)
 	}
 }

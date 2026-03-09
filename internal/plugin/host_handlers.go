@@ -19,7 +19,7 @@ import (
 // HTTP proxying, graph emission, and logging.
 type HostHandler struct {
 	// Config is the key-value config for this connection (resolved from
-	// sources.toml Extra fields). Keys ending in "_env" have already been
+	// config.toml Extra fields). Keys ending in "_env" have already been
 	// resolved to their environment variable values.
 	Config map[string]any
 

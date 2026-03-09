@@ -19,10 +19,10 @@ type PluginDataSource struct {
 	// BinaryPath is the path to the plugin binary.
 	BinaryPath string
 
-	// SourceConfig is the connection configuration from sources.toml.
-	SourceConfig cloudgraph.SourceConfig
+	// PluginConfig is the connection configuration from config.toml.
+	PluginConfig cloudgraph.PluginConfig
 
-	// ConnectionName is the name of this connection in sources.toml.
+	// ConnectionName is the name of this connection in config.toml.
 	ConnectionName string
 
 	// Limits constrains resource usage during ingestion.
@@ -67,7 +67,7 @@ func (s *PluginDataSource) Info() datasource.DataSourceInfo {
 	if err != nil {
 		// Return minimal info on probe failure.
 		return datasource.DataSourceInfo{
-			Name:        s.SourceConfig.Type,
+			Name:        s.PluginConfig.Bin,
 			Description: fmt.Sprintf("plugin probe failed: %v", err),
 		}
 	}
@@ -81,7 +81,7 @@ func (s *PluginDataSource) Info() datasource.DataSourceInfo {
 }
 
 // Configure is a no-op — actual configuration happens during Ingest when
-// the plugin process is launched. The SourceConfig is already stored.
+// the plugin process is launched. The PluginConfig is already stored.
 func (s *PluginDataSource) Configure(_ map[string]any) error {
 	return nil
 }
@@ -115,16 +115,16 @@ func (s *PluginDataSource) ResourceTypes() []datasource.ResourceType {
 //  7. Close plugin
 func (s *PluginDataSource) Ingest(ctx context.Context, builder datasource.GraphBuilder, opts datasource.IngestOptions) error {
 	// Verify checksum if configured.
-	if s.SourceConfig.Checksum != "" {
-		if err := VerifyChecksum(s.BinaryPath, s.SourceConfig.Checksum); err != nil {
+	if s.PluginConfig.Checksum != "" {
+		if err := VerifyChecksum(s.BinaryPath, s.PluginConfig.Checksum); err != nil {
 			return fmt.Errorf("plugin %q: %w", s.ConnectionName, err)
 		}
 	}
 
 	// Apply timeout.
 	timeout := s.Limits.effectiveTimeout()
-	if s.SourceConfig.Timeout.Duration > 0 {
-		timeout = s.SourceConfig.Timeout.Duration
+	if s.PluginConfig.Timeout.Duration > 0 {
+		timeout = s.PluginConfig.Timeout.Duration
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -133,11 +133,11 @@ func (s *PluginDataSource) Ingest(ctx context.Context, builder datasource.GraphB
 	counter := newEmissionCounter(s.Limits)
 
 	// Apply config-level limits if set.
-	if s.SourceConfig.MaxNodes > 0 {
-		counter.maxNodes = int64(s.SourceConfig.MaxNodes)
+	if s.PluginConfig.MaxNodes > 0 {
+		counter.maxNodes = int64(s.PluginConfig.MaxNodes)
 	}
-	if s.SourceConfig.MaxEdges > 0 {
-		counter.maxEdges = int64(s.SourceConfig.MaxEdges)
+	if s.PluginConfig.MaxEdges > 0 {
+		counter.maxEdges = int64(s.PluginConfig.MaxEdges)
 	}
 
 	// limitErr tracks if a limit was breached. We use a channel to signal
@@ -147,7 +147,7 @@ func (s *PluginDataSource) Ingest(ctx context.Context, builder datasource.GraphB
 
 	// Create the host handler.
 	handler := &HostHandler{
-		Config:     s.SourceConfig.Extra,
+		Config:     s.PluginConfig.Extra,
 		Builder:    builder,
 		Cache:      s.Cache,
 		HTTPClient: s.HTTPClient,

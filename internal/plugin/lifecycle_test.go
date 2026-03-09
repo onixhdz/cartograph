@@ -25,8 +25,8 @@ func TestPluginDataSource_Info(t *testing.T) {
 
 	ds := &plugin.PluginDataSource{
 		BinaryPath: bin,
-		SourceConfig: cloudgraph.SourceConfig{
-			Type: "testhost",
+		PluginConfig: cloudgraph.PluginConfig{
+			Bin: "testhost",
 		},
 	}
 
@@ -50,8 +50,8 @@ func TestPluginDataSource_ResourceTypes(t *testing.T) {
 
 	ds := &plugin.PluginDataSource{
 		BinaryPath: bin,
-		SourceConfig: cloudgraph.SourceConfig{
-			Type: "testhost",
+		PluginConfig: cloudgraph.PluginConfig{
+			Bin: "testhost",
 		},
 	}
 
@@ -74,8 +74,8 @@ func TestPluginDataSource_Ingest_Success(t *testing.T) {
 	ds := &plugin.PluginDataSource{
 		BinaryPath:     bin,
 		ConnectionName: "test_conn",
-		SourceConfig: cloudgraph.SourceConfig{
-			Type: "testhost",
+		PluginConfig: cloudgraph.PluginConfig{
+			Bin: "testhost",
 			Extra: map[string]any{
 				"token": "test-token-123",
 			},
@@ -131,8 +131,8 @@ func TestPluginDataSource_Ingest_ChecksumVerification(t *testing.T) {
 		ds := &plugin.PluginDataSource{
 			BinaryPath:     bin,
 			ConnectionName: "test",
-			SourceConfig: cloudgraph.SourceConfig{
-				Type:     "testhost",
+			PluginConfig: cloudgraph.PluginConfig{
+				Bin:      "testhost",
 				Checksum: correctChecksum,
 				Extra:    map[string]any{"token": "tok"},
 			},
@@ -152,8 +152,8 @@ func TestPluginDataSource_Ingest_ChecksumVerification(t *testing.T) {
 		ds := &plugin.PluginDataSource{
 			BinaryPath:     bin,
 			ConnectionName: "test",
-			SourceConfig: cloudgraph.SourceConfig{
-				Type:     "testhost",
+			PluginConfig: cloudgraph.PluginConfig{
+				Bin:      "testhost",
 				Checksum: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
 				Extra:    map[string]any{"token": "tok"},
 			},
@@ -256,8 +256,8 @@ func TestPluginDataSource_NodeLimit(t *testing.T) {
 	ds := &plugin.PluginDataSource{
 		BinaryPath:     bin,
 		ConnectionName: "test",
-		SourceConfig: cloudgraph.SourceConfig{
-			Type:  "testhost",
+		PluginConfig: cloudgraph.PluginConfig{
+			Bin:   "testhost",
 			Extra: map[string]any{"token": "tok"},
 		},
 		Limits: plugin.Limits{
@@ -289,8 +289,8 @@ func TestPluginDataSource_EdgeLimit(t *testing.T) {
 	ds := &plugin.PluginDataSource{
 		BinaryPath:     bin,
 		ConnectionName: "test",
-		SourceConfig: cloudgraph.SourceConfig{
-			Type:  "testhost",
+		PluginConfig: cloudgraph.PluginConfig{
+			Bin:   "testhost",
 			Extra: map[string]any{"token": "tok"},
 		},
 		Limits: plugin.Limits{
@@ -359,8 +359,8 @@ func TestSDKPlugin_Info(t *testing.T) {
 
 	ds := &plugin.PluginDataSource{
 		BinaryPath: bin,
-		SourceConfig: cloudgraph.SourceConfig{
-			Type: "sdktest",
+		PluginConfig: cloudgraph.PluginConfig{
+			Bin: "sdktest",
 		},
 	}
 
@@ -378,8 +378,8 @@ func TestSDKPlugin_ResourceTypes(t *testing.T) {
 
 	ds := &plugin.PluginDataSource{
 		BinaryPath: bin,
-		SourceConfig: cloudgraph.SourceConfig{
-			Type: "sdktest",
+		PluginConfig: cloudgraph.PluginConfig{
+			Bin: "sdktest",
 		},
 	}
 
@@ -405,8 +405,8 @@ func TestSDKPlugin_Ingest(t *testing.T) {
 	ds := &plugin.PluginDataSource{
 		BinaryPath:     bin,
 		ConnectionName: "sdk_test_conn",
-		SourceConfig: cloudgraph.SourceConfig{
-			Type:  "sdktest",
+		PluginConfig: cloudgraph.PluginConfig{
+			Bin:   "sdktest",
 			Extra: map[string]any{"token": "sdk-test-token"}, //nolint:gosec // G101: test credentials
 		},
 		Limits: plugin.Limits{

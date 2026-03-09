@@ -6,9 +6,8 @@ import (
 
 func TestParseConfigBasic(t *testing.T) {
 	toml := `
-[sources.github_acme]
-type = "github"
-plugin = "github"
+[plugin.github_acme]
+bin = "github"
 org = "acme-corp"
 cache_ttl = "5m"
 concurrency = 10
@@ -18,49 +17,46 @@ concurrency = 10
 		t.Fatal(err)
 	}
 
-	if len(cfg.Sources) != 1 {
-		t.Fatalf("got %d sources, want 1", len(cfg.Sources))
+	if len(cfg.Plugins) != 1 {
+		t.Fatalf("got %d plugins, want 1", len(cfg.Plugins))
 	}
 
-	sc := cfg.Sources["github_acme"]
-	if sc.Type != "github" {
-		t.Errorf("Type = %q, want github", sc.Type)
+	pc := cfg.Plugins["github_acme"]
+	if pc.Bin != "github" {
+		t.Errorf("Bin = %q, want github", pc.Bin)
 	}
-	if sc.Plugin != "github" {
-		t.Errorf("Plugin = %q, want github", sc.Plugin)
+	if pc.Concurrency != 10 {
+		t.Errorf("Concurrency = %d, want 10", pc.Concurrency)
 	}
-	if sc.Concurrency != 10 {
-		t.Errorf("Concurrency = %d, want 10", sc.Concurrency)
+	if pc.CacheTTL.Minutes() != 5 {
+		t.Errorf("CacheTTL = %v, want 5m", pc.CacheTTL)
 	}
-	if sc.CacheTTL.Minutes() != 5 {
-		t.Errorf("CacheTTL = %v, want 5m", sc.CacheTTL)
-	}
-	if sc.Extra["org"] != "acme-corp" {
-		t.Errorf("Extra[org] = %v, want acme-corp", sc.Extra["org"])
+	if pc.Extra["org"] != "acme-corp" {
+		t.Errorf("Extra[org] = %v, want acme-corp", pc.Extra["org"])
 	}
 }
 
-func TestParseConfigMultipleSources(t *testing.T) {
+func TestParseConfigMultiplePlugins(t *testing.T) {
 	toml := `
-[sources.aws_prod]
-type = "aws"
+[plugin.aws_prod]
+bin = "aws"
 timeout = "5m"
 max_nodes = 100000
 max_edges = 500000
 
-[sources.gcp_dev]
-type = "gcp"
+[plugin.gcp_dev]
+bin = "gcp"
 concurrency = 5
 `
 	cfg, err := ParseConfig([]byte(toml))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Sources) != 2 {
-		t.Fatalf("got %d sources, want 2", len(cfg.Sources))
+	if len(cfg.Plugins) != 2 {
+		t.Fatalf("got %d plugins, want 2", len(cfg.Plugins))
 	}
 
-	aws := cfg.Sources["aws_prod"]
+	aws := cfg.Plugins["aws_prod"]
 	if aws.MaxNodes != 100000 {
 		t.Errorf("MaxNodes = %d, want 100000", aws.MaxNodes)
 	}
@@ -68,7 +64,7 @@ concurrency = 5
 		t.Errorf("Timeout = %v, want 5m", aws.Timeout)
 	}
 
-	gcp := cfg.Sources["gcp_dev"]
+	gcp := cfg.Plugins["gcp_dev"]
 	if gcp.Concurrency != 5 {
 		t.Errorf("Concurrency = %d, want 5", gcp.Concurrency)
 	}
@@ -78,8 +74,7 @@ func TestParseConfigEnvResolution(t *testing.T) {
 	t.Setenv("TEST_GITHUB_TOKEN", "ghp_secret123")
 
 	toml := `
-[sources.github]
-type = "github"
+[plugin.github]
 token_env = "TEST_GITHUB_TOKEN"
 `
 	cfg, err := ParseConfig([]byte(toml))
@@ -87,20 +82,19 @@ token_env = "TEST_GITHUB_TOKEN"
 		t.Fatal(err)
 	}
 
-	sc := cfg.Sources["github"]
-	if sc.Extra["token"] != "ghp_secret123" {
-		t.Errorf("token = %v, want ghp_secret123", sc.Extra["token"])
+	pc := cfg.Plugins["github"]
+	if pc.Extra["token"] != "ghp_secret123" {
+		t.Errorf("token = %v, want ghp_secret123", pc.Extra["token"])
 	}
 	// _env key should be removed.
-	if _, ok := sc.Extra["token_env"]; ok {
+	if _, ok := pc.Extra["token_env"]; ok {
 		t.Error("token_env key should be removed after resolution")
 	}
 }
 
 func TestParseConfigEnvMissing(t *testing.T) {
 	toml := `
-[sources.github]
-type = "github"
+[plugin.github]
 token_env = "NONEXISTENT_VAR_12345"
 `
 	_, err := ParseConfig([]byte(toml))
@@ -116,39 +110,28 @@ func TestParseConfigInvalidTOML(t *testing.T) {
 	}
 }
 
-func TestValidateNoSources(t *testing.T) {
-	cfg := &Config{Sources: map[string]SourceConfig{}}
-	if err := cfg.Validate(); err == nil {
-		t.Error("expected error for empty sources")
+func TestValidateEmptyPlugins(t *testing.T) {
+	cfg := &Config{Plugins: map[string]PluginConfig{}}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("empty plugins should be valid (config is optional): %v", err)
 	}
 }
 
-func TestValidateMissingType(t *testing.T) {
+func TestValidateAggregatorSkipsBin(t *testing.T) {
 	cfg := &Config{
-		Sources: map[string]SourceConfig{
-			"bad": {},
-		},
-	}
-	if err := cfg.Validate(); err == nil {
-		t.Error("expected error for missing type")
-	}
-}
-
-func TestValidateAggregatorSkipsType(t *testing.T) {
-	cfg := &Config{
-		Sources: map[string]SourceConfig{
+		Plugins: map[string]PluginConfig{
 			"all_aws": {Pattern: "aws_*"},
 		},
 	}
 	if err := cfg.Validate(); err != nil {
-		t.Errorf("aggregator should not require type: %v", err)
+		t.Errorf("aggregator should not require bin: %v", err)
 	}
 }
 
 func TestValidateValid(t *testing.T) {
 	cfg := &Config{
-		Sources: map[string]SourceConfig{
-			"github": {Type: "github"},
+		Plugins: map[string]PluginConfig{
+			"github": {Bin: "github"},
 		},
 	}
 	if err := cfg.Validate(); err != nil {
@@ -156,18 +139,30 @@ func TestValidateValid(t *testing.T) {
 	}
 }
 
+func TestValidateNoBin(t *testing.T) {
+	// A plugin with no bin is valid — the section key name is used as binary name.
+	cfg := &Config{
+		Plugins: map[string]PluginConfig{
+			"capec": {},
+		},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("plugin with no bin should be valid (section key used): %v", err)
+	}
+}
+
 func TestParseConfigChecksum(t *testing.T) {
 	toml := `
-[sources.secure]
-type = "aws"
+[plugin.secure]
+bin = "aws"
 checksum = "sha256:a1b2c3d4"
 `
 	cfg, err := ParseConfig([]byte(toml))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Sources["secure"].Checksum != "sha256:a1b2c3d4" {
-		t.Errorf("Checksum = %q", cfg.Sources["secure"].Checksum)
+	if cfg.Plugins["secure"].Checksum != "sha256:a1b2c3d4" {
+		t.Errorf("Checksum = %q", cfg.Plugins["secure"].Checksum)
 	}
 }
 

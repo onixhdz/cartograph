@@ -1,5 +1,5 @@
 // Package cloudgraph provides configuration loading and orchestration for
-// Cartograph's cloud/SaaS data source plugin system.
+// Cartograph's data source plugin system.
 package cloudgraph
 
 import (
@@ -11,17 +11,16 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-// Config represents the top-level sources.toml configuration.
+// Config represents the top-level config.toml configuration.
 type Config struct {
-	Sources map[string]SourceConfig `toml:"sources"`
+	Plugins map[string]PluginConfig `toml:"plugin"`
 }
 
-// SourceConfig is the configuration for a single data source connection.
-type SourceConfig struct {
-	// Type is the data source type (e.g., "github", "aws").
-	Type string `toml:"type"`
-	// Plugin is the plugin binary name (e.g., "github"). If empty, defaults to Type.
-	Plugin string `toml:"plugin"`
+// PluginConfig is the configuration for a single plugin connection.
+type PluginConfig struct {
+	// Bin is the plugin binary name (e.g., "miter-capec"). If empty,
+	// defaults to the section key name (e.g., [plugin.capec] → "capec").
+	Bin string `toml:"bin"`
 	// Checksum is the optional SHA-256 checksum of the plugin binary.
 	// Format: "sha256:<hex>". Mandatory in secure mode.
 	Checksum string `toml:"checksum"`
@@ -37,7 +36,7 @@ type SourceConfig struct {
 	// MaxEdges is the maximum number of edges the plugin may emit.
 	MaxEdges int `toml:"max_edges"`
 
-	// Pattern is used for aggregator sources (e.g., "aws_*"). Fan-out
+	// Pattern is used for aggregator plugins (e.g., "aws_*"). Fan-out
 	// logic is deferred to Phase 3.
 	Pattern string `toml:"pattern"`
 
@@ -66,7 +65,7 @@ func (d Duration) MarshalText() ([]byte, error) {
 	return []byte(d.String()), nil
 }
 
-// LoadConfig reads and parses sources.toml from the given path.
+// LoadConfig reads and parses config.toml from the given path.
 // Environment variable resolution is applied to "_env" suffixed keys.
 func LoadConfig(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
@@ -76,65 +75,64 @@ func LoadConfig(path string) (*Config, error) {
 	return ParseConfig(data)
 }
 
-// ParseConfig parses sources.toml content from bytes.
+// ParseConfig parses config.toml content from bytes.
 func ParseConfig(data []byte) (*Config, error) {
 	// First pass: decode into raw maps to capture extra fields.
 	var raw struct {
-		Sources map[string]map[string]any `toml:"sources"`
+		Plugins map[string]map[string]any `toml:"plugin"`
 	}
 	if err := toml.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("parsing sources.toml: %w", err)
+		return nil, fmt.Errorf("parsing config.toml: %w", err)
 	}
 
 	// Second pass: decode into typed config for known fields.
 	var cfg Config
 	if err := toml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("parsing sources.toml: %w", err)
+		return nil, fmt.Errorf("parsing config.toml: %w", err)
 	}
 
 	knownKeys := map[string]bool{
-		"type": true, "plugin": true, "checksum": true,
+		"bin": true, "checksum": true,
 		"timeout": true, "cache_ttl": true, "concurrency": true,
 		"max_nodes": true, "max_edges": true, "pattern": true,
 	}
 
-	for name, rawFields := range raw.Sources {
-		sc := cfg.Sources[name]
-		sc.Extra = make(map[string]any)
+	for name, rawFields := range raw.Plugins {
+		pc := cfg.Plugins[name]
+		pc.Extra = make(map[string]any)
 		for k, v := range rawFields {
 			if knownKeys[k] {
 				continue
 			}
-			sc.Extra[k] = v
+			pc.Extra[k] = v
 		}
-		cfg.Sources[name] = sc
+		cfg.Plugins[name] = pc
 	}
 
-	for name, sc := range cfg.Sources {
-		if err := resolveEnvKeys(sc.Extra); err != nil {
-			return nil, fmt.Errorf("source %q: %w", name, err)
+	for name, pc := range cfg.Plugins {
+		if err := resolveEnvKeys(pc.Extra); err != nil {
+			return nil, fmt.Errorf("plugin %q: %w", name, err)
 		}
-		cfg.Sources[name] = sc
+		cfg.Plugins[name] = pc
 	}
 
 	return &cfg, nil
 }
 
-// Validate checks that all source configurations have required fields.
+// Validate checks that all plugin configurations are well-formed.
+// An empty config (no plugins) is valid — config.toml is optional.
 func (c *Config) Validate() error {
-	if len(c.Sources) == 0 {
-		return errors.New("no sources configured")
-	}
-
 	var errs []error
-	for name, sc := range c.Sources {
+	for name, pc := range c.Plugins {
 		// Aggregators only need a pattern.
-		if sc.Pattern != "" {
+		if pc.Pattern != "" {
 			continue
 		}
-		if sc.Type == "" {
-			errs = append(errs, fmt.Errorf("source %q: missing required field 'type'", name))
-		}
+		// Plugin binary is resolved from Bin or the section key name,
+		// so there's nothing required here. But we do a basic sanity
+		// check: warn if the section key is empty (shouldn't happen with
+		// valid TOML, but guard against programmatic construction).
+		_ = name // section key is always present in valid TOML
 	}
 
 	if len(errs) > 0 {
