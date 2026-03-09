@@ -176,6 +176,12 @@ func (s *Server) handleCypher(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Repo = repo
 
+	// Block write queries at the API layer before reaching any backend.
+	if IsWriteQuery(req.Query) {
+		writeError(w, ErrCodeQueryBlocked, ErrWriteQuery.Error())
+		return
+	}
+
 	backend, err := s.GetBackend(req.Repo)
 	if err != nil {
 		writeError(w, ErrCodeIncompatible, err.Error())

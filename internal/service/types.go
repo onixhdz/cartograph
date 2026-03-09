@@ -2,10 +2,54 @@
 // Transport: HTTP/JSON over a unix domain socket (POST /api/{method}).
 package service
 
-import "errors"
+import (
+	"errors"
+	"regexp"
+	"strings"
+)
 
 // ErrWriteQuery is returned when a Cypher query contains write keywords.
 var ErrWriteQuery = errors.New("write queries are not allowed")
+
+// cypherWriteRE matches Cypher write keywords that must be blocked.
+var cypherWriteRE = regexp.MustCompile(`(?i)\b(CREATE|DELETE|SET|MERGE|REMOVE|DROP|ALTER|COPY|DETACH)\b`)
+
+// IsWriteQuery reports whether a Cypher query contains write keywords.
+// String literals are stripped first so that values like {name: 'Copy'}
+// do not trigger false positives.
+func IsWriteQuery(q string) bool {
+	return cypherWriteRE.MatchString(stripCypherStringLiterals(strings.TrimSpace(q)))
+}
+
+// stripCypherStringLiterals removes content between matching single or double
+// quotes so keyword detection is not confused by Cypher string literal values.
+func stripCypherStringLiterals(q string) string {
+	var b strings.Builder
+	b.Grow(len(q))
+	i := 0
+	for i < len(q) {
+		ch := q[i]
+		if ch == '\'' || ch == '"' {
+			quote := ch
+			i++
+			for i < len(q) {
+				if q[i] == '\\' {
+					i += 2
+					continue
+				}
+				if q[i] == quote {
+					i++
+					break
+				}
+				i++
+			}
+		} else {
+			b.WriteByte(ch)
+			i++
+		}
+	}
+	return b.String()
+}
 
 const (
 	// APIPrefix is the base path for all API endpoints.
