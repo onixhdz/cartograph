@@ -268,3 +268,84 @@ GOOS=darwin GOARCH=arm64 go build -o my-source-darwin-arm64 .
   through the structured log.
 - **Keep IDs deterministic.** Same input should produce the same node IDs.
   This enables deduplication across runs.
+
+## Testing
+
+The `plugin/plugintest` package lets you test plugins without running
+Cartograph. Import it in your plugin's test files:
+
+```sh
+go get github.com/realxen/cartograph/plugin/plugintest
+```
+
+### Unit tests (mock host)
+
+Test your plugin's logic directly with a mock host that records emissions:
+
+```go
+func TestMyPlugin_Ingest(t *testing.T) {
+    h := plugintest.NewHost(plugintest.Config{
+        "api_key": "test-key",
+    })
+
+    // Mock HTTP responses if your plugin uses host.HTTPRequest.
+    mock := plugintest.MockHTTP([]plugintest.Route{
+        {Method: "GET", URL: "https://api.example.com/widgets", Status: 200, Body: `[{"id":1}]`},
+    })
+    h.SetHTTPHandler(mock.Handler())
+
+    p := &myPlugin{}
+
+    if err := p.Configure(context.Background(), h, "test_conn"); err != nil {
+        t.Fatal(err)
+    }
+    result, err := p.Ingest(context.Background(), h, plugin.IngestOptions{})
+    if err != nil {
+        t.Fatal(err)
+    }
+
+    // Assert on emissions.
+    h.AssertNodeCount(t, 1)
+    h.AssertNodeExists(t, "my:widget:1", "MyWidget")
+
+    // Assert on HTTP requests made.
+    if mock.RequestCount() != 1 {
+        t.Errorf("expected 1 HTTP request, got %d", mock.RequestCount())
+    }
+}
+```
+
+### Integration tests (binary harness)
+
+Test the compiled binary end-to-end — validates the full protocol path
+(handshake, JSON-RPC serialization, lifecycle):
+
+```go
+func TestPluginBinary(t *testing.T) {
+    result := plugintest.RunBinary(t, "./my-source", plugintest.RunBinaryOptions{
+        Config: plugintest.Config{
+            "api_key": "test-key",
+        },
+    })
+    result.AssertNoErrors(t)
+    result.AssertNodeCount(t, 5)
+    result.AssertEdgeExists(t, "my:owner:alice", "my:widget:1", "OWNS")
+}
+```
+
+### Available assertions
+
+**On `plugintest.Host`** (unit tests):
+
+| Method | What it checks |
+|--------|---------------|
+| `AssertNodeCount(t, n)` | Exactly n nodes emitted |
+| `AssertEdgeCount(t, n)` | Exactly n edges emitted |
+| `AssertNodeExists(t, id, label)` | A node with this ID and label exists |
+| `AssertEdgeExists(t, from, to, rel)` | An edge from→to with this rel type exists |
+| `AssertLogContains(t, level, substr)` | A log at this level contains substr |
+
+**On `plugintest.BinaryResult`** (integration tests):
+
+Same assertion methods plus `AssertNoErrors(t)` to verify the lifecycle
+completed without errors.
