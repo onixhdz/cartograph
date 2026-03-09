@@ -61,6 +61,8 @@ linters:
         source: "^//go:"
       - linters: [dupword]
         path: "_test\\.go$"
+      - linters: [nolintlint]
+        text: "contextcheck"
 
   settings:
     gosec:

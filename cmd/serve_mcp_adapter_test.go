@@ -76,6 +76,7 @@ func TestServerMCPClient_Query(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("expected non-nil query result")
+		return
 	}
 	// The sample graph has a main function and main-flow process —
 	// we should get at least one match.
@@ -97,6 +98,7 @@ func TestServerMCPClient_Context(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("expected non-nil context result")
+		return
 	}
 	if result.Symbol.Name == "" {
 		t.Error("expected non-empty symbol name in context result")
@@ -114,6 +116,7 @@ func TestServerMCPClient_Schema(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("expected non-nil schema result")
+		return
 	}
 	if result.TotalNodes == 0 {
 		t.Error("expected non-zero total nodes in schema")

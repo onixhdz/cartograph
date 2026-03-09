@@ -385,8 +385,10 @@ func (c *ServeLogsCmd) Run(cli *CLI) error {
 		return nil
 	}
 
-	_, err = os.Stdout.Write(data)
-	return err
+	if _, err = os.Stdout.Write(data); err != nil {
+		return fmt.Errorf("write output: %w", err)
+	}
+	return nil
 }
 
 // follow streams the log file to stdout, printing new lines as they
@@ -437,7 +439,7 @@ func (c *ServeLogsCmd) follow(logPath string) error {
 
 		n, readErr := f.Read(buf)
 		if n > 0 {
-			os.Stdout.Write(buf[:n])
+			_, _ = os.Stdout.Write(buf[:n])
 		}
 		if readErr != nil {
 			// EOF — poll for more data.
