@@ -3,9 +3,11 @@ package extractors
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	ts "github.com/odvcencio/gotreesitter"
+	"github.com/odvcencio/gotreesitter/grammars"
 
 	"github.com/realxen/cartograph/internal/graph"
 )
@@ -1916,4 +1918,186 @@ trait StatsEngine {
 	if len(result.Symbols) < 6 {
 		t.Errorf("expected at least 6 symbols (traits, classes, objects), got %d", len(result.Symbols))
 	}
+}
+
+// TestExtractFile_Scala_RealFiles reads actual Scala files from the gatling
+// clone on disk and extracts them, diagnosing why some produce zero symbols.
+func TestExtractFile_Scala_RealFiles(t *testing.T) {
+	baseDir := os.Getenv("HOME") + "/.local/share/cartograph/gatling/gatling/318d9eebe3c1f4b6/src"
+
+	files := []struct {
+		path     string
+		expected []string
+	}{
+		{
+			path:     "gatling-core/src/main/scala/io/gatling/core/action/Action.scala",
+			expected: []string{"Action", "ChainableAction", "ExitableAction", "RequestAction"},
+		},
+		{
+			path:     "gatling-core/src/main/scala/io/gatling/core/action/Pause.scala",
+			expected: []string{"Pause"},
+		},
+		{
+			path:     "gatling-core/src/main/scala/io/gatling/core/action/FeedActor.scala",
+			expected: []string{"FeedActor", "FeedMessage"},
+		},
+		{
+			path:     "gatling-core/src/main/scala/io/gatling/core/stats/StatsEngine.scala",
+			expected: []string{"StatsEngine"},
+		},
+		{
+			path:     "gatling-charts/src/main/scala/io/gatling/charts/stats/GeneralStats.scala",
+			expected: []string{"GeneralStats"},
+		},
+		{
+			path:     "gatling-app/src/main/scala/io/gatling/app/Gatling.scala",
+			expected: []string{"Gatling"},
+		},
+	}
+
+	for _, f := range files {
+		fullPath := baseDir + "/" + f.path
+		data, err := os.ReadFile(fullPath) //nolint:gosec // test-only: path from hardcoded test cases
+		if err != nil {
+			t.Skipf("skipping %s: %v (clone not available)", f.path, err)
+			continue
+		}
+
+		t.Run(f.path, func(t *testing.T) {
+			t.Logf("File size: %d bytes", len(data))
+
+			result, err := ExtractFile(f.path, data, "scala")
+			if err != nil {
+				t.Fatalf("ExtractFile FAILED: %v", err)
+			}
+
+			t.Logf("Symbols: %d, Imports: %d, Calls: %d, Heritage: %d",
+				len(result.Symbols), len(result.Imports), len(result.Calls), len(result.Heritage))
+			for _, sym := range result.Symbols {
+				t.Logf("  %s: %s (line %d)", sym.Label, sym.Name, sym.StartLine)
+			}
+
+			names := make(map[string]bool)
+			for _, sym := range result.Symbols {
+				names[sym.Name] = true
+			}
+
+			for _, exp := range f.expected {
+				if !names[exp] {
+					t.Errorf("MISSING symbol %q in %s", exp, f.path)
+				}
+			}
+		})
+	}
+}
+
+// TestExtractFile_Scala_BlockCommentBug verifies that the block comment bug
+// in the Scala tree-sitter grammar causes extraction failure.
+func TestExtractFile_Scala_BlockCommentBug(t *testing.T) {
+	// WITHOUT block comment — should work
+	srcNoComment := `package io.gatling.charts.stats
+
+final case class GeneralStats(min: Int, max: Int, count: Long, mean: Int)
+`
+	result, err := ExtractFile("/tmp/no_comment.scala", []byte(srcNoComment), "scala")
+	if err != nil {
+		t.Fatalf("without comment: %v", err)
+	}
+	t.Logf("Without comment: %d symbols", len(result.Symbols))
+	for _, sym := range result.Symbols {
+		t.Logf("  %s: %s", sym.Label, sym.Name)
+	}
+
+	// WITH block comment — reproduction of the bug
+	srcWithComment := `/*
+ * Copyright 2011-2026 GatlingCorp (https://gatling.io)
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ */
+
+package io.gatling.charts.stats
+
+final case class GeneralStats(min: Int, max: Int, count: Long, mean: Int)
+`
+	result2, err := ExtractFile("/tmp/with_comment.scala", []byte(srcWithComment), "scala")
+	if err != nil {
+		t.Fatalf("with comment: %v", err)
+	}
+	t.Logf("With comment: %d symbols", len(result2.Symbols))
+	for _, sym := range result2.Symbols {
+		t.Logf("  %s: %s", sym.Label, sym.Name)
+	}
+
+	if len(result.Symbols) > 0 && len(result2.Symbols) == 0 {
+		t.Error("BUG CONFIRMED: block comment causes Scala extraction to produce zero symbols")
+	}
+}
+
+// TestExtractFile_Scala_ASTDump is a diagnostic helper that dumps the raw
+// tree-sitter AST for a real Scala file. Useful for debugging grammar issues.
+func TestExtractFile_Scala_ASTDump(t *testing.T) {
+	baseDir := os.Getenv("HOME") + "/.local/share/cartograph/gatling/gatling/318d9eebe3c1f4b6/src"
+	filePath := baseDir + "/gatling-charts/src/main/scala/io/gatling/charts/stats/GeneralStats.scala"
+	data, err := os.ReadFile(filePath) //nolint:gosec // test-only: path from hardcoded constant
+	if err != nil {
+		t.Skipf("skipping: %v", err)
+	}
+
+	t.Logf("File content (%d bytes):\n%s", len(data), string(data))
+
+	entry := grammars.DetectLanguageByName("scala")
+	if entry == nil {
+		t.Fatal("scala grammar not found")
+	}
+	lang := entry.Language()
+	parser := ts.NewParser(lang)
+	tree, perr := parser.Parse(data)
+	if perr != nil {
+		t.Fatalf("parse error: %v", perr)
+	}
+
+	root := tree.RootNode()
+	t.Logf("Root node type: %s, children: %d, hasError: %v", root.Type(lang), root.ChildCount(), root.HasError())
+
+	var dumpNode func(node *ts.Node, depth int)
+	dumpNode = func(node *ts.Node, depth int) {
+		if depth > 4 || node == nil {
+			return
+		}
+		var indent strings.Builder
+		for range depth {
+			indent.WriteString("  ")
+		}
+		text := ""
+		if node.ChildCount() == 0 {
+			b := data[node.StartByte():node.EndByte()]
+			if len(b) > 50 {
+				b = b[:50]
+			}
+			text = fmt.Sprintf(" = %q", string(b))
+		}
+		fieldName := ""
+		if node.Parent() != nil {
+			for i := range node.Parent().ChildCount() {
+				if child := node.Parent().Child(i); child != nil && child.StartByte() == node.StartByte() && child.EndByte() == node.EndByte() {
+					fn := node.Parent().FieldNameForChild(i, lang)
+					if fn != "" {
+						fieldName = fmt.Sprintf(" [field:%s]", fn)
+					}
+					break
+				}
+			}
+		}
+		t.Logf("%s(%s%s%s) [%d:%d-%d:%d] err=%v",
+			indent.String(), node.Type(lang), fieldName, text,
+			node.StartPoint().Row, node.StartPoint().Column,
+			node.EndPoint().Row, node.EndPoint().Column,
+			node.IsError())
+		for i := range node.ChildCount() {
+			child := node.Child(i)
+			dumpNode(child, depth+1)
+		}
+	}
+	dumpNode(root, 0)
 }

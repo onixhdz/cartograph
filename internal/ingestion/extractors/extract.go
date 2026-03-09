@@ -115,6 +115,7 @@ type langCacheEntry struct {
 	queryPool      sync.Pool // pool of *ts.Query for concurrent use
 	queryStr       string
 	hasCustomQuery bool
+	preProcess     func([]byte) []byte // optional source transform before parsing
 }
 
 // langCache maps language names to pre-compiled parser pools and queries.
@@ -176,6 +177,7 @@ func (lc *langCache) get(language string) (*langCacheEntry, error) {
 		query:          query,
 		queryStr:       queryStr,
 		hasCustomQuery: hasCustomQuery,
+		preProcess:     LanguagePreProcess[language],
 	}
 	// queryPool provides per-goroutine *ts.Query instances. This avoids
 	// data races when multiple workers call Query.Execute concurrently —
@@ -226,6 +228,7 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 	var pool *ts.ParserPool
 	var hasCustomQuery bool
 	var entry *grammars.LangEntry
+	var preProcess func([]byte) []byte
 
 	var queryPoolEntry *langCacheEntry // set when using pooled queries
 
@@ -238,6 +241,7 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 		pool = ce.pool
 		hasCustomQuery = ce.hasCustomQuery
 		entry = ce.entry
+		preProcess = ce.preProcess
 
 		// Borrow a per-goroutine query from the pool to avoid data races
 		// when multiple workers call Query.Execute on the same *ts.Query.
@@ -257,6 +261,7 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 		if lang == nil {
 			return nil, fmt.Errorf("failed to load grammar for %s", language)
 		}
+		preProcess = LanguagePreProcess[language]
 		queryStr, ok := LanguageQueries[entry.Name]
 		if !ok {
 			queryStr, ok = LanguageQueries[language]
@@ -276,6 +281,12 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 	}
 
 	var tree *ts.Tree
+
+	// Apply registered source preprocessing (e.g., grammar bug workarounds).
+	if preProcess != nil {
+		source = preProcess(source)
+	}
+
 	if pool != nil {
 		var perr error
 		tree, perr = pool.Parse(source)
@@ -602,6 +613,70 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 	}
 
 	return result, nil
+}
+
+// stripBlockComments removes /* ... */ block comments from source code,
+// replacing them with equivalent whitespace to preserve line numbers and
+// byte offsets. This is a workaround for the Scala tree-sitter grammar
+// bug where block comments produce broken ASTs.
+func stripBlockComments(source []byte) []byte {
+	out := make([]byte, len(source))
+	copy(out, source)
+	i := 0
+	for i < len(out)-1 {
+		if out[i] == '/' && out[i+1] == '*' {
+			j := i + 2
+			for j < len(out)-1 {
+				if out[j] == '*' && out[j+1] == '/' {
+					j += 2
+					break
+				}
+				j++
+			}
+			// Blank out comment bytes, preserving newlines for line offsets.
+			for k := i; k < j && k < len(out); k++ {
+				if out[k] != '\n' {
+					out[k] = ' '
+				}
+			}
+			i = j
+		} else if out[i] == '/' && out[i+1] == '/' {
+			// Skip line comments to avoid false /* inside them.
+			for i < len(out) && out[i] != '\n' {
+				i++
+			}
+		} else if out[i] == '"' {
+			// Skip string literals to avoid false /* inside them.
+			i++
+			if i < len(out)-1 && out[i] == '"' && i+1 < len(out) && out[i+1] == '"' {
+				// Triple-quoted string
+				i += 2
+				for i < len(out)-2 {
+					if out[i] == '"' && out[i+1] == '"' && out[i+2] == '"' {
+						i += 3
+						break
+					}
+					i++
+				}
+			} else {
+				// Single-line string
+				for i < len(out) {
+					if out[i] == '\\' {
+						i += 2
+						continue
+					}
+					if out[i] == '"' || out[i] == '\n' {
+						i++
+						break
+					}
+					i++
+				}
+			}
+		} else {
+			i++
+		}
+	}
+	return out
 }
 
 // deduplicateSymbols removes duplicate symbols that occur when tree-sitter

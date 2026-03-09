@@ -16,6 +16,16 @@ func CanExtract(language string) bool {
 	return grammars.ResolveTagsQuery(*entry) != ""
 }
 
+// LanguagePreProcess maps language names to source-preprocessing functions
+// applied before tree-sitter parsing to work around grammar bugs. The
+// function must return a byte slice of the same length as the input
+// (replace problem bytes with whitespace to preserve line/column offsets).
+var LanguagePreProcess = map[string]func([]byte) []byte{
+	// Scala grammar bug: /* */ block comments break the AST, causing the
+	// parser to consume the entire file as comment character nodes.
+	"scala": stripBlockComments,
+}
+
 // LanguageQueries maps language names to tree-sitter S-expression queries.
 var LanguageQueries = map[string]string{
 	"go":         goQueries,
