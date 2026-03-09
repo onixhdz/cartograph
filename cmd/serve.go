@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -26,6 +27,7 @@ type ServeCmd struct {
 	Start  ServeStartCmd  `cmd:"" default:"1" help:"Start the service (default when no subcommand given)."`
 	Stop   ServeStopCmd   `cmd:"" help:"Stop a running background service."`
 	Status ServeStatusCmd `cmd:"" help:"Check whether the background service is running."`
+	Logs   ServeLogsCmd   `cmd:"" help:"Print the service log file to stdout."`
 }
 
 // ServeStartCmd starts a long-running HTTP service that holds in-memory
@@ -343,6 +345,105 @@ func (c *ServeStatusCmd) Run(cli *CLI) error {
 	}
 
 	return nil
+}
+
+// ServeLogsCmd prints the service log file to stdout. By default it
+// dumps the entire file. Use --tail N to show only the last N lines,
+// or --follow to continuously stream new lines as they are written.
+type ServeLogsCmd struct {
+	Tail   int  `help:"Show only the last N lines." short:"n" default:"0"`
+	Follow bool `help:"Follow the log file for new output (like tail -f)." short:"f"`
+}
+
+func (c *ServeLogsCmd) Run(cli *CLI) error {
+	logPath := DefaultLogPath()
+
+	if c.Follow {
+		return c.follow(logPath)
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("no log file found at %s", logPath)
+		}
+		return fmt.Errorf("read log: %w", err)
+	}
+	if len(data) == 0 {
+		fmt.Fprintln(os.Stderr, "Log file is empty.")
+		return nil
+	}
+
+	if c.Tail > 0 {
+		lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+		if c.Tail < len(lines) {
+			lines = lines[len(lines)-c.Tail:]
+		}
+		for _, l := range lines {
+			fmt.Println(l)
+		}
+		return nil
+	}
+
+	_, err = os.Stdout.Write(data)
+	return err
+}
+
+// follow streams the log file to stdout, printing new lines as they
+// are appended. It exits on SIGINT/SIGTERM.
+func (c *ServeLogsCmd) follow(logPath string) error {
+	f, err := os.Open(logPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("no log file found at %s", logPath)
+		}
+		return fmt.Errorf("open log: %w", err)
+	}
+	defer f.Close()
+
+	// If --tail is also set, seek to show the last N lines first.
+	if c.Tail > 0 {
+		data, err := os.ReadFile(logPath)
+		if err == nil && len(data) > 0 {
+			lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+			if c.Tail < len(lines) {
+				lines = lines[len(lines)-c.Tail:]
+			}
+			for _, l := range lines {
+				fmt.Println(l)
+			}
+		}
+		// Seek to end so follow picks up only new content.
+		if _, err := f.Seek(0, 2); err != nil {
+			return fmt.Errorf("seek: %w", err)
+		}
+	} else {
+		// Print existing content, then follow.
+		if _, err := io.Copy(os.Stdout, f); err != nil {
+			return fmt.Errorf("read log: %w", err)
+		}
+	}
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	buf := make([]byte, 4096)
+	for {
+		select {
+		case <-sigCh:
+			return nil
+		default:
+		}
+
+		n, readErr := f.Read(buf)
+		if n > 0 {
+			os.Stdout.Write(buf[:n])
+		}
+		if readErr != nil {
+			// EOF — poll for more data.
+			time.Sleep(200 * time.Millisecond)
+		}
+	}
 }
 
 // humanSize returns a human-readable size string.
