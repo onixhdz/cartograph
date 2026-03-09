@@ -1191,6 +1191,7 @@ func TestDetectProcesses_TestFlowPenalty(t *testing.T) {
 	}
 	if prodFlow == nil || testFlow == nil {
 		t.Fatal("expected both Leader-flow and TestConsul-flow")
+		return
 	}
 
 	// Test flow should have 10% of equivalent production flow importance.
@@ -1268,6 +1269,7 @@ func TestDetectProcesses_PackageDiversityBonus(t *testing.T) {
 	}
 	if planFlow == nil || cmdFlow == nil {
 		t.Fatal("expected both Plan-flow and Cmd-flow")
+		return
 	}
 
 	// Plan spans 3 packages (nomad, scheduler, state) → diversity bonus.

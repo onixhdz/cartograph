@@ -490,6 +490,7 @@ func TestQualifyNodeIDsPreventsCollision(t *testing.T) {
 	n2 := FindNodeByID(g2, "bbbb:file:src/main.go")
 	if n1 == nil || n2 == nil {
 		t.Fatal("expected both qualified nodes to exist")
+		return
 	}
 	if GetStringProp(n1, PropID) == GetStringProp(n2, PropID) {
 		t.Error("qualified IDs should be different across repos")
