@@ -72,7 +72,6 @@ func (b *Backend) Query(req service.QueryRequest) (*service.QueryResult, error) 
 			definitions = append(definitions, sm)
 		}
 		sortByScore(definitions)
-		// Deduplicate by name+filePath then cap per bare name.
 		definitions = deduplicateDefinitions(definitions)
 		definitions = capPerName(definitions)
 
@@ -89,7 +88,6 @@ func (b *Backend) Query(req service.QueryRequest) (*service.QueryResult, error) 
 			definitions = archDefs
 		}
 
-		// Truncate BM25 results to the requested limit.
 		if len(definitions) > limit {
 			definitions = definitions[:limit]
 		}
@@ -104,7 +102,6 @@ func (b *Backend) Query(req service.QueryRequest) (*service.QueryResult, error) 
 		definitions = append(definitions, extra...)
 	}
 
-	// Handle test/example files in the combined results.
 	var usageExamples []service.SymbolMatch
 	if req.IncludeTests {
 		// With --include-tests, partition tests into a separate section.
@@ -181,7 +178,6 @@ func (b *Backend) Query(req service.QueryRequest) (*service.QueryResult, error) 
 			positionBoost := 1.0 + 0.5/float64(stepNum+1)
 			pa.match.Relevance += weight * positionBoost
 
-			// Dedup processSymbols by name+filePath.
 			psKey := def.Name + "\x00" + def.FilePath
 			if !psDedup[psKey] {
 				psDedup[psKey] = true
@@ -238,7 +234,6 @@ func (b *Backend) Query(req service.QueryRequest) (*service.QueryResult, error) 
 		}
 		processSymbols = filtered
 	}
-	// Cap processSymbols per bare name as well.
 	processSymbols = capPerName(processSymbols)
 
 	// Normalize relevance with min-max + epsilon smoothing to spread scores.
@@ -279,7 +274,6 @@ func (b *Backend) Query(req service.QueryRequest) (*service.QueryResult, error) 
 			included[symKey{ps.Name, ps.FilePath}] = true
 		}
 
-		// Sort processes by relevance descending for priority expansion.
 		sort.Slice(processes, func(i, j int) bool {
 			return processes[i].Relevance > processes[j].Relevance
 		})
@@ -413,7 +407,6 @@ func (b *Backend) vectorSupplement(bm25Defs []service.SymbolMatch, queryText str
 		return nil
 	}
 
-	// Collect IDs already present in BM25 results.
 	bm25IDs := make(map[string]bool, len(bm25Defs))
 	for _, d := range bm25Defs {
 		node := findSymbol(b.Graph, d.Name, d.FilePath, "")
@@ -425,7 +418,6 @@ func (b *Backend) vectorSupplement(bm25Defs []service.SymbolMatch, queryText str
 		}
 	}
 
-	// Add vector-only results (not already in BM25) up to budget.
 	budget := limit
 	var extra []service.SymbolMatch
 	for _, vr := range vecResults {

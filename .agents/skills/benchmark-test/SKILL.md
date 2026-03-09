@@ -36,13 +36,14 @@ done
 Each test project has a battery file in `batteries/` defining 5 investigations
 with keyword + intent query pairs and ground-truth expected symbols:
 
-| File                      | Language   | Nodes | Limit  | Investigations                                          |
-| ------------------------- | ---------- | ----- | ------ | ------------------------------------------------------- |
-| `batteries/steampipe.md`  | Go         | 882   | 8      | query exec, plugins, db lifecycle, connections, console |
-| `batteries/excalidraw.md` | TypeScript | 1253  | 8      | rendering, export, undo/redo, collaboration, elements   |
-| `batteries/fastapi.md`    | Python     | 756   | 8      | routing, DI, validation, middleware, OpenAPI            |
-| `batteries/nomad.md`      | Go         | 37587 | **15** | startup, scheduling, node failure, raft, client-server  |
-| `batteries/gatling.md`    | Scala      | 11886 | 10     | simulation exec, HTTP protocol, session/stats, actions, assertions |
+| File                              | Language   | Nodes | Limit  | Investigations                                          |
+| --------------------------------- | ---------- | ----- | ------ | ------------------------------------------------------- |
+| `batteries/steampipe.md`          | Go         | 882   | 8      | query exec, plugins, db lifecycle, connections, console |
+| `batteries/excalidraw.md`         | TypeScript | 1253  | 8      | rendering, export, undo/redo, collaboration, elements   |
+| `batteries/fastapi.md`            | Python     | 756   | 8      | routing, DI, validation, middleware, OpenAPI            |
+| `batteries/nomad.md`              | Go         | 37587 | **15** | startup, scheduling, node failure, raft, client-server  |
+| `batteries/gatling.md`            | Scala      | 11863 | 10     | simulation exec, HTTP protocol, session/stats, actions, assertions |
+| `batteries/gatling-usecases.md`   | Scala      | 11863 | 10     | redirects, throttling, CSV feeding, reporting, WebSocket, session state |
 
 ### Query Types
 
@@ -140,15 +141,16 @@ python3 .agents/skills/benchmark-test/score.py /tmp/bat-steampipe.txt \
 ## Current Baseline (2026-04-20, Scala export fix + test-filter-before-truncation)
 
 ```
-Project      Lang    Nodes    KW          INT         Criteria
-─────────────────────────────────────────────────────────────
-steampipe    Go      882      35/40 (87%) 25/40 (62%) 5/5
-excalidraw   TS      1253     30/40 (75%) 28/40 (70%) 5/5
-fastapi      Python  756      22/39 (56%) 25/39 (64%) 5/5
-nomad        Go      37587    26/41 (63%) 17/41 (41%) 4/5
-gatling      Scala   11863    19/40 (47%) 15/40 (37%) 5/5
-─────────────────────────────────────────────────────────────
-TOTAL                         132/200(66%) 110/200(55%) 24/25(96%)
+Project              Lang    Nodes    KW          INT         Criteria
+──────────────────────────────────────────────────────────────────────
+steampipe            Go      882      35/40 (87%) 25/40 (62%) 5/5
+excalidraw           TS      1253     30/40 (75%) 28/40 (70%) 5/5
+fastapi              Python  756      22/39 (56%) 25/39 (64%) 5/5
+nomad                Go      37587    26/41 (63%) 17/41 (41%) 4/5
+gatling              Scala   11863    27/40 (67%) 23/40 (57%) 5/5
+gatling-usecases     Scala   11863    31/36 (86%) 25/36 (69%) 6/6
+──────────────────────────────────────────────────────────────────────
+TOTAL                         171/236(72%) 143/236(60%) 30/31(97%)
 ```
 
 **Model:** bge-small (384d, 24MB)

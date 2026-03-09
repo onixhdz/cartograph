@@ -171,7 +171,7 @@ func (lc *langCache) get(language string) (*langCacheEntry, error) {
 		return nil, fmt.Errorf("compile query for %s: %w", language, err)
 	}
 
-	// Set a 10-second parse timeout so pathological files (deeply nested
+	// Set a 30-second parse timeout so pathological files (deeply nested
 	// generated code, minified bundles) cannot stall a worker indefinitely.
 	// The parser checks this cooperatively inside its iteration loop.
 	const parseTimeoutMicros = 30 * 1000 * 1000 // 30 seconds

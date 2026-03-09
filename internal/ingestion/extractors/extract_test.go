@@ -53,18 +53,15 @@ func TestExtractFile_Go_Symbols(t *testing.T) {
 		t.Fatalf("ExtractFile failed: %v", err)
 	}
 
-	// Check that we got symbols.
 	if len(result.Symbols) == 0 {
 		t.Fatal("expected symbols, got none")
 	}
 
-	// Collect symbol names and labels.
 	nameToLabel := make(map[string]graph.NodeLabel)
 	for _, sym := range result.Symbols {
 		nameToLabel[sym.Name] = sym.Label
 	}
 
-	// Expected Go symbols.
 	expected := map[string]graph.NodeLabel{
 		testSymServer: graph.LabelStruct,
 		"Handler":     graph.LabelInterface,
@@ -163,7 +160,6 @@ func main() {
 		}
 	}
 
-	// Verify receiver capture for method spawns.
 	for _, sp := range result.Spawns {
 		if sp.TargetName == "run" || sp.TargetName == "handleRequest" {
 			if sp.ReceiverName != "s" {
@@ -487,7 +483,6 @@ func TestParseFiles_SkipsLargeFiles(t *testing.T) {
 	tmpDir := t.TempDir()
 	goFile := tmpDir + "/big.go"
 
-	// Write a file larger than the max.
 	bigSource := make([]byte, 1024)
 	for i := range bigSource {
 		bigSource[i] = ' '
@@ -500,7 +495,6 @@ func TestParseFiles_SkipsLargeFiles(t *testing.T) {
 	files := []FileInput{{Path: goFile, Language: "go"}}
 	result := ParseFiles(files, ParseOptions{MaxFileSize: 512})
 
-	// File should be skipped.
 	if len(result.Symbols) != 0 {
 		t.Errorf("expected no symbols from large file, got %d", len(result.Symbols))
 	}
@@ -803,7 +797,6 @@ func TestExtractFile_ExistingLanguages_NoRegression(t *testing.T) {
 			if len(result.Symbols) == 0 {
 				t.Errorf("ExtractFile(%q) produced no symbols", tt.lang)
 			}
-			// All symbols should have correct language tag.
 			for _, sym := range result.Symbols {
 				if sym.Language != tt.lang {
 					t.Errorf("symbol %q has language %q, want %q", sym.Name, sym.Language, tt.lang)
@@ -1326,28 +1319,22 @@ void test() {
 		t.Logf("symbol: %s (%s)", sym.Name, sym.Label)
 	}
 
-	// typedef
 	if !names["Score"] {
 		t.Error("expected typedef Score")
 	}
-	// union
 	if !names["Data"] {
 		t.Error("expected union Data")
 	}
-	// pointer-returning function
 	if !names["getPtr"] {
 		t.Error("expected pointer-returning function getPtr")
 	}
-	// reference-returning function
 	if !names["getRef"] {
 		t.Error("expected reference-returning function getRef")
 	}
-	// class
 	if !names["Foo"] {
 		t.Error("expected class Foo")
 	}
 
-	// Check calls for new expression
 	callNames := make(map[string]bool)
 	for _, call := range result.Calls {
 		callNames[call.CalleeName] = true
@@ -1401,24 +1388,20 @@ typealias StringList = List<String>
 		t.Error("expected Dog class")
 	}
 
-	// Enum entries.
 	for _, entry := range []string{"RED", "GREEN", "BLUE"} {
 		if _, ok := names[entry]; !ok {
 			t.Errorf("expected enum entry %q", entry)
 		}
 	}
 
-	// Color enum class.
 	if _, ok := names["Color"]; !ok {
 		t.Error("expected Color enum class")
 	}
 
-	// Type alias.
 	if _, ok := names["StringList"]; !ok {
 		t.Error("expected typealias StringList")
 	}
 
-	// Heritage.
 	found := map[string]bool{}
 	for _, h := range result.Heritage {
 		key := h.ClassName + "->" + h.ParentName + "(" + h.Kind + ")"
@@ -1460,12 +1443,10 @@ extension Animal: Speaker {
 		t.Logf("symbol: %s (%s)", sym.Name, sym.Label)
 	}
 
-	// typealias
 	if _, ok := names["Name"]; !ok {
 		t.Error("expected typealias Name")
 	}
 
-	// extension conformance heritage
 	found := map[string]bool{}
 	for _, h := range result.Heritage {
 		key := h.ClassName + "->" + h.ParentName + "(" + h.Kind + ")"
@@ -1502,12 +1483,10 @@ public class Dog : Animal, ISpeaker {
 		t.Logf("symbol: %s (%s)", sym.Name, sym.Label)
 	}
 
-	// File-scoped namespace.
 	if _, ok := names["MyApp"]; !ok {
 		t.Error("expected file-scoped namespace MyApp")
 	}
 
-	// Heritage.
 	found := map[string]bool{}
 	for _, h := range result.Heritage {
 		key := h.ClassName + "->" + h.ParentName + "(" + h.Kind + ")"
@@ -1546,7 +1525,6 @@ end
 		t.Fatalf("ExtractFile failed: %v", err)
 	}
 
-	// Check imports from require/require_relative.
 	importSources := make(map[string]bool)
 	for _, imp := range result.Imports {
 		importSources[imp.Source] = true
@@ -1559,7 +1537,6 @@ end
 		t.Error("expected import './helpers' from require_relative")
 	}
 
-	// Check heritage from include.
 	found := map[string]bool{}
 	for _, h := range result.Heritage {
 		key := h.ClassName + "->" + h.ParentName + "(" + h.Kind + ")"
@@ -1570,7 +1547,6 @@ end
 		t.Error("expected Animal includes Mixable")
 	}
 
-	// Check property symbols from attr_accessor.
 	propNames := make(map[string]bool)
 	for _, sym := range result.Symbols {
 		if sym.Label == graph.LabelProperty {
