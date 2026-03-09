@@ -1920,6 +1920,110 @@ trait StatsEngine {
 	}
 }
 
+// TestExtractFile_Scala_ScopedPrivateIsExported verifies that Scala's
+// private[scope] and protected[scope] modifiers are treated as exported,
+// while bare private/protected are not.
+func TestExtractFile_Scala_ScopedPrivateIsExported(t *testing.T) {
+	src := `package io.gatling.core.controller
+
+// Bare private — should NOT be exported.
+private object InternalHelper {
+  def helper(): Unit = ()
+}
+
+// Scoped private[gatling] — should BE exported (package-level access).
+private[gatling] object Controller {
+  def start(): Unit = ()
+}
+
+// Scoped private[core] — should BE exported.
+private[core] class ControllerFSM {
+  def transition(): Unit = ()
+}
+
+// Bare protected — should NOT be exported.
+protected trait SecretTrait {
+  def secret(): Unit
+}
+
+// Scoped protected[controller] — should BE exported.
+protected[controller] trait SharedTrait {
+  def shared(): Unit
+}
+
+// No modifier — should BE exported (Scala default is public).
+class PublicClass {
+  def run(): Unit = ()
+}
+`
+	result, err := ExtractFile("/tmp/test_scoped_vis.scala", []byte(src), "scala")
+	if err != nil {
+		t.Fatalf("ExtractFile failed: %v", err)
+	}
+
+	exportMap := make(map[string]bool)
+	for _, sym := range result.Symbols {
+		exportMap[sym.Name] = sym.IsExported
+		t.Logf("  %s: %s exported=%v (line %d)", sym.Label, sym.Name, sym.IsExported, sym.StartLine)
+	}
+
+	// Scoped private/protected → exported
+	for _, name := range []string{"Controller", "ControllerFSM", "SharedTrait"} {
+		exported, found := exportMap[name]
+		if !found {
+			t.Errorf("MISSING symbol %q — not extracted", name)
+		} else if !exported {
+			t.Errorf("%q should be exported (scoped private/protected), got isExported=false", name)
+		}
+	}
+
+	// Public (no modifier) → exported
+	if exported, found := exportMap["PublicClass"]; found && !exported {
+		t.Errorf("PublicClass should be exported (no modifier), got isExported=false")
+	}
+
+	// Bare private/protected → NOT exported
+	for _, name := range []string{"InternalHelper", "SecretTrait"} {
+		exported, found := exportMap[name]
+		if !found {
+			t.Errorf("MISSING symbol %q — not extracted", name)
+		} else if exported {
+			t.Errorf("%q should NOT be exported (bare private/protected), got isExported=true", name)
+		}
+	}
+
+	// Additional pattern: constructor-level private[scope] (class is public).
+	// "final case class Foo private[pkg] (x: Int)" — the private is on the
+	// constructor, not the class. The class should be exported.
+	ctorSrc := []byte(`package io.gatling.core
+
+final case class ConstantRate private[inject] (rate: Double, duration: Long)
+private[inject] final case class RampRate(rate: Double, duration: Long)
+case class PlainCase(duration: Long)
+`)
+	ctorResult, err := ExtractFile("/tmp/test_ctor_vis.scala", ctorSrc, "scala")
+	if err != nil {
+		t.Fatalf("ExtractFile (ctor visibility) failed: %v", err)
+	}
+	ctorMap := make(map[string]bool)
+	for _, sym := range ctorResult.Symbols {
+		ctorMap[sym.Name] = sym.IsExported
+		t.Logf("  ctor-test: %s: %s exported=%v", sym.Label, sym.Name, sym.IsExported)
+	}
+	// Class with constructor-private should be exported (class itself is public).
+	if exp, ok := ctorMap["ConstantRate"]; ok && !exp {
+		t.Errorf("ConstantRate should be exported (private is on ctor, not class)")
+	}
+	// Scoped-private class should be exported.
+	if exp, ok := ctorMap["RampRate"]; ok && !exp {
+		t.Errorf("RampRate should be exported (scoped private[inject])")
+	}
+	// Plain case class should be exported.
+	if exp, ok := ctorMap["PlainCase"]; ok && !exp {
+		t.Errorf("PlainCase should be exported (no modifier)")
+	}
+}
+
 // TestExtractFile_Scala_RealFiles reads actual Scala files from the gatling
 // clone on disk and extracts them, diagnosing why some produce zero symbols.
 func TestExtractFile_Scala_RealFiles(t *testing.T) {

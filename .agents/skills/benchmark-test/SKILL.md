@@ -137,18 +137,18 @@ python3 .agents/skills/benchmark-test/score.py /tmp/bat-steampipe.txt \
 | 5K-20K nodes  | `-l 10` | Moderate dilution                                       |
 | > 20K nodes   | `-l 15` | Large codebases need more slots to surface deep symbols |
 
-## Current Baseline (2026-04-20, Scala block-comment fix + embedding fix)
+## Current Baseline (2026-04-20, Scala export fix + test-filter-before-truncation)
 
 ```
 Project      Lang    Nodes    KW          INT         Criteria
 ─────────────────────────────────────────────────────────────
-steampipe    Go      882      36/40 (90%) 24/40 (60%) 5/5
+steampipe    Go      882      35/40 (87%) 25/40 (62%) 5/5
 excalidraw   TS      1253     30/40 (75%) 28/40 (70%) 5/5
 fastapi      Python  756      22/39 (56%) 25/39 (64%) 5/5
 nomad        Go      37587    26/41 (63%) 17/41 (41%) 4/5
-gatling      Scala   11863    18/40 (45%) 14/40 (35%) 5/5
+gatling      Scala   11863    19/40 (47%) 15/40 (37%) 5/5
 ─────────────────────────────────────────────────────────────
-TOTAL                         132/200(66%) 108/200(54%) 24/25(96%)
+TOTAL                         132/200(66%) 110/200(55%) 24/25(96%)
 ```
 
 **Model:** bge-small (384d, 24MB)

@@ -51,8 +51,9 @@ func (b *Backend) Query(req service.QueryRequest) (*service.QueryResult, error) 
 	var definitions []service.SymbolMatch
 
 	if b.Index != nil {
-		// Fetch extra candidates so we have room to re-rank after penalties.
-		fetchLimit := max(limit*2, 20)
+		// Fetch extra candidates so we have room to re-rank after
+		// dedup, capPerName, and test-file filtering.
+		fetchLimit := max(limit*3, 30)
 		results, err := b.Index.SearchMulti(req.Text, fetchLimit)
 		if err != nil {
 			return nil, fmt.Errorf("query: search: %w", err)
@@ -74,6 +75,21 @@ func (b *Backend) Query(req service.QueryRequest) (*service.QueryResult, error) 
 		// Deduplicate by name+filePath then cap per bare name.
 		definitions = deduplicateDefinitions(definitions)
 		definitions = capPerName(definitions)
+
+		// When tests are excluded (default), filter them from BM25
+		// candidates BEFORE truncation so they don't steal result
+		// slots meant for architectural symbols.
+		if !req.IncludeTests {
+			var archDefs []service.SymbolMatch
+			for _, d := range definitions {
+				if !ingestion.IsUsageFile(d.FilePath) {
+					archDefs = append(archDefs, d)
+				}
+			}
+			definitions = archDefs
+		}
+
+		// Truncate BM25 results to the requested limit.
 		if len(definitions) > limit {
 			definitions = definitions[:limit]
 		}
@@ -88,8 +104,7 @@ func (b *Backend) Query(req service.QueryRequest) (*service.QueryResult, error) 
 		definitions = append(definitions, extra...)
 	}
 
-	// Partition: separate usage examples (tests + examples) from
-	// architectural definitions.
+	// Handle test/example files in the combined results.
 	var usageExamples []service.SymbolMatch
 	if req.IncludeTests {
 		// With --include-tests, partition tests into a separate section.
@@ -103,7 +118,8 @@ func (b *Backend) Query(req service.QueryRequest) (*service.QueryResult, error) 
 		}
 		definitions = archDefs
 	} else {
-		// Default: exclude test/example files entirely.
+		// BM25 tests already filtered above; also remove any test
+		// files that arrived via vector supplement.
 		var archDefs []service.SymbolMatch
 		for _, d := range definitions {
 			if !ingestion.IsUsageFile(d.FilePath) {
@@ -112,6 +128,8 @@ func (b *Backend) Query(req service.QueryRequest) (*service.QueryResult, error) 
 		}
 		definitions = archDefs
 	}
+	// No final truncation — vector supplement results are "bonus"
+	// beyond the BM25 limit, matching original behavior.
 
 	// Map matched symbols to their process memberships.
 	// Process relevance uses multi-signal scoring: BM25 weight, coverage

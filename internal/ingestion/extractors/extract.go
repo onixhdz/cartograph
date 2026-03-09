@@ -16,6 +16,12 @@ import (
 
 const langPython = "python"
 
+// Visibility modifier keywords used in export detection.
+const (
+	visPrivate   = "private"
+	visProtected = "protected"
+)
+
 // ExtractedSymbol represents a code symbol extracted from a source file
 // via tree-sitter parsing.
 type ExtractedSymbol struct {
@@ -864,7 +870,7 @@ func detectExported(defNode *ts.Node, name, language string, lang *ts.Language, 
 		return true
 	case "kotlin":
 		// Kotlin: default visibility is public. Check for private/internal/protected.
-		return !hasVisibilityModifier(defNode, lang, source, "private", "internal", "protected")
+		return !hasVisibilityModifier(defNode, lang, source, visPrivate, "internal", visProtected)
 	case "typescript", "javascript":
 		// TS/JS: check if enclosed in export_statement.
 		return hasAncestorType(defNode, lang, "export_statement")
@@ -881,13 +887,15 @@ func detectExported(defNode *ts.Node, name, language string, lang *ts.Language, 
 		return !hasSiblingModifierText(defNode, lang, source, "storage_class_specifier", "static")
 	case "php":
 		// PHP: classes/functions at top level are global; check for visibility modifier.
-		return !hasVisibilityModifier(defNode, lang, source, "private", "protected")
+		return !hasVisibilityModifier(defNode, lang, source, visPrivate, visProtected)
 	case "swift":
 		// Swift: default is internal; check for public/open.
 		return hasVisibilityModifier(defNode, lang, source, "public", "open")
 	case "scala":
-		// Scala: default visibility is public; check for private/protected.
-		return !hasVisibilityModifier(defNode, lang, source, "private", "protected")
+		// Scala: default visibility is public. Bare private/protected means
+		// non-exported, but private[scope]/protected[scope] means accessible
+		// within that scope (package/object) — treat as exported.
+		return !hasScalaBareVisibility(defNode, lang, source)
 	default:
 		return true
 	}
@@ -933,6 +941,97 @@ func hasVisibilityModifier(node *ts.Node, lang *ts.Language, source []byte, keyw
 		}
 	}
 	return false
+}
+
+// hasScalaBareVisibility checks whether a Scala declaration has a bare
+// private or protected modifier (without a scope qualifier). In Scala,
+// bare private/protected restrict visibility, but private[scope] and
+// protected[scope] grant access within the named scope (package, object,
+// or class) and should be treated as exported for code intelligence purposes.
+//
+// Two AST layouts exist depending on modifier placement:
+//
+// Class-level: "private[gatling] object Controller"
+//
+//	object_definition
+//	  modifiers
+//	    access_modifier          text: "private[gatling]"
+//	      "private"
+//	      access_qualifier
+//
+// Constructor-level: "final case class Foo private[inject] (...)"
+//
+//	class_definition
+//	  modifiers [final]
+//	  access_modifier            text: "private[inject]"
+//	    "private"
+//	    access_qualifier
+func hasScalaBareVisibility(node *ts.Node, lang *ts.Language, source []byte) bool {
+	decl := findDeclarationAncestor(node, lang)
+	if decl == nil {
+		return false
+	}
+	for i := range decl.ChildCount() {
+		child := decl.Child(i)
+		if child == nil {
+			continue
+		}
+		ctype := strings.ToLower(child.Type(lang))
+
+		// Direct access_modifier child of the declaration (constructor-private
+		// or class-level without a modifiers wrapper).
+		if ctype == "access_modifier" {
+			if accessModifierIsBare(child, lang) {
+				return true
+			}
+			continue
+		}
+
+		// modifiers node: walk its children for access_modifier or keywords.
+		if !strings.Contains(ctype, "modifier") && !strings.Contains(ctype, "visibility") {
+			continue
+		}
+		for j := range child.ChildCount() {
+			mod := child.Child(j)
+			if mod == nil {
+				continue
+			}
+			mtype := strings.ToLower(mod.Type(lang))
+
+			if mtype == "access_modifier" {
+				if accessModifierIsBare(mod, lang) {
+					return true
+				}
+				continue
+			}
+
+			// Direct keyword node (some grammar versions).
+			mtext := strings.ToLower(safeNodeText(mod, source))
+			if mtext == visPrivate || mtext == visProtected {
+				return true
+			}
+		}
+
+		// Fallback: if the modifier text is exactly "private" or "protected"
+		// (no brackets), treat as bare.
+		text := strings.TrimSpace(strings.ToLower(safeNodeText(child, source)))
+		if text == visPrivate || text == visProtected {
+			return true
+		}
+	}
+	return false
+}
+
+// accessModifierIsBare returns true if an access_modifier node has no
+// access_qualifier child (i.e., bare "private" not "private[scope]").
+func accessModifierIsBare(node *ts.Node, lang *ts.Language) bool {
+	for i := range node.ChildCount() {
+		child := node.Child(i)
+		if child != nil && strings.ToLower(child.Type(lang)) == "access_qualifier" {
+			return false // scoped → not bare
+		}
+	}
+	return true // no qualifier → bare
 }
 
 // hasSiblingModifier checks if a declaration ancestor has a "modifiers"
