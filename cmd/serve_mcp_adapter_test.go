@@ -155,6 +155,7 @@ func TestServerMCPClient_Cypher(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("expected non-nil cypher result")
+		return
 	}
 	if len(result.Rows) == 0 {
 		t.Error("expected at least one row from cypher query")
@@ -269,6 +270,7 @@ func TestServerMCPClient_Status(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("expected non-nil status result")
+		return
 	}
 	if len(result.LoadedRepos) != 1 {
 		t.Fatalf("expected 1 loaded repo, got %d", len(result.LoadedRepos))

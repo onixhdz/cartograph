@@ -325,6 +325,7 @@ func TestComputeMRO_CppDiamond_LeftmostWins(t *testing.T) {
 	}
 	if dEntry == nil {
 		t.Fatal("expected entry for D")
+		return
 	}
 	if dEntry.Language != "cpp" {
 		t.Errorf("expected language cpp, got %s", dEntry.Language)
@@ -339,6 +340,7 @@ func TestComputeMRO_CppDiamond_LeftmostWins(t *testing.T) {
 	}
 	if fooAmb == nil {
 		t.Fatal("expected foo ambiguity for D")
+		return
 	}
 	if len(fooAmb.DefinedIn) < 2 {
 		t.Errorf("expected at least 2 definitions, got %d", len(fooAmb.DefinedIn))
@@ -383,6 +385,7 @@ func TestComputeMRO_CppDiamond_NoAmbiguityWhenOnlyBaseHasMethod(t *testing.T) {
 	}
 	if dEntry == nil {
 		t.Fatal("expected entry for D")
+		return
 	}
 
 	// B and C don't define foo, so D inherits A::foo through both — but it's only
