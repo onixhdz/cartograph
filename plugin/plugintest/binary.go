@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,40 +15,66 @@ import (
 )
 
 // BinaryResult holds the collected output from running a plugin binary.
+// All mutation methods are thread-safe: notification handlers run concurrently.
 type BinaryResult struct {
 	// Info is the plugin's self-reported metadata.
 	Info plugin.Info
 
+	mu    sync.Mutex
 	nodes []Node
 	edges []Edge
 	logs  []LogEntry
 	errs  []error
 }
 
-// Nodes returns all emitted nodes.
-func (r *BinaryResult) Nodes() []Node { return r.nodes }
+// Nodes returns a copy of all emitted nodes.
+func (r *BinaryResult) Nodes() []Node {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]Node, len(r.nodes))
+	copy(out, r.nodes)
+	return out
+}
 
-// Edges returns all emitted edges.
-func (r *BinaryResult) Edges() []Edge { return r.edges }
+// Edges returns a copy of all emitted edges.
+func (r *BinaryResult) Edges() []Edge {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]Edge, len(r.edges))
+	copy(out, r.edges)
+	return out
+}
 
-// Logs returns all log messages.
-func (r *BinaryResult) Logs() []LogEntry { return r.logs }
+// Logs returns a copy of all log messages.
+func (r *BinaryResult) Logs() []LogEntry {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]LogEntry, len(r.logs))
+	copy(out, r.logs)
+	return out
+}
 
 // Errors returns any errors collected during the run.
 func (r *BinaryResult) Errors() []error { return r.errs }
 
-// AssertNodeCount fails the test if the node count doesn't match.
+// AssertNodeCount fails the test if the number of emitted nodes doesn't match.
 func (r *BinaryResult) AssertNodeCount(t testing.TB, expected int) {
 	t.Helper()
-	if got := len(r.nodes); got != expected {
+	r.mu.Lock()
+	got := len(r.nodes)
+	r.mu.Unlock()
+	if got != expected {
 		t.Errorf("node count: got %d, want %d", got, expected)
 	}
 }
 
-// AssertEdgeCount fails the test if the edge count doesn't match.
+// AssertEdgeCount fails the test if the number of emitted edges doesn't match.
 func (r *BinaryResult) AssertEdgeCount(t testing.TB, expected int) {
 	t.Helper()
-	if got := len(r.edges); got != expected {
+	r.mu.Lock()
+	got := len(r.edges)
+	r.mu.Unlock()
+	if got != expected {
 		t.Errorf("edge count: got %d, want %d", got, expected)
 	}
 }
@@ -62,9 +89,11 @@ func (r *BinaryResult) AssertNoErrors(t testing.TB) {
 	}
 }
 
-// AssertNodeExists fails the test if no node matches the given ID and label.
+// AssertNodeExists fails the test if no emitted node matches the given ID and label.
 func (r *BinaryResult) AssertNodeExists(t testing.TB, id, label string) {
 	t.Helper()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	for _, n := range r.nodes {
 		if n.ID == id && n.Label == label {
 			return
@@ -73,9 +102,11 @@ func (r *BinaryResult) AssertNodeExists(t testing.TB, id, label string) {
 	t.Errorf("node not found: id=%q label=%q", id, label)
 }
 
-// AssertEdgeExists fails the test if no edge matches from→to with the given relType.
+// AssertEdgeExists fails the test if no emitted edge matches from→to with the given relType.
 func (r *BinaryResult) AssertEdgeExists(t testing.TB, fromID, toID, relType string) {
 	t.Helper()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	for _, e := range r.edges {
 		if e.FromID == fromID && e.ToID == toID && e.RelType == relType {
 			return
@@ -136,6 +167,8 @@ func RunBinary(t testing.TB, binaryPath string, opts RunBinaryOptions) *BinaryRe
 		},
 		Cache: internalPlugin.NewMemoryCache(),
 		Logger: func(_ string, level string, msg string) {
+			result.mu.Lock()
+			defer result.mu.Unlock()
 			result.logs = append(result.logs, LogEntry{Level: level, Msg: msg})
 		},
 	}
@@ -168,12 +201,14 @@ func RunBinary(t testing.TB, binaryPath string, opts RunBinaryOptions) *BinaryRe
 }
 
 // collectingBuilder is a datasource.GraphBuilder that records emissions
-// into a BinaryResult.
+// into a BinaryResult. Thread-safe: notification handlers run concurrently.
 type collectingBuilder struct {
 	result *BinaryResult
 }
 
 func (b *collectingBuilder) AddNode(vendorLabel string, id string, properties map[string]any) {
+	b.result.mu.Lock()
+	defer b.result.mu.Unlock()
 	b.result.nodes = append(b.result.nodes, Node{
 		Label: vendorLabel,
 		ID:    id,
@@ -182,6 +217,8 @@ func (b *collectingBuilder) AddNode(vendorLabel string, id string, properties ma
 }
 
 func (b *collectingBuilder) AddEdge(fromID string, toID string, relType string, properties map[string]any) {
+	b.result.mu.Lock()
+	defer b.result.mu.Unlock()
 	b.result.edges = append(b.result.edges, Edge{
 		FromID:  fromID,
 		ToID:    toID,
