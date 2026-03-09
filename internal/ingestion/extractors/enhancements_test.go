@@ -279,6 +279,7 @@ import defaultExport from "module";
 	// React: should have useState→useStateHook and useEffect bindings.
 	if reactImport == nil {
 		t.Fatal("expected react import")
+		return
 	}
 	if len(reactImport.Bindings) < 2 {
 		t.Fatalf("expected ≥2 bindings for react import, got %d: %v", len(reactImport.Bindings), reactImport.Bindings)
@@ -303,6 +304,7 @@ import defaultExport from "module";
 	// Path: should have namespace import * as path.
 	if pathImport == nil {
 		t.Fatal("expected path import")
+		return
 	}
 	if len(pathImport.Bindings) == 0 {
 		t.Fatal("expected bindings for path import")
@@ -320,6 +322,7 @@ import defaultExport from "module";
 	// Module: should have default import.
 	if moduleImport == nil {
 		t.Fatal("expected module import")
+		return
 	}
 	if len(moduleImport.Bindings) == 0 {
 		t.Fatal("expected bindings for module import")
@@ -355,6 +358,7 @@ func TestGapFix_NamedImportBindings_JS(t *testing.T) {
 	}
 	if reactDom == nil {
 		t.Fatal("expected react-dom import")
+		return
 	}
 	if len(reactDom.Bindings) < 2 {
 		t.Fatalf("expected ≥2 bindings; got %d", len(reactDom.Bindings))

@@ -422,6 +422,7 @@ func TestComputeMRO_CSharp_ClassBeatsInterface(t *testing.T) {
 	}
 	if entry == nil {
 		t.Fatal("expected entry for MyClass")
+		return
 	}
 
 	var doItAmb *MROAmbiguity
@@ -433,6 +434,7 @@ func TestComputeMRO_CSharp_ClassBeatsInterface(t *testing.T) {
 	}
 	if doItAmb == nil {
 		t.Fatal("expected doIt ambiguity")
+		return
 	}
 
 	baseDoItID := graph.GetStringProp(baseDoIt, graph.PropID)
@@ -468,6 +470,7 @@ func TestComputeMRO_CSharp_MultipleInterfacesAmbiguous(t *testing.T) {
 	}
 	if entry == nil {
 		t.Fatal("expected entry for MyClass")
+		return
 	}
 
 	var processAmb *MROAmbiguity
@@ -479,6 +482,7 @@ func TestComputeMRO_CSharp_MultipleInterfacesAmbiguous(t *testing.T) {
 	}
 	if processAmb == nil {
 		t.Fatal("expected process ambiguity")
+		return
 	}
 	if processAmb.ResolvedTo != "" {
 		t.Errorf("expected null resolution, got %q", processAmb.ResolvedTo)
@@ -519,6 +523,7 @@ func TestComputeMRO_Python_C3LeftmostWins(t *testing.T) {
 	}
 	if dEntry == nil {
 		t.Fatal("expected entry for D")
+		return
 	}
 
 	var fooAmb *MROAmbiguity
@@ -530,6 +535,7 @@ func TestComputeMRO_Python_C3LeftmostWins(t *testing.T) {
 	}
 	if fooAmb == nil {
 		t.Fatal("expected foo ambiguity")
+		return
 	}
 
 	bFooID := graph.GetStringProp(bFoo, graph.PropID)
@@ -565,6 +571,7 @@ func TestComputeMRO_Java_ClassBeatsInterface(t *testing.T) {
 	}
 	if entry == nil {
 		t.Fatal("expected entry for Service")
+		return
 	}
 
 	var runAmb *MROAmbiguity
@@ -576,6 +583,7 @@ func TestComputeMRO_Java_ClassBeatsInterface(t *testing.T) {
 	}
 	if runAmb == nil {
 		t.Fatal("expected run ambiguity")
+		return
 	}
 
 	baseRunID := graph.GetStringProp(baseRun, graph.PropID)
@@ -608,6 +616,7 @@ func TestComputeMRO_Rust_TraitConflictsNull(t *testing.T) {
 	}
 	if entry == nil {
 		t.Fatal("expected entry for MyStruct")
+		return
 	}
 
 	var execAmb *MROAmbiguity
@@ -619,6 +628,7 @@ func TestComputeMRO_Rust_TraitConflictsNull(t *testing.T) {
 	}
 	if execAmb == nil {
 		t.Fatal("expected execute ambiguity")
+		return
 	}
 	if execAmb.ResolvedTo != "" {
 		t.Errorf("expected null resolution for Rust trait conflict, got %q", execAmb.ResolvedTo)
@@ -717,6 +727,7 @@ func TestComputeMRO_SingleParentNoAmbiguity(t *testing.T) {
 	}
 	if entry == nil {
 		t.Fatal("expected entry for Child")
+		return
 	}
 	if len(entry.Ambiguities) != 0 {
 		t.Errorf("expected 0 ambiguities for single parent, got %d", len(entry.Ambiguities))
@@ -769,6 +780,7 @@ func TestComputeMRO_OwnMethodShadowsAncestor(t *testing.T) {
 	}
 	if entry == nil {
 		t.Fatal("expected entry for Child")
+		return
 	}
 	// No ambiguity because Child defines its own foo
 	for _, amb := range entry.Ambiguities {

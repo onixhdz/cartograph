@@ -71,6 +71,7 @@ func TestClientQuery(t *testing.T) {
 	}
 	if res == nil {
 		t.Fatal("nil result")
+		return
 	}
 }
 
@@ -82,6 +83,7 @@ func TestClientContext(t *testing.T) {
 	}
 	if res == nil {
 		t.Fatal("nil result")
+		return
 	}
 }
 
@@ -93,6 +95,7 @@ func TestClientCypher(t *testing.T) {
 	}
 	if res == nil {
 		t.Fatal("nil result")
+		return
 	}
 }
 
@@ -101,6 +104,7 @@ func TestClientCypherWriteBlocked(t *testing.T) {
 	_, err := cl.Cypher(CypherRequest{Repo: "myrepo", Query: "CREATE (n:Bad)"})
 	if err == nil {
 		t.Fatal("expected error for write query")
+		return
 	}
 }
 
@@ -112,6 +116,7 @@ func TestClientImpact(t *testing.T) {
 	}
 	if res == nil {
 		t.Fatal("nil result")
+		return
 	}
 }
 
@@ -147,6 +152,7 @@ func TestClientErrorPropagation(t *testing.T) {
 	_, err := cl.Query(QueryRequest{Repo: "nonexistent", Text: "x"})
 	if err == nil {
 		t.Fatal("expected error for nonexistent repo")
+		return
 	}
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) {
@@ -210,6 +216,7 @@ func TestNewAutoClient_TCP(t *testing.T) {
 	cl := NewAutoClient("127.0.0.1:8080")
 	if cl == nil {
 		t.Fatal("expected non-nil client")
+		return
 	}
 	if cl.network != tcpNetwork {
 		t.Errorf("expected network 'tcp', got %q", cl.network)
@@ -220,6 +227,7 @@ func TestNewAutoClient_Unix(t *testing.T) {
 	cl := NewAutoClient("/tmp/carto.sock")
 	if cl == nil {
 		t.Fatal("expected non-nil client")
+		return
 	}
 	if cl.network != networkUnix {
 		t.Errorf("expected network %q, got %q", networkUnix, cl.network)
@@ -230,6 +238,7 @@ func TestNewTCPClient(t *testing.T) {
 	cl := NewTCPClient("localhost:9999")
 	if cl == nil {
 		t.Fatal("expected non-nil client")
+		return
 	}
 	if cl.network != tcpNetwork {
 		t.Errorf("expected tcp network, got %q", cl.network)

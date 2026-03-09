@@ -189,6 +189,7 @@ func TestApplyCommunities_MemberOfEdges(t *testing.T) {
 	commNode := graph.FindNodeByID(g, "community:0")
 	if commNode == nil {
 		t.Fatal("expected community:0 node to exist")
+		return
 	}
 
 	// Check size property.
@@ -255,6 +256,7 @@ func TestApplyCommunities_MultipleCommunities(t *testing.T) {
 	comm0 := graph.FindNodeByID(g, "community:0")
 	if comm0 == nil {
 		t.Fatal("expected community:0 node to exist")
+		return
 	}
 	size0 := graph.GetIntProp(comm0, graph.PropCommunitySize)
 	if size0 != 1 {
@@ -264,6 +266,7 @@ func TestApplyCommunities_MultipleCommunities(t *testing.T) {
 	comm1 := graph.FindNodeByID(g, "community:1")
 	if comm1 == nil {
 		t.Fatal("expected community:1 node to exist")
+		return
 	}
 	size1 := graph.GetIntProp(comm1, graph.PropCommunitySize)
 	if size1 != 2 {

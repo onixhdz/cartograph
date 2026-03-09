@@ -950,6 +950,7 @@ func TestApplyCommunities_RealModularity(t *testing.T) {
 	comm := graph.FindNodeByID(g, "community:0")
 	if comm == nil {
 		t.Fatal("community:0 not found")
+		return
 	}
 	mod := graph.GetFloat64Prop(comm, graph.PropModularity)
 	if mod <= 0 {

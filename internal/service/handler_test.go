@@ -298,6 +298,7 @@ func TestDecodeJSON_BodyTooLarge(t *testing.T) {
 	err := decodeJSON(req, &v)
 	if err == nil {
 		t.Fatal("expected error for body exceeding limit")
+		return
 	}
 }
 

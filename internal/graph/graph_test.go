@@ -14,6 +14,7 @@ func TestAddNode(t *testing.T) {
 	})
 	if node == nil {
 		t.Fatal("AddNode returned nil")
+		return
 	}
 	if !node.HasLabel(string(LabelFunction)) {
 		t.Errorf("expected label %q", LabelFunction)
@@ -148,6 +149,7 @@ func TestAddEdge(t *testing.T) {
 	})
 	if edge == nil {
 		t.Fatal("AddEdge returned nil")
+		return
 	}
 	if edge.GetLabel() != string(RelCalls) {
 		t.Errorf("expected edge label %q, got %q", RelCalls, edge.GetLabel())
@@ -209,6 +211,7 @@ func TestFindNodeByID(t *testing.T) {
 	node := FindNodeByID(g, "func:b")
 	if node == nil {
 		t.Fatal("FindNodeByID returned nil for existing node")
+		return
 	}
 	if GetStringProp(node, PropName) != "b" {
 		t.Errorf("expected name 'b'")
@@ -435,6 +438,7 @@ func TestFindNodeByFilePath(t *testing.T) {
 	node := FindNodeByFilePath(g, "src/utils.go")
 	if node == nil {
 		t.Fatal("expected to find file node")
+		return
 	}
 	if GetStringProp(node, PropID) != "f2" {
 		t.Errorf("expected f2, got %s", GetStringProp(node, PropID))

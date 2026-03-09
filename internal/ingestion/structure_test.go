@@ -69,6 +69,7 @@ func TestProcessStructure_CorrectLabels(t *testing.T) {
 	folderNode := graph.FindNodeByID(g, "folder:lib")
 	if folderNode == nil {
 		t.Fatal("folder node not found")
+		return
 	}
 	if !folderNode.HasLabel(string(graph.LabelFolder)) {
 		t.Error("folder node should have Folder label")
@@ -77,6 +78,7 @@ func TestProcessStructure_CorrectLabels(t *testing.T) {
 	fileNode := graph.FindNodeByID(g, "file:lib/code.ts")
 	if fileNode == nil {
 		t.Fatal("file node not found")
+		return
 	}
 	if !fileNode.HasLabel(string(graph.LabelFile)) {
 		t.Error("file node should have File label")
@@ -97,6 +99,7 @@ func TestProcessStructure_FileProperties(t *testing.T) {
 	node := graph.FindNodeByID(g, "file:src/app.py")
 	if node == nil {
 		t.Fatal("file node not found")
+		return
 	}
 
 	if got := graph.GetStringProp(node, graph.PropFilePath); got != "src/app.py" {
@@ -120,6 +123,7 @@ func TestProcessStructure_FolderProperties(t *testing.T) {
 	node := graph.FindNodeByID(g, "folder:pkg")
 	if node == nil {
 		t.Fatal("folder node not found")
+		return
 	}
 	if got := graph.GetStringProp(node, graph.PropFilePath); got != "pkg" {
 		t.Errorf("filePath: expected %q, got %q", "pkg", got)

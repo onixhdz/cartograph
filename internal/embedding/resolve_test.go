@@ -35,6 +35,7 @@ func TestResolveModel_LocalPath_NotFound(t *testing.T) {
 	_, err := ResolveModel("/nonexistent/path/model.gguf")
 	if err == nil {
 		t.Fatal("expected error for missing file")
+		return
 	}
 }
 
@@ -42,6 +43,7 @@ func TestResolveModel_UnknownModel(t *testing.T) {
 	_, err := ResolveModel("not-a-real-model")
 	if err == nil {
 		t.Fatal("expected error for unknown model")
+		return
 	}
 }
 
@@ -51,6 +53,7 @@ func TestResolveModel_TildeExpansion(t *testing.T) {
 	_, err := ResolveModel("~/nonexistent-cartograph-test-model.gguf")
 	if err == nil {
 		t.Fatal("expected error for missing tilde path")
+		return
 	}
 }
 
@@ -74,6 +77,7 @@ func TestResolveModel_QuantHintParsing(t *testing.T) {
 	_, err := ResolveModel("nonexistent-alias:Q4_K_M")
 	if err == nil {
 		t.Fatal("expected error for unknown alias with quant hint")
+		return
 	}
 	// The error should reference the base model name, not the quant suffix.
 	if got := err.Error(); !strings.Contains(got, "nonexistent-alias") {

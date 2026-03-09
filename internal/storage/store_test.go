@@ -40,6 +40,7 @@ func TestGraphStoreInterface(t *testing.T) {
 	_, err := store.LoadGraph()
 	if err == nil {
 		t.Fatal("expected error from LoadGraph before save")
+		return
 	}
 
 	g := lpg.NewGraph()
@@ -71,5 +72,6 @@ func TestGraphStoreInterface(t *testing.T) {
 	_, err = store.LoadGraph()
 	if err == nil {
 		t.Fatal("expected error from LoadGraph after Close")
+		return
 	}
 }

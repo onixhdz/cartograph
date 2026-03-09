@@ -85,6 +85,7 @@ func TestDetectProcesses_SingleEntryNoCalls(t *testing.T) {
 	processNode := graph.FindNodeByID(g, "process:func:main-flow")
 	if processNode == nil {
 		t.Fatal("expected process node to exist")
+		return
 	}
 
 	stepCount := graph.GetIntProp(processNode, graph.PropStepCount)
@@ -126,6 +127,7 @@ func TestDetectProcesses_LinearChain(t *testing.T) {
 	processNode := graph.FindNodeByID(g, "process:func:A-flow")
 	if processNode == nil {
 		t.Fatal("expected process node to exist")
+		return
 	}
 
 	stepCount := graph.GetIntProp(processNode, graph.PropStepCount)
@@ -172,6 +174,7 @@ func TestDetectProcesses_MaxDepthLimits(t *testing.T) {
 	processNode := graph.FindNodeByID(g, "process:func:A-flow")
 	if processNode == nil {
 		t.Fatal("expected process node to exist")
+		return
 	}
 
 	// With MaxDepth=2, BFS visits: A(depth 0), B(depth 1), C(depth 2).
@@ -222,6 +225,7 @@ func TestDetectProcesses_Branching(t *testing.T) {
 	processNode := graph.FindNodeByID(g, "process:func:A-flow")
 	if processNode == nil {
 		t.Fatal("expected process node to exist")
+		return
 	}
 
 	// At depth 0 (entry point A), the branch limit is doubled (2*2=4),
@@ -769,6 +773,7 @@ func TestDetectProcesses_CallerCount(t *testing.T) {
 	}
 	if aFlow == nil {
 		t.Fatal("expected A-flow process")
+		return
 	}
 
 	// External callers of B = {X, Y}; A is in visited set so not counted.
@@ -779,6 +784,7 @@ func TestDetectProcesses_CallerCount(t *testing.T) {
 	processNode := graph.FindNodeByID(g, "process:func:A-flow")
 	if processNode == nil {
 		t.Fatal("expected process node to exist")
+		return
 	}
 	storedCC := graph.GetIntProp(processNode, graph.PropCallerCount)
 	if storedCC != 2 {
@@ -832,6 +838,7 @@ func TestDetectProcesses_ImportanceScore(t *testing.T) {
 	}
 	if aFlow == nil {
 		t.Fatal("expected A-flow process")
+		return
 	}
 
 	// With additive reach formula:
@@ -848,6 +855,7 @@ func TestDetectProcesses_ImportanceScore(t *testing.T) {
 	processNode := graph.FindNodeByID(g, "process:func:A-flow")
 	if processNode == nil {
 		t.Fatal("expected process node")
+		return
 	}
 	storedImp := graph.GetFloat64Prop(processNode, graph.PropImportance)
 	if storedImp != aFlow.Importance {
@@ -872,6 +880,7 @@ func TestDetectProcesses_ImportanceScore(t *testing.T) {
 	}
 	if zFlow == nil {
 		t.Fatal("expected Z-flow process")
+		return
 	}
 	// Z: callerSignal=0, reachSignal=0.3*ln(2)≈0.208. base=(0+0.208)*ln(2)≈0.144.
 	// exclusivity=1.0, bonus=1.3. importance ≈ 0.144 * 1.3 ≈ 0.19.
@@ -924,6 +933,7 @@ func TestDetectProcesses_ImportanceCrossCommunityBoost(t *testing.T) {
 	}
 	if aFlow == nil {
 		t.Fatal("expected A-flow process")
+		return
 	}
 	if !aFlow.CrossCommunity {
 		t.Fatal("expected cross-community")
@@ -1017,6 +1027,7 @@ func TestDetectProcesses_SharedCallerNormalization(t *testing.T) {
 	}
 	if soloFlow == nil {
 		t.Fatal("expected solo-flow")
+		return
 	}
 	// solo-flow with additive reach: importance ≈ 0.83 (same as cross-community base).
 	if soloFlow.Importance < 0.79 || soloFlow.Importance > 0.87 {
@@ -1384,6 +1395,7 @@ func TestDetectProcesses_TestCallerExclusion(t *testing.T) {
 	}
 	if aFlow == nil {
 		t.Fatal("expected A-flow")
+		return
 	}
 
 	// Raw callerCount includes all callers (prod + 10 tests = 11).
@@ -1418,6 +1430,7 @@ func TestDetectProcesses_TestCallerExclusion(t *testing.T) {
 	}
 	if aFlow2 == nil {
 		t.Fatal("expected A-flow in reference graph")
+		return
 	}
 
 	// Test callers are excluded, so importance should match the

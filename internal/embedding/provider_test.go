@@ -22,6 +22,7 @@ func TestNewProvider_OpenAICompat_RequiresEndpoint(t *testing.T) {
 	_, err := NewProvider(Config{Provider: "openai_compat"})
 	if err == nil {
 		t.Fatal("expected error for openai_compat without Endpoint")
+		return
 	}
 }
 
@@ -32,6 +33,7 @@ func TestNewProvider_OpenAICompat_RequiresModel(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for openai_compat without Model")
+		return
 	}
 }
 
@@ -72,5 +74,6 @@ func TestNewProvider_Unknown(t *testing.T) {
 	_, err := NewProvider(Config{Provider: "invalid"})
 	if err == nil {
 		t.Fatal("expected error for unknown provider")
+		return
 	}
 }

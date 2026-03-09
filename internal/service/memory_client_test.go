@@ -64,6 +64,7 @@ func TestMemoryClient_Query(t *testing.T) {
 	}
 	if res == nil {
 		t.Fatal("nil result")
+		return
 	}
 }
 
@@ -75,6 +76,7 @@ func TestMemoryClient_Context(t *testing.T) {
 	}
 	if res == nil {
 		t.Fatal("nil result")
+		return
 	}
 }
 
@@ -86,6 +88,7 @@ func TestMemoryClient_Cypher(t *testing.T) {
 	}
 	if res == nil {
 		t.Fatal("nil result")
+		return
 	}
 }
 
@@ -97,6 +100,7 @@ func TestMemoryClient_Impact(t *testing.T) {
 	}
 	if res == nil {
 		t.Fatal("nil result")
+		return
 	}
 }
 
@@ -131,6 +135,7 @@ func TestMemoryClient_MissingRepo(t *testing.T) {
 	_, err := mc.Query(QueryRequest{Repo: "nonexistent", Text: "test"})
 	if err == nil {
 		t.Fatal("expected error for missing repo")
+		return
 	}
 }
 
@@ -139,6 +144,7 @@ func TestMemoryClient_EmptyRepo(t *testing.T) {
 	_, err := mc.Query(QueryRequest{Repo: "", Text: "test"})
 	if err == nil {
 		t.Fatal("expected error for empty repo")
+		return
 	}
 }
 
@@ -147,6 +153,7 @@ func TestMemoryClient_Cat_NoResolver(t *testing.T) {
 	_, err := mc.Cat(CatRequest{Repo: "testrepo", Files: []string{"main.go"}})
 	if err == nil {
 		t.Fatal("expected error when no content resolver is set")
+		return
 	}
 }
 
@@ -215,6 +222,7 @@ func TestMemoryClient_Reload_NoDataDir(t *testing.T) {
 	err := mc.Reload(ReloadRequest{Repo: "testrepo"})
 	if err == nil {
 		t.Fatal("expected error when reloading with no data dir")
+		return
 	}
 }
 
@@ -293,6 +301,7 @@ func TestMemoryClient_ResolveRepoName_AmbiguousShortName(t *testing.T) {
 	_, err := mc.resolveRepoName("lib")
 	if err == nil {
 		t.Fatal("expected ambiguity error")
+		return
 	}
 	if !strings.Contains(err.Error(), "ambiguous") {
 		t.Errorf("expected ambiguous error, got: %v", err)
@@ -325,6 +334,7 @@ func TestMemoryClient_QueryAmbiguousShortName(t *testing.T) {
 	_, err := mc.Query(QueryRequest{Repo: "sdk", Text: "test"})
 	if err == nil {
 		t.Fatal("expected error for ambiguous short name")
+		return
 	}
 	if !strings.Contains(err.Error(), "ambiguous") {
 		t.Errorf("expected ambiguous error, got: %v", err)

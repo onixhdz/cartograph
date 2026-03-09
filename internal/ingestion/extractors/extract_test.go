@@ -310,6 +310,7 @@ func TestExtractFile_UnsupportedLanguage(t *testing.T) {
 	_, err := ExtractFile("/tmp/test.xyz", []byte("hello"), "brainfuck")
 	if err == nil {
 		t.Fatal("expected error for unsupported language, got nil")
+		return
 	}
 }
 
@@ -2129,6 +2130,7 @@ func TestExtractFile_Scala_ASTDump(t *testing.T) {
 	entry := grammars.DetectLanguageByName("scala")
 	if entry == nil {
 		t.Fatal("scala grammar not found")
+		return
 	}
 	lang := entry.Language()
 	parser := ts.NewParser(lang)

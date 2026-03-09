@@ -88,6 +88,7 @@ func TestContentResolver_NeitherAvailable(t *testing.T) {
 	_, err := cr.ReadFile("anything.go")
 	if err == nil {
 		t.Fatal("expected error when neither source nor store available")
+		return
 	}
 	if !strings.Contains(err.Error(), "re-analyze") {
 		t.Errorf("expected guidance in error, got: %v", err)
@@ -103,6 +104,7 @@ func TestContentResolver_NotFound(t *testing.T) {
 	_, err := cr.ReadFile("nonexistent.go")
 	if err == nil {
 		t.Fatal("expected error for missing file")
+		return
 	}
 	if !strings.Contains(err.Error(), "not found") {
 		t.Errorf("expected 'not found' in error, got: %v", err)

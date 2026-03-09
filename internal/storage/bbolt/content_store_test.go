@@ -73,6 +73,7 @@ func TestContentStore_GetNotFound(t *testing.T) {
 	_, err := cs.Get("nonexistent.go")
 	if err == nil {
 		t.Fatal("expected error for missing key")
+		return
 	}
 	if !strings.Contains(err.Error(), "not found") {
 		t.Errorf("expected 'not found' in error, got: %v", err)

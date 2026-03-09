@@ -122,6 +122,7 @@ func TestDownloadModel_SHA256Mismatch(t *testing.T) {
 	_, err := DownloadModel(info, cacheDir, nil)
 	if err == nil {
 		t.Fatal("expected SHA256 mismatch error")
+		return
 	}
 	if got := err.Error(); !hfContains(got, "SHA256 mismatch") {
 		t.Errorf("error = %q, want SHA256 mismatch", got)

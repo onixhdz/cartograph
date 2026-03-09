@@ -201,6 +201,7 @@ func TestRegistryResolveAmbiguous(t *testing.T) {
 	_, err := reg.Resolve("backend")
 	if err == nil {
 		t.Fatal("expected ambiguity error for same-name repos")
+		return
 	}
 
 	e, err := reg.Resolve("h1")
@@ -234,6 +235,7 @@ func TestRegistryResolveNotFound(t *testing.T) {
 	_, err := reg.Resolve("ghost")
 	if err == nil {
 		t.Fatal("expected not-found error")
+		return
 	}
 }
 
@@ -258,6 +260,7 @@ func TestRegistryResolveDidYouMean(t *testing.T) {
 			_, err := reg.Resolve(tt.input)
 			if err == nil {
 				t.Fatal("expected error")
+				return
 			}
 			if tt.wantSuggest != "" {
 				if !strings.Contains(err.Error(), "did you mean") {
@@ -353,6 +356,7 @@ func TestRegistryResolveShortNameAmbiguous(t *testing.T) {
 	_, err := reg.Resolve("example")
 	if err == nil {
 		t.Fatal("expected ambiguity error for example")
+		return
 	}
 	if !strings.Contains(err.Error(), "ambiguous") {
 		t.Errorf("expected 'ambiguous' in error, got: %v", err)
@@ -505,11 +509,13 @@ func TestRegistryLinkSelfPrevented(t *testing.T) {
 	err := reg.Link("a", "a")
 	if err == nil {
 		t.Fatal("expected error self-linking")
+		return
 	}
 
 	err = reg.Link("h1", "h1")
 	if err == nil {
 		t.Fatal("expected error self-linking by hash")
+		return
 	}
 }
 
@@ -947,6 +953,7 @@ func TestRegistryResolveAmbiguous_MixedLocalAndURL(t *testing.T) {
 	_, err := reg.Resolve("mux")
 	if err == nil {
 		t.Fatal("expected ambiguity error for mixed local+URL same-name repos")
+		return
 	}
 
 	// Resolve by hash is unambiguous.
@@ -1004,6 +1011,7 @@ func TestResolveRepoName_Ambiguous(t *testing.T) {
 	_, err := ResolveRepoName(dir, "sdk")
 	if err == nil {
 		t.Fatal("expected ambiguity error")
+		return
 	}
 	if !strings.Contains(err.Error(), "ambiguous") {
 		t.Errorf("expected ambiguous error, got: %v", err)
@@ -1020,6 +1028,7 @@ func TestResolveRepoName_NotFound(t *testing.T) {
 	_, err := ResolveRepoName(dir, "nonexistent")
 	if err == nil {
 		t.Fatal("expected not-found error")
+		return
 	}
 }
 

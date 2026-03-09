@@ -113,6 +113,7 @@ func TestPipeline_CustomWalker(t *testing.T) {
 	g := p.GetGraph()
 	if g == nil {
 		t.Fatal("expected non-nil graph")
+		return
 	}
 }
 
@@ -123,6 +124,7 @@ func TestPipeline_CustomWalkerError(t *testing.T) {
 	err := p.Run()
 	if err == nil {
 		t.Fatal("expected error from custom walker, got nil")
+		return
 	}
 }
 

@@ -48,6 +48,7 @@ func TestRoundTrip(t *testing.T) {
 	mainFile := graph.FindNodeByID(loaded, "file:src/main.go")
 	if mainFile == nil {
 		t.Fatal("main file node not found")
+		return
 	}
 	if lang := graph.GetStringProp(mainFile, graph.PropLanguage); lang != "go" {
 		t.Errorf("expected language=go, got %q", lang)
@@ -56,6 +57,7 @@ func TestRoundTrip(t *testing.T) {
 	helperFn := graph.FindNodeByID(loaded, "func:helper")
 	if helperFn == nil {
 		t.Fatal("helper function node not found")
+		return
 	}
 	if sl := graph.GetIntProp(helperFn, graph.PropStartLine); sl != 5 {
 		t.Errorf("expected startLine=5, got %d", sl)
@@ -64,6 +66,7 @@ func TestRoundTrip(t *testing.T) {
 	community := graph.FindNodeByID(loaded, "community:0")
 	if community == nil {
 		t.Fatal("community node not found")
+		return
 	}
 	if mod := graph.GetFloat64Prop(community, graph.PropModularity); mod != 0.45 {
 		t.Errorf("expected modularity=0.45, got %f", mod)
@@ -73,6 +76,7 @@ func TestRoundTrip(t *testing.T) {
 	mainFn := graph.FindNodeByID(loaded, "func:main")
 	if mainFn == nil {
 		t.Fatal("main function node not found")
+		return
 	}
 	callEdges := graph.GetOutgoingEdges(mainFn, graph.RelCalls)
 	if len(callEdges) == 0 {

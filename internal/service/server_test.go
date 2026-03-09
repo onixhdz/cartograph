@@ -292,6 +292,7 @@ func TestServerResolveRepoName_AmbiguousShortName(t *testing.T) {
 	_, err := s.ResolveRepoName("sdk")
 	if err == nil {
 		t.Fatal("expected ambiguity error")
+		return
 	}
 	if !strings.Contains(err.Error(), "ambiguous") {
 		t.Errorf("expected ambiguous in error, got: %v", err)
@@ -338,6 +339,7 @@ func TestRecoverEmbedJobs_LocalAutoResumed(t *testing.T) {
 	job := s.GetEmbedJob("myorg/myrepo")
 	if job == nil {
 		t.Fatal("expected embed job to be started for llamacpp provider")
+		return
 	}
 	if job.Provider != "llamacpp" {
 		t.Errorf("expected provider=llamacpp, got %q", job.Provider)

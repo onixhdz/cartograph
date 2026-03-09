@@ -157,6 +157,7 @@ func TestOpenAICompat_ServerError(t *testing.T) {
 	_, err := p.Embed(context.Background(), []string{"test"})
 	if err == nil {
 		t.Fatal("expected error for 500 response")
+		return
 	}
 	if got := err.Error(); !contains(got, "500") || !contains(got, "model not found") {
 		t.Errorf("error = %q, want to contain '500' and 'model not found'", got)

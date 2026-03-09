@@ -29,6 +29,7 @@ func TestParseVersion(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("expected error for %q, got nil", tt.input)
+					return
 				}
 				return
 			}
@@ -72,6 +73,7 @@ func TestCheckCompatibility(t *testing.T) {
 		err := CheckCompatibility(VersionInfo{})
 		if err == nil {
 			t.Fatal("expected error for empty schema version")
+			return
 		}
 	})
 
@@ -79,6 +81,7 @@ func TestCheckCompatibility(t *testing.T) {
 		err := CheckCompatibility(VersionInfo{SchemaVersion: "99.0"})
 		if err == nil {
 			t.Fatal("expected error for incompatible schema")
+			return
 		}
 	})
 

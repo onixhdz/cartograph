@@ -393,6 +393,7 @@ func TestCypher_ReadOnlyReturnsResults(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 	// With opencypher wired, MATCH (n) RETURN n should return rows.
 	if len(result.Rows) == 0 {
@@ -412,6 +413,7 @@ func TestCypher_MatchByLabel(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 	// Should find functions: main, handleRequest, validate, helper.
 	if len(result.Rows) < 3 {
@@ -780,12 +782,14 @@ func TestFindSymbol_CaseInsensitive(t *testing.T) {
 	node := findSymbol(g, testFuncHandleRequest, "", "")
 	if node == nil {
 		t.Fatal("expected to find handleRequest")
+		return
 	}
 
 	// Case-insensitive should also work.
 	node = findSymbol(g, "HandleRequest", "", "")
 	if node == nil {
 		t.Fatal("expected case-insensitive match for HandleRequest")
+		return
 	}
 }
 
@@ -924,6 +928,7 @@ func TestFindSymbol_ByUID(t *testing.T) {
 	node := findSymbol(g, "anything", "", "func:validate")
 	if node == nil {
 		t.Fatal("expected to find node by UID")
+		return
 	}
 	if graph.GetStringProp(node, graph.PropName) != testFuncValidate {
 		t.Error("expected validate")
@@ -935,6 +940,7 @@ func TestFindSymbol_ByNameAndFile(t *testing.T) {
 	node := findSymbol(g, testFuncMain, testFileMainGo, "")
 	if node == nil {
 		t.Fatal("expected to find node")
+		return
 	}
 	if graph.GetStringProp(node, graph.PropFilePath) != testFileMainGo {
 		t.Error("expected main.go")
@@ -1426,6 +1432,7 @@ func TestFindSymbolByNameOrID_ByID(t *testing.T) {
 	node := findSymbolByNameOrID(g, "func:validate", "")
 	if node == nil {
 		t.Fatal("expected to find node by ID")
+		return
 	}
 	if graph.GetStringProp(node, graph.PropName) != testFuncValidate {
 		t.Error("expected validate")
@@ -1437,6 +1444,7 @@ func TestFindSymbolByNameOrID_ByName(t *testing.T) {
 	node := findSymbolByNameOrID(g, testFuncValidate, "")
 	if node == nil {
 		t.Fatal("expected to find node by name")
+		return
 	}
 }
 
@@ -1466,6 +1474,7 @@ func TestFindSymbol_FileNoMatch(t *testing.T) {
 	node := findSymbol(g, "Run", "internal/ingestion/pipeline.go", "")
 	if node == nil {
 		t.Fatal("expected to find Run in pipeline.go")
+		return
 	}
 	if graph.GetStringProp(node, graph.PropFilePath) != "internal/ingestion/pipeline.go" {
 		t.Errorf("expected pipeline.go, got %q", graph.GetStringProp(node, graph.PropFilePath))

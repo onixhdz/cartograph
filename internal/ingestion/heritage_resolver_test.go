@@ -339,6 +339,7 @@ func TestResolveHeritage_TraitKind(t *testing.T) {
 	cat := graph.FindNodeByID(g, "class:Cat")
 	if cat == nil {
 		t.Fatal("Cat node not found")
+		return
 	}
 	implEdges := graph.GetOutgoingEdges(cat, graph.RelImplements)
 	found := false

@@ -382,6 +382,7 @@ func TestCrossRepoEdgeCreation(t *testing.T) {
 	edge := AddEdge(g, nodeA, nodeB, RelCrossRepoCalls, nil)
 	if edge == nil {
 		t.Fatal("expected edge to be created")
+		return
 	}
 
 	rt, err := GetEdgeRelType(edge)
@@ -451,6 +452,7 @@ func TestQualifyNodeIDs(t *testing.T) {
 	fn := FindNodeByID(g, "deadbeef:func:main")
 	if fn == nil {
 		t.Fatal("expected to find qualified func node")
+		return
 	}
 	if GetStringProp(fn, PropRepoName) != "api-gateway" {
 		t.Errorf("missing repoName on func node")
@@ -459,6 +461,7 @@ func TestQualifyNodeIDs(t *testing.T) {
 	fl := FindNodeByID(g, "deadbeef:file:main.go")
 	if fl == nil {
 		t.Fatal("expected to find qualified file node")
+		return
 	}
 
 	if FindNodeByID(g, "func:main") != nil {

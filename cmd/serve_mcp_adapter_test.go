@@ -140,6 +140,7 @@ func TestServerMCPClient_Impact(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("expected non-nil impact result")
+		return
 	}
 }
 
@@ -233,6 +234,7 @@ func TestServerMCPClient_CatInvalidLineRange(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for invalid line range")
+		return
 	}
 	if !strings.Contains(err.Error(), "line range") {
 		t.Errorf("expected 'line range' in error, got: %v", err)
@@ -292,6 +294,7 @@ func TestServerMCPClient_RepoNotFound(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for unknown repo")
+		return
 	}
 }
 
@@ -332,6 +335,7 @@ func TestServerMCPClient_CatNoResolver(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error when no content resolver is available")
+		return
 	}
 	if !strings.Contains(err.Error(), "no content resolver") {
 		t.Errorf("expected 'no content resolver' in error, got: %v", err)

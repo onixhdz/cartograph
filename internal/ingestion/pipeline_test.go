@@ -26,6 +26,7 @@ func TestPipeline_BasicRun(t *testing.T) {
 	g := p.GetGraph()
 	if g == nil {
 		t.Fatal("expected non-nil graph after Run()")
+		return
 	}
 
 	// Should have file and folder nodes.
@@ -61,6 +62,7 @@ func TestPipeline_GetGraph_NonNilAfterRun(t *testing.T) {
 	g := p.GetGraph()
 	if g == nil {
 		t.Fatal("expected non-nil graph")
+		return
 	}
 
 	count := graph.NodeCount(g)
@@ -352,6 +354,7 @@ func TestPipeline_SymbolsLinkedToFiles(t *testing.T) {
 	}
 	if helloNode == nil {
 		t.Fatal("expected Hello function node")
+		return
 	}
 
 	// It should have an incoming CONTAINS edge from the File node.
@@ -493,6 +496,7 @@ func TestBuildImportAliasMap(t *testing.T) {
 	appAliases := aliasMap["src/app.ts"]
 	if appAliases == nil {
 		t.Fatal("expected alias map for src/app.ts")
+		return
 	}
 	if appAliases["useStateHook"] != "useState" {
 		t.Errorf("expected useStateHook→useState, got %q", appAliases["useStateHook"])
@@ -511,6 +515,7 @@ func TestBuildImportAliasMap(t *testing.T) {
 	libAliases := aliasMap["src/lib.ts"]
 	if libAliases == nil {
 		t.Fatal("expected alias map for src/lib.ts")
+		return
 	}
 	if libAliases["U"] != "User" {
 		t.Errorf("expected U→User, got %q", libAliases["U"])
