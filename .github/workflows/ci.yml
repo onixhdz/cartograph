@@ -28,7 +28,7 @@ jobs:
         with:
           version: 0.15.2
           use-cache: false
-      - uses: arduino/setup-task@v2
+      - uses: go-task/setup-task@v1
         with:
           version: 3.x
       - name: Clean generated artifacts
@@ -54,7 +54,7 @@ jobs:
         with:
           version: 0.15.2
           use-cache: false
-      - uses: arduino/setup-task@v2
+      - uses: go-task/setup-task@v1
         with:
           version: 3.x
       - name: Clean generated artifacts
