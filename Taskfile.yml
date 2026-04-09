@@ -3,6 +3,9 @@ dotenv:
   - .local.env
 vars:
   VERSION: '{{default "dev" .VERSION}}'
+  REPO_ROOT:
+    sh: git rev-parse --show-toplevel
+  ZIG_CACHE_DIR: '{{.REPO_ROOT}}/.zig-cache'
   GIT_COMMIT:
     sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
   BUILD_DATE:
@@ -60,8 +63,11 @@ tasks:
       - test -f .zig-target.stamp
       - test "$(cat .zig-target.stamp)" = "{{.TARGET}}"
     cmds:
+      - mkdir -p '{{.ZIG_CACHE_DIR}}'
       - rm -rf zig-out
-      - zig build native -Doptimize=ReleaseFast {{if .TARGET}}-Dtarget={{.TARGET}}{{end}}
+      - >
+        ZIG_LOCAL_CACHE_DIR='{{.ZIG_CACHE_DIR}}'
+        zig build native -Doptimize=ReleaseFast {{if .TARGET}}-Dtarget={{.TARGET}}{{end}}
       - echo "{{.TARGET}}" > .zig-target.stamp
       - echo "✓ {{.EMBEDDING_LIB_FILE}} [{{.TARGET}}] ($(du -h zig-out/lib/{{.EMBEDDING_LIB_FILE}} | cut -f1))"
 
@@ -98,7 +104,9 @@ tasks:
     generates:
       - '{{.BIN_NAME}}'
     cmds:
+      - mkdir -p '{{.ZIG_CACHE_DIR}}'
       - >
+        ZIG_LOCAL_CACHE_DIR='{{.ZIG_CACHE_DIR}}'
         CGO_ENABLED=1
         CC='zig cc -target {{.ZIG_TARGET}}'
         CXX='zig c++ -target {{.ZIG_TARGET}}'
@@ -133,7 +141,9 @@ tasks:
     generates:
       - cartograph-linux-amd64
     cmds:
+      - mkdir -p '{{.ZIG_CACHE_DIR}}'
       - >
+        ZIG_LOCAL_CACHE_DIR='{{.ZIG_CACHE_DIR}}'
         CGO_ENABLED=1
         GOOS=linux
         GOARCH=amd64
@@ -155,7 +165,9 @@ tasks:
     generates:
       - cartograph-linux-arm64
     cmds:
+      - mkdir -p '{{.ZIG_CACHE_DIR}}'
       - >
+        ZIG_LOCAL_CACHE_DIR='{{.ZIG_CACHE_DIR}}'
         CGO_ENABLED=1
         GOOS=linux
         GOARCH=arm64
@@ -183,7 +195,9 @@ tasks:
     generates:
       - cartograph-darwin-arm64
     cmds:
+      - mkdir -p '{{.ZIG_CACHE_DIR}}'
       - >
+        ZIG_LOCAL_CACHE_DIR='{{.ZIG_CACHE_DIR}}'
         CGO_ENABLED=1
         GOOS=darwin
         GOARCH=arm64
@@ -212,7 +226,9 @@ tasks:
     generates:
       - cartograph-darwin-amd64
     cmds:
+      - mkdir -p '{{.ZIG_CACHE_DIR}}'
       - >
+        ZIG_LOCAL_CACHE_DIR='{{.ZIG_CACHE_DIR}}'
         CGO_ENABLED=1
         GOOS=darwin
         GOARCH=amd64
@@ -241,7 +257,9 @@ tasks:
     generates:
       - cartograph-windows-amd64.exe
     cmds:
+      - mkdir -p '{{.ZIG_CACHE_DIR}}'
       - >
+        ZIG_LOCAL_CACHE_DIR='{{.ZIG_CACHE_DIR}}'
         CGO_ENABLED=1
         GOOS=windows
         GOARCH=amd64

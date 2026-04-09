@@ -1,19 +1,9 @@
 package extractors
 
-import "github.com/odvcencio/gotreesitter/grammars"
-
-// CanExtract returns true if the given language can have symbols extracted,
-// either via a hand-crafted query in LanguageQueries or via an inferred
-// tags query from the gotreesitter library.
+// CanExtract returns true if the given language has first-hand query support.
 func CanExtract(language string) bool {
-	if _, ok := LanguageQueries[language]; ok {
-		return true
-	}
-	entry := grammars.DetectLanguageByName(language)
-	if entry == nil {
-		return false
-	}
-	return grammars.ResolveTagsQuery(*entry) != ""
+	_, ok := LanguageQueries[language]
+	return ok
 }
 
 // LanguagePreProcess maps language names to source-preprocessing functions
@@ -131,7 +121,7 @@ const pyQueries = "(class_definition name: (identifier) @name) @definition.class
 	// Python property: class-level annotated assignment (dataclass fields, Pydantic models)
 	"(class_definition body: (block (expression_statement (assignment left: (identifier) @name)) @definition.property))\n" +
 	// Python property: bare type annotation (e.g., name: str)
-	"(class_definition body: (block (expression_statement (type (identifier) @name)) @definition.property))\n" +
+	"(class_definition body: (block (expression_statement (assignment left: (identifier) @name type: (_) right: (_)?)) @definition.property))\n" +
 	"(import_statement name: (dotted_name) @import.source) @import\n" +
 	"(import_from_statement module_name: (dotted_name) @import.source) @import\n" +
 	"(import_from_statement module_name: (relative_import) @import.source) @import\n" +
@@ -315,9 +305,7 @@ const phpQueries = "(namespace_definition name: (namespace_name) @name) @definit
 	"(property_declaration (property_element (variable_name (name) @name))) @definition.property\n" +
 	"(assignment_expression left: (member_access_expression object: (_) @assignment.receiver name: (name) @assignment.property) right: (_)) @assignment\n" +
 	// PHP spawn: pcntl_fork()
-	"(function_call_expression function: (name) @_fn (#eq? @_fn \"pcntl_fork\")) @spawn\n" +
-	// PHP delegate: bare name passed as function argument
-	"(function_call_expression arguments: (arguments (name) @delegate.target)) @delegate\n"
+	"(function_call_expression function: (name) @_fn (#eq? @_fn \"pcntl_fork\")) @spawn\n"
 
 const ktQueries = "(class_declaration (type_identifier) @name) @definition.class\n" +
 	"(object_declaration (type_identifier) @name) @definition.class\n" +

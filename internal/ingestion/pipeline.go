@@ -452,6 +452,18 @@ func (p *Pipeline) parseFiles(walkResults []WalkResult) *extractors.ParseResult 
 // addSymbolsToGraph creates lpg nodes for each extracted symbol and links
 // them to their parent File node via CONTAINS edges.
 func (p *Pipeline) addSymbolsToGraph(pr *extractors.ParseResult, absToRel map[string]string) {
+	fileNodesByPath := make(map[string]*lpg.Node)
+	ownerIndex := graph.BuildGraphIndex(p.Graph)
+	for nodes := p.Graph.GetNodes(); nodes.Next(); {
+		node := nodes.Node()
+		if !node.HasLabel(string(graph.LabelFile)) {
+			continue
+		}
+		if fp := graph.GetStringProp(node, graph.PropFilePath); fp != "" {
+			fileNodesByPath[fp] = node
+		}
+	}
+
 	for _, sym := range pr.Symbols {
 		relPath := absToRel[sym.FilePath]
 		if relPath == "" {
@@ -496,14 +508,14 @@ func (p *Pipeline) addSymbolsToGraph(pr *extractors.ParseResult, absToRel map[st
 			node.SetProperty(graph.PropSignature, sym.Signature)
 		}
 
-		fileNode := graph.FindNodeByFilePath(p.Graph, relPath)
+		fileNode := fileNodesByPath[relPath]
 		if fileNode != nil {
 			graph.AddEdge(p.Graph, fileNode, node, graph.RelContains, nil)
 			graph.AddEdge(p.Graph, fileNode, node, graph.RelDefines, nil)
 		}
 
 		if sym.OwnerName != "" {
-			ownerNodes := graph.FindNodesByName(p.Graph, sym.OwnerName)
+			ownerNodes := ownerIndex.FindNodesByName(sym.OwnerName)
 			if len(ownerNodes) > 0 {
 				var relType graph.RelType
 				switch sym.Label {

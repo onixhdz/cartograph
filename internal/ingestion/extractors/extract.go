@@ -7,9 +7,9 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
-	ts "github.com/odvcencio/gotreesitter"
-	"github.com/odvcencio/gotreesitter/grammars"
+	ts "github.com/realxen/cartograph/internal/treesitter"
 
 	"github.com/realxen/cartograph/internal/graph"
 )
@@ -114,7 +114,6 @@ type FileExtractionResult struct {
 
 // langCacheEntry holds pre-compiled resources for one language.
 type langCacheEntry struct {
-	entry          *grammars.LangEntry
 	lang           *ts.Language
 	pool           *ts.ParserPool
 	query          *ts.Query // used only for single-threaded / non-pool path
@@ -127,12 +126,19 @@ type langCacheEntry struct {
 // langCache maps language names to pre-compiled parser pools and queries.
 // Built once before parallel parsing; all entries are read-only after init.
 type langCache struct {
-	mu      sync.Mutex
-	entries map[string]*langCacheEntry
+	mu                 sync.Mutex
+	entries            map[string]*langCacheEntry
+	parseTimeoutMicros uint64
 }
 
-func newLangCache() *langCache {
-	return &langCache{entries: make(map[string]*langCacheEntry)}
+func newLangCache(parseTimeout time.Duration) *langCache {
+	if parseTimeout <= 0 {
+		parseTimeout = 30 * time.Second
+	}
+	return &langCache{
+		entries:            make(map[string]*langCacheEntry),
+		parseTimeoutMicros: uint64(parseTimeout / time.Microsecond),
+	}
 }
 
 // get returns a cached entry for the given language, creating it if needed.
@@ -144,26 +150,18 @@ func (lc *langCache) get(language string) (*langCacheEntry, error) {
 		return entry, nil
 	}
 
-	gEntry := grammars.DetectLanguageByName(language)
-	if gEntry == nil {
+	lang := ts.DetectLanguageByName(language)
+	if lang == nil {
 		return nil, fmt.Errorf("unsupported language: %s", language)
 	}
 
-	lang := gEntry.Language()
-	if lang == nil {
-		return nil, fmt.Errorf("failed to load grammar for %s", language)
-	}
-
-	queryStr, ok := LanguageQueries[gEntry.Name]
+	queryStr, ok := LanguageQueries[ts.LanguageName(lang)]
 	if !ok {
 		queryStr, ok = LanguageQueries[language]
 	}
 	hasCustomQuery := ok
 	if !ok {
-		queryStr = grammars.ResolveTagsQuery(*gEntry)
-		if queryStr == "" {
-			return nil, fmt.Errorf("no extraction queries for language %s", language)
-		}
+		return nil, fmt.Errorf("no extraction queries for language %s", language)
 	}
 
 	query, err := ts.NewQuery(queryStr, lang)
@@ -171,15 +169,9 @@ func (lc *langCache) get(language string) (*langCacheEntry, error) {
 		return nil, fmt.Errorf("compile query for %s: %w", language, err)
 	}
 
-	// Set a 30-second parse timeout so pathological files (deeply nested
-	// generated code, minified bundles) cannot stall a worker indefinitely.
-	// The parser checks this cooperatively inside its iteration loop.
-	const parseTimeoutMicros = 30 * 1000 * 1000 // 30 seconds
-
 	ce := &langCacheEntry{
-		entry:          gEntry,
 		lang:           lang,
-		pool:           ts.NewParserPool(lang, ts.WithParserPoolTimeoutMicros(parseTimeoutMicros)),
+		pool:           ts.NewParserPool(lang, ts.WithParserPoolTimeoutMicros(lc.parseTimeoutMicros)),
 		query:          query,
 		queryStr:       queryStr,
 		hasCustomQuery: hasCustomQuery,
@@ -233,7 +225,6 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 	var query *ts.Query
 	var pool *ts.ParserPool
 	var hasCustomQuery bool
-	var entry *grammars.LangEntry
 	var preProcess func([]byte) []byte
 
 	var queryPoolEntry *langCacheEntry // set when using pooled queries
@@ -246,7 +237,6 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 		lang = ce.lang
 		pool = ce.pool
 		hasCustomQuery = ce.hasCustomQuery
-		entry = ce.entry
 		preProcess = ce.preProcess
 
 		// Borrow a per-goroutine query from the pool to avoid data races
@@ -258,26 +248,19 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 		query = pooledQuery
 		queryPoolEntry = ce
 	} else {
-		// Fallback: no cache, create everything fresh (backward compat).
-		entry = grammars.DetectLanguageByName(language)
-		if entry == nil {
+		// Fallback: no cache, create everything fresh.
+		lang = ts.DetectLanguageByName(language)
+		if lang == nil {
 			return nil, fmt.Errorf("unsupported language: %s", language)
 		}
-		lang = entry.Language()
-		if lang == nil {
-			return nil, fmt.Errorf("failed to load grammar for %s", language)
-		}
 		preProcess = LanguagePreProcess[language]
-		queryStr, ok := LanguageQueries[entry.Name]
+		queryStr, ok := LanguageQueries[ts.LanguageName(lang)]
 		if !ok {
 			queryStr, ok = LanguageQueries[language]
 		}
 		hasCustomQuery = ok
 		if !ok {
-			queryStr = grammars.ResolveTagsQuery(*entry)
-			if queryStr == "" {
-				return nil, fmt.Errorf("no extraction queries for language %s", language)
-			}
+			return nil, fmt.Errorf("no extraction queries for language %s", language)
 		}
 		var qerr error
 		query, qerr = ts.NewQuery(queryStr, lang)
@@ -308,7 +291,7 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 		}
 	}
 
-	matches := query.Execute(tree)
+	matches := query.Execute(tree, source)
 
 	result = &FileExtractionResult{}
 
@@ -576,7 +559,7 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 
 	// For languages without hand-crafted queries, supplement with AST-walk extraction.
 	if !hasCustomQuery {
-		extra := resolveInferredExtra(entry)
+		extra := resolveInferredExtra(lang)
 		rootNode := tree.RootNode()
 		if len(extra.importNodeTypes) > 0 {
 			result.Imports = append(result.Imports, extractImportsFromAST(rootNode, source, filePath, lang, extra)...)

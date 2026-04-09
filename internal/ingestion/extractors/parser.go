@@ -67,6 +67,9 @@ func ParseFiles(files []FileInput, opts ParseOptions) *ParseResult {
 	if opts.Workers <= 0 {
 		opts.Workers = runtime.NumCPU()
 	}
+	if opts.MaxFileParseTime <= 0 {
+		opts.MaxFileParseTime = 30 * time.Second
+	}
 	if opts.MaxFileSize <= 0 {
 		opts.MaxFileSize = defaultMaxParseFileSize
 	}
@@ -78,7 +81,7 @@ func ParseFiles(files []FileInput, opts ParseOptions) *ParseResult {
 	// Pre-build language cache: compile grammars and queries once,
 	// create ParserPools so workers reuse parsers instead of allocating
 	// new ones per file. This avoids ~1ms overhead × thousands of files.
-	cache := newLangCache()
+	cache := newLangCache(opts.MaxFileParseTime)
 	langs := make([]string, 0, len(files))
 	for _, f := range files {
 		langs = append(langs, f.Language)

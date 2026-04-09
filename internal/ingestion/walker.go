@@ -11,7 +11,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/odvcencio/gotreesitter/grammars"
+	ts "github.com/realxen/cartograph/internal/treesitter"
 	ignore "github.com/sabhiram/go-gitignore"
 )
 
@@ -182,26 +182,14 @@ func readIgnoreLines(path string) []string {
 	return lines
 }
 
-// languageAliases maps gotreesitter grammar names to the canonical language
-// names used elsewhere in cartograph (e.g. LanguageQueries keys).
-var languageAliases = map[string]string{
-	"c_sharp":    "csharp",
-	"typescript": "typescript",
-	"tsx":        "typescript",
-	"jsx":        "javascript",
-}
-
-// DetectLanguage maps a filename to a language string using grammars.DetectLanguage.
+// DetectLanguage maps a filename to a language string using the explicit
+// native tree-sitter registry.
 func DetectLanguage(name string) string {
-	entry := grammars.DetectLanguage(name)
-	if entry == nil {
+	lang := ts.DetectLanguage(name)
+	if lang == nil {
 		return ""
 	}
-	// Check alias table first.
-	if alias, ok := languageAliases[entry.Name]; ok {
-		return alias
-	}
-	return entry.Name
+	return ts.LanguageName(lang)
 }
 
 // binaryExtensions is the set of file extensions considered binary.
