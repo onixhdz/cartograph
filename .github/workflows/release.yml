@@ -33,10 +33,14 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.15.2
+          use-cache: false
 
       - uses: arduino/setup-task@v2
         with:
           version: 3.x
+
+      - name: Clean generated artifacts
+        run: task clean
 
       - name: Build native embedding prereqs
         run: task build:embedding:lib
