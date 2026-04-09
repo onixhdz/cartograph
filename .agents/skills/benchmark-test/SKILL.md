@@ -44,6 +44,7 @@ with keyword + intent query pairs and ground-truth expected symbols:
 | `batteries/nomad.md`              | Go         | 37587 | **15** | startup, scheduling, node failure, raft, client-server  |
 | `batteries/gatling.md`            | Scala      | 11863 | 10     | simulation exec, HTTP protocol, session/stats, actions, assertions |
 | `batteries/gatling-usecases.md`   | Scala      | 11863 | 10     | redirects, throttling, CSV feeding, reporting, WebSocket, session state |
+| `batteries/mdbook.md`             | Rust       | 2375  | 8      | CLI dispatch, build pipeline, preprocessors, config/init, serve/watch |
 
 ### Query Types
 
@@ -138,7 +139,7 @@ python3 .agents/skills/benchmark-test/score.py /tmp/bat-steampipe.txt \
 | 5K-20K nodes  | `-l 10` | Moderate dilution                                       |
 | > 20K nodes   | `-l 15` | Large codebases need more slots to surface deep symbols |
 
-## Current Baseline (2026-04-20, Scala export fix + test-filter-before-truncation)
+## Current Baseline (2026-05-05, Scala export fix + Rust mdBook battery)
 
 ```
 Project              Lang    Nodes    KW          INT         Criteria
@@ -149,8 +150,9 @@ fastapi              Python  756      22/39 (56%) 25/39 (64%) 5/5
 nomad                Go      37587    26/41 (63%) 17/41 (41%) 4/5
 gatling              Scala   11863    27/40 (67%) 23/40 (57%) 5/5
 gatling-usecases     Scala   11863    31/36 (86%) 25/36 (69%) 6/6
+mdbook               Rust    2375     26/43 (60%) 22/43 (51%) 5/5
 ──────────────────────────────────────────────────────────────────────
-TOTAL                         171/236(72%) 143/236(60%) 30/31(97%)
+TOTAL                         197/279(70%) 165/279(59%) 35/36(97%)
 ```
 
 **Model:** bge-small (384d, 24MB)
@@ -304,7 +306,7 @@ existing batteries don't have:
 | Architecture              | Clear subsystems (routing, auth, storage, scheduling…)   |
 | Familiarity               | Well-known OSS projects make ground-truth easier to verify |
 
-Existing coverage: Go (steampipe, nomad), TypeScript (excalidraw), Python (fastapi), Scala (gatling).
+Existing coverage: Go (steampipe, nomad), TypeScript (excalidraw), Python (fastapi), Scala (gatling), Rust (mdBook).
 
 ### 1. Resolve and index the project
 
@@ -537,5 +539,6 @@ Add a row to the "Current Baseline" table in this file with:
     ├── excalidraw.md     ← TypeScript (1253 nodes)
     ├── fastapi.md        ← Python (756 nodes)
     ├── nomad.md          ← Go (37587 nodes) — stress test for large codebases
-    └── gatling.md        ← Scala (8438 nodes) — first Scala coverage
+    ├── gatling.md        ← Scala (8438 nodes) — first Scala coverage
+    └── mdbook.md         ← Rust (2375 nodes) — CLI/build/render/watch coverage
 ```
