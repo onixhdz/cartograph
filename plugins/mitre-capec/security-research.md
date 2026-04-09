@@ -19,9 +19,12 @@ graph is the proof.
 ## What Works Reliably
 
 - Use `cartograph query` and `cartograph context` on the target repository.
-- Use `cartograph cypher -r mitre-capec` on the CAPEC dataset.
-- Do not use `cartograph query -r mitre-capec`; plugin datasets do not support
-  `query`.
+- Use `cartograph query -p mitre-capec` to find likely CAPEC attack patterns by
+  name, description, or related CWE.
+- Use `cartograph cypher -p mitre-capec` for exact pattern reads,
+  relationship traversal, and mitigation pivots.
+- Do not use `cartograph query -r mitre-capec`; plugin datasets require `-p`
+  for plugin query.
 - Prefer simple CAPEC Cypher forms: exact property matches, `CONTAINS` on
   names, direct relationship traversals, and `MITIGATES` lookups.
 - For more concrete CAPEC Cypher examples, use the `query-examples` resource.
@@ -46,7 +49,7 @@ Refresh the CAPEC dataset:
 ```sh
 cartograph plugin list
 cartograph plugin ingest mitre-capec
-cartograph schema -r mitre-capec
+cartograph schema -p mitre-capec
 ```
 
 ## Recommended Workflow
@@ -106,40 +109,53 @@ Examples:
 - unsafe remote content retrieval -> malicious download or tampered content
 - weak authorization checks -> access control abuse patterns
 
-### 3. Pivot into CAPEC with Cypher
+### 3. Pivot into CAPEC with plugin query first
+
+Start with plugin query when you have a likely attack family, rough pattern
+name, or a known CWE:
+
+```sh
+cartograph query -p mitre-capec "path traversal"
+cartograph query -p mitre-capec "sql injection"
+cartograph query -p mitre-capec "CWE-89"
+```
+
+Use the returned CAPEC ID to move into exact reads and graph traversal.
+
+### 4. Refine with Cypher
 
 Search by likely pattern name when you have a theme:
 
 ```sh
-cartograph cypher "MATCH (p:CAPECPattern) WHERE p.name CONTAINS 'Traversal' RETURN p.capec_id, p.name LIMIT 10" -r mitre-capec
+cartograph cypher -p mitre-capec "MATCH (p:CAPECPattern) WHERE p.name CONTAINS 'Traversal' RETURN p.capec_id, p.name LIMIT 10"
 ```
 
 Inspect a candidate pattern directly when you know the CAPEC ID:
 
 ```sh
-cartograph cypher "MATCH (p:CAPECPattern {capec_id: 'CAPEC-126'}) RETURN p.capec_id, p.name, p.description, p.related_cwes, p.domains, p.severity" -r mitre-capec
+cartograph cypher -p mitre-capec "MATCH (p:CAPECPattern {capec_id: 'CAPEC-126'}) RETURN p.capec_id, p.name, p.description, p.related_cwes, p.domains, p.severity"
 ```
 
 Use a known CWE if you already have one, but verify the property shape first.
 On this dataset, exact checks and direct reads are more reliable than more
 complex string expressions.
 
-### 4. Expand through CAPEC relationships
+### 5. Expand through CAPEC relationships
 
 Once a pattern looks plausible, widen the investigation:
 
 ```sh
-cartograph cypher "MATCH (p:CAPECPattern {capec_id: 'CAPEC-126'})-[:CHILD_OF]->(parent:CAPECPattern) RETURN p.capec_id, p.name, parent.capec_id, parent.name" -r mitre-capec
-cartograph cypher "MATCH (p:CAPECPattern {capec_id: 'CAPEC-126'})-[:CAN_PRECEDE]->(next:CAPECPattern) RETURN p.capec_id, p.name, next.capec_id, next.name" -r mitre-capec
-cartograph cypher "MATCH (peer:CAPECPattern)-[:PEER_OF]->(p:CAPECPattern {capec_id: 'CAPEC-126'}) RETURN peer.capec_id, peer.name, p.capec_id, p.name" -r mitre-capec
+cartograph cypher -p mitre-capec "MATCH (p:CAPECPattern {capec_id: 'CAPEC-126'})-[:CHILD_OF]->(parent:CAPECPattern) RETURN p.capec_id, p.name, parent.capec_id, parent.name"
+cartograph cypher -p mitre-capec "MATCH (p:CAPECPattern {capec_id: 'CAPEC-126'})-[:CAN_PRECEDE]->(next:CAPECPattern) RETURN p.capec_id, p.name, next.capec_id, next.name"
+cartograph cypher -p mitre-capec "MATCH (peer:CAPECPattern)-[:PEER_OF]->(p:CAPECPattern {capec_id: 'CAPEC-126'}) RETURN peer.capec_id, peer.name, p.capec_id, p.name"
 ```
 
 Use these pivots to ask better repo questions, not to declare a bug.
 
-### 5. Pull mitigations and verify the control in code
+### 6. Pull mitigations and verify the control in code
 
 ```sh
-cartograph cypher "MATCH (m:CAPECMitigation)-[:MITIGATES]->(p:CAPECPattern {capec_id: 'CAPEC-126'}) RETURN p.capec_id, p.name, m.id, m.name LIMIT 10" -r mitre-capec
+cartograph cypher -p mitre-capec "MATCH (m:CAPECMitigation)-[:MITIGATES]->(p:CAPECPattern {capec_id: 'CAPEC-126'}) RETURN p.capec_id, p.name, m.id, m.name LIMIT 10"
 ```
 
 Treat mitigations as concrete review prompts:
@@ -176,7 +192,7 @@ cartograph cypher "MATCH (p:Process)-[:STEP_IN_PROCESS]->(f:Function {name: '<sh
 If coverage shows multiple sibling paths, inspect all materially different
 ones before reporting a conclusion.
 
-### 6. Report only code-backed attack paths
+### 7. Report only code-backed attack paths
 
 A useful finding should name:
 
@@ -203,8 +219,8 @@ cartograph plugin ingest mitre-capec
 cartograph query "<security theme or suspicious code path>" -l 8
 cartograph context <symbol> --depth 2 --content
 
-cartograph cypher "MATCH (p:CAPECPattern) WHERE p.name CONTAINS '<theme>' RETURN p.capec_id, p.name LIMIT 10" -r mitre-capec
-cartograph cypher "MATCH (m:CAPECMitigation)-[:MITIGATES]->(p:CAPECPattern {capec_id: '<CAPEC-ID>'}) RETURN m.id, m.name LIMIT 10" -r mitre-capec
+cartograph query -p mitre-capec "<theme or CWE>"
+cartograph cypher -p mitre-capec "MATCH (m:CAPECMitigation)-[:MITIGATES]->(p:CAPECPattern {capec_id: '<CAPEC-ID>'}) RETURN m.id, m.name LIMIT 10"
 
 cartograph context <next-symbol> --depth 2 --content
 cartograph impact <shared-sink-or-guard> --direction upstream -d 3
@@ -214,6 +230,8 @@ cartograph cat <file> -l <start-end>
 ## Practical Rules
 
 - Prefer code context first, CAPEC second.
+- Prefer `query -p` for fast CAPEC pattern discovery, then `cypher -p` for exact
+  reads and relationship traversal.
 - Use CAPEC to widen or refine an investigation, not to replace code evidence.
 - Expand with `CHILD_OF`, `PEER_OF`, and `CAN_PRECEDE` before concluding scope.
 - Read `MITIGATES` edges as review prompts for missing controls.

@@ -133,6 +133,15 @@ cartograph serve start
 The service auto-shuts down after 30 minutes of inactivity. Check if
 it's already running with `cartograph serve status`.
 
+### Retry Query Timeouts
+
+If a `cartograph query` command fails with `deadline exceeded`, treat that as a
+transient failure and retry the query. This is acceptable, especially when the
+background service is warming caches or loading a graph for the first query.
+
+Do not immediately assume the repo is broken or unindexed just because a single
+query hit `deadline exceeded`.
+
 ### Always Index Before Querying
 
 Cartograph commands that read the knowledge graph (`query`, `context`,
