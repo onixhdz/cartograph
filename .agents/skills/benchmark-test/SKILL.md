@@ -20,7 +20,7 @@ task build:dev
 ./cartograph-darwin-arm64 serve start --no-detach --no-idle &
 
 # 1. Index all test repos (clean + re-embed)
-for repo in turbot/steampipe excalidraw/excalidraw fastapi/fastapi hashicorp/nomad gatling/gatling; do
+for repo in turbot/steampipe excalidraw/excalidraw fastapi/fastapi hashicorp/nomad gatling/gatling spring-projects/spring-security spring-projects/spring-framework; do
   ./cartograph-darwin-arm64 clean "$repo"
   ./cartograph-darwin-arm64 analyze "$repo" --embed=sync
 done
@@ -44,6 +44,8 @@ with keyword + intent query pairs and ground-truth expected symbols:
 | `batteries/nomad.md`              | Go         | 37587 | **15** | startup, scheduling, node failure, raft, client-server  |
 | `batteries/gatling.md`            | Scala      | 11863 | 10     | simulation exec, HTTP protocol, session/stats, actions, assertions |
 | `batteries/gatling-usecases.md`   | Scala      | 11863 | 10     | redirects, throttling, CSV feeding, reporting, WebSocket, session state |
+| `batteries/spring-security.md`    | Java       | 71127 | **15** | auth flow, authorization, servlet filters, config/builders, method security |
+| `batteries/spring-framework.md`   | Java       | 163895| **15** | bean wiring, MVC dispatch, context refresh/events, config parsing |
 
 ### Query Types
 
@@ -138,7 +140,7 @@ python3 .agents/skills/benchmark-test/score.py /tmp/bat-steampipe.txt \
 | 5K-20K nodes  | `-l 10` | Moderate dilution                                       |
 | > 20K nodes   | `-l 15` | Large codebases need more slots to surface deep symbols |
 
-## Current Baseline (2026-04-20, Scala export fix + test-filter-before-truncation)
+## Current Baseline (2026-04-30, Java rollout + semantic validation)
 
 ```
 Project              Lang    Nodes    KW          INT         Criteria
@@ -149,8 +151,10 @@ fastapi              Python  756      22/39 (56%) 25/39 (64%) 5/5
 nomad                Go      37587    26/41 (63%) 17/41 (41%) 4/5
 gatling              Scala   11863    27/40 (67%) 23/40 (57%) 5/5
 gatling-usecases     Scala   11863    31/36 (86%) 25/36 (69%) 6/6
+spring-security      Java    71127    30/42 (71%) 23/42 (54%) 5/5
+spring-framework     Java    163895   20/24 (83%) 19/24 (79%) 4/4
 ──────────────────────────────────────────────────────────────────────
-TOTAL                         171/236(72%) 143/236(60%) 30/31(97%)
+TOTAL                         221/302(73%) 185/302(61%) 39/40(97%)
 ```
 
 **Model:** bge-small (384d, 24MB)
@@ -304,7 +308,7 @@ existing batteries don't have:
 | Architecture              | Clear subsystems (routing, auth, storage, scheduling…)   |
 | Familiarity               | Well-known OSS projects make ground-truth easier to verify |
 
-Existing coverage: Go (steampipe, nomad), TypeScript (excalidraw), Python (fastapi), Scala (gatling).
+Existing coverage: Go (steampipe, nomad), TypeScript (excalidraw), Python (fastapi), Scala (gatling), Java (spring-security, spring-framework).
 
 ### 1. Resolve and index the project
 
@@ -537,5 +541,8 @@ Add a row to the "Current Baseline" table in this file with:
     ├── excalidraw.md     ← TypeScript (1253 nodes)
     ├── fastapi.md        ← Python (756 nodes)
     ├── nomad.md          ← Go (37587 nodes) — stress test for large codebases
-    └── gatling.md        ← Scala (8438 nodes) — first Scala coverage
+    ├── gatling.md        ← Scala (11863 nodes) — first Scala coverage
+    ├── gatling-usecases.md ← Scala (11863 nodes) — broader workflow coverage
+    ├── spring-security.md ← Java (71127 nodes) — auth/config benchmark anchor
+    └── spring-framework.md ← Java (163895 nodes) — cross-project Java validation
 ```

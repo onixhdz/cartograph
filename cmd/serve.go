@@ -17,7 +17,6 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	mcpserver "github.com/realxen/cartograph/internal/mcp"
-	"github.com/realxen/cartograph/internal/query"
 	"github.com/realxen/cartograph/internal/service"
 	"github.com/realxen/cartograph/internal/sysutil"
 )
@@ -488,18 +487,7 @@ func isAlive(network, addr string) bool {
 // query.Backend instances from the server's cached graphs and search
 // indexes.
 func newServerBackendFactory(s *service.Server) service.BackendFactory {
-	return func(repo string) service.ToolBackend {
-		g, idx, ok := s.GetRepoResources(repo)
-		if !ok {
-			return nil
-		}
-		return &query.Backend{
-			Graph:    g,
-			Index:    idx,
-			EmbedDir: s.GetRepoDir(repo),
-			EmbedFn:  s.QueryEmbed,
-		}
-	}
+	return newQueryBackendFactory(s)
 }
 
 // serverMCPClient adapts *service.Server to the mcp.Client interface,

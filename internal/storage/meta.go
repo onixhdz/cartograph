@@ -72,8 +72,40 @@ type Meta struct {
 	EmbeddingDuration string `json:"embeddingDuration,omitempty"`
 }
 
+// Embedding status values stored in Meta.EmbeddingStatus.
+const (
+	EmbeddingStatusRunning  = "running"
+	EmbeddingStatusComplete = "complete"
+	EmbeddingStatusFailed   = "failed"
+)
+
 // Versions returns the schema, algorithm, and embedding text version
 // strings for use with version.CheckCompatibility.
 func (m Meta) Versions() (schema, algorithm, embeddingText string) {
 	return m.SchemaVersion, m.AlgorithmVersion, m.EmbeddingTextVersion
+}
+
+// CopyEmbeddingFrom copies all embedding-related fields from src into m.
+// Used by Add to preserve embedding metadata across re-analyses.
+func (m *Meta) CopyEmbeddingFrom(src Meta) {
+	m.EmbeddingStatus = src.EmbeddingStatus
+	m.EmbeddingModel = src.EmbeddingModel
+	m.EmbeddingDims = src.EmbeddingDims
+	m.EmbeddingProvider = src.EmbeddingProvider
+	m.EmbeddingNodes = src.EmbeddingNodes
+	m.EmbeddingTotal = src.EmbeddingTotal
+	m.EmbeddingError = src.EmbeddingError
+	m.EmbeddingDuration = src.EmbeddingDuration
+}
+
+// ResetEmbedding clears all embedding-related fields. Used when a repo is
+// re-analyzed without embeddings so status reporting and query gating fall
+// back to BM25-only mode.
+func (m *Meta) ResetEmbedding() {
+	m.CopyEmbeddingFrom(Meta{})
+}
+
+// EmbeddingComplete reports whether persisted embedding state is complete.
+func (m Meta) EmbeddingComplete() bool {
+	return m.EmbeddingStatus == EmbeddingStatusComplete
 }

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	mcpserver "github.com/realxen/cartograph/internal/mcp"
-	"github.com/realxen/cartograph/internal/query"
 	"github.com/realxen/cartograph/internal/service"
 )
 
@@ -47,18 +46,7 @@ func (c *McpCmd) Run(cli *CLI) error {
 	// reachable. Cold start is ~27ms.
 	if backend == nil {
 		mc := service.NewMemoryClient(dataDir)
-		mc.SetBackendFactory(func(repo string) service.ToolBackend {
-			g, idx, ok := mc.GetRepoResources(repo)
-			if !ok {
-				return nil
-			}
-			return &query.Backend{
-				Graph:    g,
-				Index:    idx,
-				EmbedDir: mc.GetRepoDir(repo),
-				EmbedFn:  mc.QueryEmbed,
-			}
-		})
+		mc.SetBackendFactory(newQueryBackendFactory(mc))
 		_ = mc.LoadAllFromRegistry()
 		defer mc.Close()
 		backend = mc

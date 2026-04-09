@@ -288,6 +288,13 @@ func (s *Server) GetRepoDir(repo string) string {
 	return dir
 }
 
+// HasCompleteEmbeddings reports whether the repo's persisted registry
+// metadata marks embeddings as complete. Query backends use this to decide
+// whether hybrid vector search should be enabled.
+func (s *Server) HasCompleteEmbeddings(repo string) bool {
+	return embeddingComplete(s.dataDir, repo)
+}
+
 // QueryEmbed embeds a single query text using a lazily initialized
 // embedding provider. Returns nil, nil if the provider isn't ready yet
 // or initialization failed (graceful degradation to BM25-only search).

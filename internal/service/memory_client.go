@@ -118,6 +118,13 @@ func (mc *MemoryClient) GetRepoDir(repo string) string {
 	return dir
 }
 
+// HasCompleteEmbeddings reports whether the repo's persisted registry
+// metadata marks embeddings as complete. Query backends use this to decide
+// whether hybrid vector search should be enabled.
+func (mc *MemoryClient) HasCompleteEmbeddings(repo string) bool {
+	return embeddingComplete(mc.dataDir, repo)
+}
+
 // QueryEmbed embeds a single query text using a lazily initialized
 // embedding provider. Initialization happens in a background goroutine;
 // queries that arrive before it completes get BM25-only results

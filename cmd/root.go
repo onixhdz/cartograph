@@ -41,6 +41,19 @@ const (
 	answerYes      = "yes"
 )
 
+// finalizeEmbeddingMode clears persisted embedding metadata when the analyze
+// command was invoked with --embed=off. Centralizes the contract so each
+// analyze path can't silently forget it on a future fourth code path.
+func finalizeEmbeddingMode(registry *storage.Registry, repoName, embedMode string) error {
+	if embedMode != embedOff {
+		return nil
+	}
+	if err := registry.ClearEmbedding(repoName); err != nil {
+		return fmt.Errorf("analyze: clear embedding metadata: %w", err)
+	}
+	return nil
+}
+
 // CLI is the top-level kong command structure for cartograph.
 type CLI struct {
 	Analyze    AnalyzeCmd       `cmd:"" help:"Index a repository (full analysis)."`
@@ -529,6 +542,9 @@ func (c *AnalyzeCmd) runLocal(cli *CLI, target string) error {
 	}); err != nil {
 		return fmt.Errorf("analyze: update registry: %w", err)
 	}
+	if err := finalizeEmbeddingMode(registry, repoName, c.Embed); err != nil {
+		return err
+	}
 
 	if cli.Client != nil {
 		_ = cli.Client.Reload(service.ReloadRequest{Repo: repoName})
@@ -805,6 +821,9 @@ func (c *AnalyzeCmd) runCloneToMemory(
 	}); err != nil {
 		return fmt.Errorf("analyze: update registry: %w", err)
 	}
+	if err := finalizeEmbeddingMode(registry, repoName, c.Embed); err != nil {
+		return err
+	}
 
 	if cli.Client != nil {
 		_ = cli.Client.Reload(service.ReloadRequest{Repo: repoName})
@@ -947,6 +966,9 @@ func (c *AnalyzeCmd) runCloneToDisk(
 		},
 	}); err != nil {
 		return fmt.Errorf("analyze: update registry: %w", err)
+	}
+	if err := finalizeEmbeddingMode(registry, repoName, c.Embed); err != nil {
+		return err
 	}
 
 	if cli.Client != nil {

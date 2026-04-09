@@ -109,3 +109,60 @@ func TestMetaEmbeddingPreservedOnAdd(t *testing.T) {
 		t.Errorf("EmbeddingDims should be preserved, got %d", got.Meta.EmbeddingDims)
 	}
 }
+
+func TestMetaClearEmbedding(t *testing.T) {
+	dir := t.TempDir()
+	reg, err := NewRegistry(dir)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+
+	if err := reg.Add(RegistryEntry{
+		Name: "myrepo",
+		Hash: "abc12345",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.UpdateEmbedding("abc12345", EmbeddingInfo{
+		Status:   "running",
+		Model:    "bge-small",
+		Dims:     384,
+		Provider: "llamacpp",
+		Nodes:    7,
+		Total:    42,
+		Error:    "boom",
+		Duration: "1.2s",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := reg.ClearEmbedding("abc12345"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, ok := reg.Get("abc12345")
+	if !ok {
+		t.Fatal("expected to find entry")
+	}
+	if got.Meta.EmbeddingStatus != "" {
+		t.Errorf("EmbeddingStatus: got %q, want empty", got.Meta.EmbeddingStatus)
+	}
+	if got.Meta.EmbeddingModel != "" {
+		t.Errorf("EmbeddingModel: got %q, want empty", got.Meta.EmbeddingModel)
+	}
+	if got.Meta.EmbeddingDims != 0 {
+		t.Errorf("EmbeddingDims: got %d, want 0", got.Meta.EmbeddingDims)
+	}
+	if got.Meta.EmbeddingProvider != "" {
+		t.Errorf("EmbeddingProvider: got %q, want empty", got.Meta.EmbeddingProvider)
+	}
+	if got.Meta.EmbeddingNodes != 0 || got.Meta.EmbeddingTotal != 0 {
+		t.Errorf("Embedding counts: got %d/%d, want 0/0", got.Meta.EmbeddingNodes, got.Meta.EmbeddingTotal)
+	}
+	if got.Meta.EmbeddingError != "" {
+		t.Errorf("EmbeddingError: got %q, want empty", got.Meta.EmbeddingError)
+	}
+	if got.Meta.EmbeddingDuration != "" {
+		t.Errorf("EmbeddingDuration: got %q, want empty", got.Meta.EmbeddingDuration)
+	}
+}

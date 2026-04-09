@@ -13,11 +13,12 @@ func buildTestGraph() *lpg.Graph {
 	g := lpg.NewGraph()
 
 	graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
-		BaseNodeProps: graph.BaseNodeProps{ID: "func:handleRequest", Name: "handleRequest"},
+		BaseNodeProps: graph.BaseNodeProps{ID: testIDHandleRequest, Name: "handleRequest"},
 		FilePath:      "server.go",
 		StartLine:     10,
 		EndLine:       30,
 		Content:       "func handleRequest(w http.ResponseWriter, r *http.Request) { }",
+		Signature:     "func handleRequest(w http.ResponseWriter, r *http.Request)",
 	})
 	graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
 		BaseNodeProps: graph.BaseNodeProps{ID: "func:validateUser", Name: "validateUser"},
@@ -39,6 +40,7 @@ func buildTestGraph() *lpg.Graph {
 		StartLine:     52,
 		EndLine:       70,
 		Content:       "func (s *UserService) Create(u User) error { }",
+		Signature:     "func (s *UserService) Create(ctx context.Context, u User) error",
 	})
 	graph.AddFileNode(g, graph.FileProps{
 		BaseNodeProps: graph.BaseNodeProps{ID: "file:server.go", Name: "server.go"},
@@ -127,8 +129,8 @@ func TestSearchByName(t *testing.T) {
 	if len(results) == 0 {
 		t.Fatal("expected at least 1 result for 'handleRequest'")
 	}
-	if results[0].ID != "func:handleRequest" {
-		t.Errorf("expected top result to be func:handleRequest, got %s", results[0].ID)
+	if results[0].ID != testIDHandleRequest {
+		t.Errorf("expected top result to be %s, got %s", testIDHandleRequest, results[0].ID)
 	}
 	if results[0].Score <= 0 {
 		t.Error("expected positive score")
@@ -352,6 +354,30 @@ func TestSearchMulti_ContentMatch(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected func:validateUser in results for 'token' (content match)")
+	}
+}
+
+func TestSearchMulti_SignatureMatch(t *testing.T) {
+	ix, err := NewMemoryIndex()
+	if err != nil {
+		t.Fatalf("NewMemoryIndex: %v", err)
+	}
+	defer ix.Close()
+
+	g := buildTestGraph()
+	if _, err := ix.IndexGraph(g); err != nil {
+		t.Fatalf("IndexGraph: %v", err)
+	}
+
+	results, err := ix.SearchMulti("ResponseWriter", 10)
+	if err != nil {
+		t.Fatalf("SearchMulti: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatal("expected at least 1 result for signature token")
+	}
+	if results[0].ID != "func:handleRequest" {
+		t.Fatalf("expected signature match func:handleRequest first, got %s", results[0].ID)
 	}
 }
 

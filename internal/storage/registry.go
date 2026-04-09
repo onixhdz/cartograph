@@ -71,6 +71,8 @@ func NewRegistry(dir string) (*Registry, error) {
 
 // Add adds or updates an entry and persists the registry.
 // When updating, embedding state is preserved from the previous entry.
+// Callers that intentionally want a BM25-only repo state should invoke
+// ClearEmbedding after Add.
 func (r *Registry) Add(entry RegistryEntry) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -79,14 +81,7 @@ func (r *Registry) Add(entry RegistryEntry) error {
 	}
 	defer r.flock.Unlock()
 	if prev, ok := r.entries[entry.Hash]; ok {
-		entry.Meta.EmbeddingStatus = prev.Meta.EmbeddingStatus
-		entry.Meta.EmbeddingModel = prev.Meta.EmbeddingModel
-		entry.Meta.EmbeddingDims = prev.Meta.EmbeddingDims
-		entry.Meta.EmbeddingProvider = prev.Meta.EmbeddingProvider
-		entry.Meta.EmbeddingNodes = prev.Meta.EmbeddingNodes
-		entry.Meta.EmbeddingTotal = prev.Meta.EmbeddingTotal
-		entry.Meta.EmbeddingError = prev.Meta.EmbeddingError
-		entry.Meta.EmbeddingDuration = prev.Meta.EmbeddingDuration
+		entry.Meta.CopyEmbeddingFrom(prev.Meta)
 	}
 	r.entries[entry.Hash] = entry
 	return r.save()
@@ -366,6 +361,39 @@ func (r *Registry) UpdateEmbedding(nameOrHash string, info EmbeddingInfo) error 
 	e.Meta.EmbeddingDuration = info.Duration
 	r.entries[hash] = e
 	return r.save()
+}
+
+// ClearEmbedding removes all persisted embedding metadata for a repo while
+// leaving any on-disk vector store untouched. This is used when a repository
+// is re-analyzed without embeddings so status/reporting and query behavior
+// return to BM25-only mode until embedding is explicitly requested again.
+func (r *Registry) ClearEmbedding(nameOrHash string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.lockAndReload(); err != nil {
+		return err
+	}
+	defer r.flock.Unlock()
+
+	hash := r.resolveToHashLocked(nameOrHash)
+	if hash == "" {
+		return fmt.Errorf("repo %q not found in registry", nameOrHash)
+	}
+	e := r.entries[hash]
+	e.Meta.ResetEmbedding()
+	r.entries[hash] = e
+	return r.save()
+}
+
+// IsEmbeddingComplete reports whether the repo's persisted registry metadata
+// marks embeddings as complete. Returns false on any lookup error so callers
+// degrade to BM25-only behavior. Resolution accepts a name or hash.
+func (r *Registry) IsEmbeddingComplete(nameOrHash string) bool {
+	entry, err := r.Resolve(nameOrHash)
+	if err != nil {
+		return false
+	}
+	return entry.Meta.EmbeddingComplete()
 }
 
 // resolveToHashLocked resolves a name-or-hash to a hash.

@@ -1712,6 +1712,67 @@ func TestQuery_WithIndex_ProcessRelevanceWeighted(t *testing.T) {
 	}
 }
 
+func TestQuery_WithIndex_DirectProcessHitsExpandSymbols(t *testing.T) {
+	g := lpg.NewGraph()
+
+	fn := graph.AddSymbolNode(g, graph.LabelMethod, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "method:doThing", Name: "doThing"},
+		FilePath:      "config/HttpSecurityConfiguration.java",
+		StartLine:     10,
+		EndLine:       20,
+		Content:       "void doThing() {}",
+	})
+	proc := graph.AddProcessNode(g, graph.ProcessProps{
+		BaseNodeProps:  graph.BaseNodeProps{ID: "process:performBuild", Name: "builders.HttpSecurity.performBuild-flow"},
+		EntryPoint:     "method:HttpSecurity.performBuild",
+		HeuristicLabel: "Configuration",
+		StepCount:      1,
+		Importance:     7,
+	})
+	graph.AddTypedEdge(g, fn, proc, graph.EdgeProps{Type: graph.RelStepInProcess, Step: 1})
+
+	ix, err := search.NewMemoryIndex()
+	if err != nil {
+		t.Fatalf("NewMemoryIndex: %v", err)
+	}
+	defer ix.Close()
+	if _, err := ix.IndexGraph(g); err != nil {
+		t.Fatalf("IndexGraph: %v", err)
+	}
+
+	b := &Backend{Graph: g, Index: ix}
+	result, err := b.Query(service.QueryRequest{
+		Repo:  "test",
+		Text:  "HttpSecurity build flow",
+		Limit: 5,
+	})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+
+	if len(result.Processes) == 0 || result.Processes[0].Name != "builders.HttpSecurity.performBuild-flow" {
+		t.Fatalf("expected direct process hit, got %+v", result.Processes)
+	}
+	foundExpanded := false
+	for _, sm := range result.ProcessSymbols {
+		if sm.Name == "doThing" {
+			foundExpanded = true
+			break
+		}
+	}
+	if !foundExpanded {
+		for _, sm := range result.Definitions {
+			if sm.Name == "doThing" {
+				foundExpanded = true
+				break
+			}
+		}
+	}
+	if !foundExpanded {
+		t.Fatalf("expected direct process hit to surface its symbol, got defs=%+v processSymbols=%+v", result.Definitions, result.ProcessSymbols)
+	}
+}
+
 func TestQuery_WithIndex_MultiFieldFusion(t *testing.T) {
 	g := buildTestGraph()
 	b := &Backend{Graph: g}
