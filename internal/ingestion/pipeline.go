@@ -584,11 +584,14 @@ func (p *Pipeline) addSymbolsToGraph(pr *extractors.ParseResult, absToRel map[st
 				ID:   sym.ID,
 				Name: sym.Name,
 			},
-			FilePath:   relPath,
-			StartLine:  sym.StartLine,
-			EndLine:    sym.EndLine,
-			IsExported: isExported,
-			Content:    sym.Content,
+			FilePath:    relPath,
+			StartLine:   sym.StartLine,
+			EndLine:     sym.EndLine,
+			IsExported:  isExported,
+			Content:     sym.Content,
+			Description: sym.DocComment,
+			Annotations: sym.Annotations,
+			Signature:   sym.Signature,
 		})
 
 		node.SetProperty(graph.PropLanguage, sym.Language)
@@ -599,12 +602,6 @@ func (p *Pipeline) addSymbolsToGraph(pr *extractors.ParseResult, absToRel map[st
 		}
 		if sym.ReturnType != "" {
 			node.SetProperty(graph.PropReturnType, sym.ReturnType)
-		}
-		if sym.DocComment != "" {
-			node.SetProperty(graph.PropDescription, sym.DocComment)
-		}
-		if sym.Signature != "" {
-			node.SetProperty(graph.PropSignature, sym.Signature)
 		}
 
 		fileNode := fileNodesByPath[relPath]

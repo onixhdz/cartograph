@@ -37,17 +37,27 @@ func AddFolderNode(g *lpg.Graph, p FolderProps) *lpg.Node {
 // AddSymbolNode creates a code symbol node (Function, Class, Method, etc.)
 // with the given label and SymbolProps.
 func AddSymbolNode(g *lpg.Graph, label NodeLabel, p SymbolProps) *lpg.Node {
-	return AddNode(g, label, map[string]any{
-		PropID:          p.ID,
-		PropName:        p.Name,
-		PropFilePath:    p.FilePath,
-		PropStartLine:   p.StartLine,
-		PropEndLine:     p.EndLine,
-		PropIsExported:  p.IsExported,
-		PropContent:     p.Content,
-		PropDescription: p.Description,
-		PropSignature:   p.Signature,
-	})
+	props := map[string]any{
+		PropID:         p.ID,
+		PropName:       p.Name,
+		PropFilePath:   p.FilePath,
+		PropStartLine:  p.StartLine,
+		PropEndLine:    p.EndLine,
+		PropIsExported: p.IsExported,
+	}
+	if p.Content != "" {
+		props[PropContent] = p.Content
+	}
+	if p.Description != "" {
+		props[PropDescription] = p.Description
+	}
+	if p.Annotations != "" {
+		props[PropAnnotations] = p.Annotations
+	}
+	if p.Signature != "" {
+		props[PropSignature] = p.Signature
+	}
+	return AddNode(g, label, props)
 }
 
 // AddCommunityNode creates a Community node from CommunityProps.

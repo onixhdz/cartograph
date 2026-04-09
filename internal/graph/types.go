@@ -121,6 +121,7 @@ type SymbolProps struct {
 	IsExported     bool   `msgpack:"isExported"     json:"isExported"`
 	Content        string `msgpack:"content"        json:"content,omitempty"`
 	Description    string `msgpack:"description"    json:"description,omitempty"`
+	Annotations    string `msgpack:"annotations"    json:"annotations,omitempty"`
 	Signature      string `msgpack:"signature"      json:"signature,omitempty"`
 	ParameterCount int    `msgpack:"parameterCount" json:"parameterCount,omitempty"`
 	ReturnType     string `msgpack:"returnType"     json:"returnType,omitempty"`
@@ -173,6 +174,7 @@ const (
 	PropEndLine        = "endLine"
 	PropIsExported     = "isExported"
 	PropDescription    = "description"
+	PropAnnotations    = "annotations"
 	PropSignature      = "signature"
 	PropModularity     = "modularity"
 	PropCommunitySize  = "communitySize"

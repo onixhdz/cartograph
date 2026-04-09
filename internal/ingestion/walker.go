@@ -216,12 +216,22 @@ var supportingLanguageNamesBySuffix = map[string]string{
 // DetectLanguage maps a filename to a language string using native detection
 // first, then supporting-language basename and suffix rules.
 func DetectLanguage(name string) string {
+	lowerName := strings.ToLower(name)
+	if lowerName == "makefile" || lowerName == "gnumakefile" || lowerName == "bsdmakefile" {
+		return "make"
+	}
+	if strings.HasSuffix(lowerName, ".inl") || strings.HasSuffix(lowerName, ".ipp") || strings.HasSuffix(lowerName, ".tpp") {
+		return "cpp"
+	}
+	if strings.HasSuffix(lowerName, ".h") {
+		return "cpp"
+	}
+
 	lang := ts.DetectLanguage(name)
 	if lang != nil {
 		return ts.LanguageName(lang)
 	}
 
-	lowerName := strings.ToLower(name)
 	if langName, ok := supportingLanguageNamesByFilename[filepath.Base(lowerName)]; ok {
 		return langName
 	}

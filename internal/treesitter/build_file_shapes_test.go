@@ -40,14 +40,63 @@ libraryDependencies ++= Seq(
 	go build ./...
 
 test:
-	go test ./...
+			go test ./...
+`,
+		},
+		{
+			name: "python-decorator",
+			lang: "python",
+			source: `class Demo:
+	@staticmethod
+	def helper():
+		pass
+`,
+		},
+		{
+			name: "java-annotation",
+			lang: "java",
+			source: `@RestController
+	class Demo {
+		@GetMapping("/users")
+		String list() { return "ok"; }
+	}
+`,
+		},
+		{
+			name: "rust-attribute",
+			lang: "rust",
+			source: `#[test]
+	fn it_works() {}
+`,
+		},
+		{
+			name: "cpp-modifiers",
+			lang: "cpp",
+			source: `class Base {
+	public:
+		virtual void process() = 0;
+	};
+
+	class Child final : public Base {
+	public:
+			void process() override {}
+	};
+`,
+		},
+		{
+			name: "cpp-method-override-only",
+			lang: "cpp",
+			source: `class Child {
+	public:
+		void process() override {}
+	};
 `,
 		},
 	}
 
 	for _, tt := range tests {
 		var lang *Language
-		if tt.lang == "scala" {
+		if tt.lang == "scala" || tt.lang == "python" || tt.lang == "java" || tt.lang == "rust" || tt.lang == "cpp" {
 			lang = DetectLanguageByName(tt.lang)
 		} else {
 			lang = DetectFallbackLanguageByName(tt.lang)

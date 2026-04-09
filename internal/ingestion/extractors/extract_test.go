@@ -1642,6 +1642,241 @@ func noArgs() string {
 	}
 }
 
+func TestGapFix_AnnotationExtraction(t *testing.T) {
+	tests := []struct {
+		name     string
+		file     string
+		lang     string
+		source   string
+		symbol   string
+		expected string
+	}{
+		{
+			name: "python decorators",
+			file: "/tmp/test.py",
+			lang: "python",
+			source: `class Demo:
+    @staticmethod
+    def helper():
+        pass
+`,
+			symbol:   "helper",
+			expected: "staticmethod",
+		},
+		{
+			name: "java annotations",
+			file: "/tmp/Test.java",
+			lang: "java",
+			source: `@RestController
+class Demo {
+    @GetMapping("/users")
+    String list() { return "ok"; }
+}`,
+			symbol:   "list",
+			expected: "GetMapping",
+		},
+		{
+			name: "rust attributes",
+			file: "/tmp/test.rs",
+			lang: "rust",
+			source: `#[test]
+fn it_works() {}
+`,
+			symbol:   "it_works",
+			expected: "test",
+		},
+		{
+			name: "kotlin annotations",
+			file: "/tmp/Test.kt",
+			lang: "kotlin",
+			source: `class Demo {
+    @GetMapping("/users")
+    fun list(): String = "ok"
+}`,
+			symbol:   "list",
+			expected: "",
+		},
+		{
+			name: "csharp attributes",
+			file: "/tmp/Test.cs",
+			lang: "csharp",
+			source: `class Demo {
+    [HttpGet("/users")]
+    public string List() { return "ok"; }
+}`,
+			symbol:   "List",
+			expected: "",
+		},
+		{
+			name: "swift attributes",
+			file: "/tmp/Test.swift",
+			lang: "swift",
+			source: `struct Demo {
+    @MainActor
+    func run() {}
+}`,
+			symbol:   "run",
+			expected: "",
+		},
+		{
+			name: "php attributes",
+			file: "/tmp/Test.php",
+			lang: "php",
+			source: `<?php
+class Demo {
+    #[Route('/users')]
+    public function list() {}
+}`,
+			symbol:   "list",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := ExtractFile(tt.file, []byte(tt.source), tt.lang)
+			if err != nil {
+				t.Fatalf("ExtractFile failed: %v", err)
+			}
+			for _, sym := range result.Symbols {
+				if sym.Name == tt.symbol {
+					if sym.Annotations != tt.expected {
+						t.Fatalf("%s annotations = %q, want %q", tt.symbol, sym.Annotations, tt.expected)
+					}
+					return
+				}
+			}
+			t.Fatalf("expected symbol %q", tt.symbol)
+		})
+	}
+}
+
+func TestGapFix_AnnotationExtraction_NoiseGuard(t *testing.T) {
+	tests := []struct {
+		name     string
+		file     string
+		lang     string
+		source   string
+		symbol   string
+		expected string
+		forbid   []string
+	}{
+		{
+			name: "python route decorator only keeps decorator name",
+			file: "/tmp/test.py",
+			lang: "python",
+			source: `class Request: pass
+
+class App:
+    def get(self, path, response_model=None):
+        def dec(fn):
+            return fn
+        return dec
+
+app = App()
+
+@app.get("/items", response_model=Item)
+def read_item(request: Request):
+    return request
+`,
+			symbol:   "read_item",
+			expected: "get",
+			forbid:   []string{"app", "response_model", "Item", "request"},
+		},
+		{
+			name: "java annotation only keeps annotation name",
+			file: "/tmp/Test.java",
+			lang: "java",
+			source: `class Demo {
+    @GetMapping("/users")
+    String list() { return "ok"; }
+}`,
+			symbol:   "list",
+			expected: "GetMapping",
+			forbid:   []string{"String", "list", "users"},
+		},
+		{
+			name: "rust attribute only keeps attribute name",
+			file: "/tmp/test.rs",
+			lang: "rust",
+			source: `#[tokio::test]
+async fn it_works() {}
+`,
+			symbol:   "it_works",
+			expected: "test",
+			forbid:   []string{"tokio", "it_works"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := ExtractFile(tt.file, []byte(tt.source), tt.lang)
+			if err != nil {
+				t.Fatalf("ExtractFile failed: %v", err)
+			}
+			for _, sym := range result.Symbols {
+				if sym.Name != tt.symbol {
+					continue
+				}
+				if sym.Annotations != tt.expected {
+					t.Fatalf("%s annotations = %q, want %q", tt.symbol, sym.Annotations, tt.expected)
+				}
+				for _, bad := range tt.forbid {
+					if strings.Contains(sym.Annotations, bad) {
+						t.Fatalf("%s annotations %q unexpectedly contains %q", tt.symbol, sym.Annotations, bad)
+					}
+				}
+				return
+			}
+			t.Fatalf("expected symbol %q", tt.symbol)
+		})
+	}
+}
+
+func TestGapFix_CPPModifierAnnotations(t *testing.T) {
+	src := `class Base {
+public:
+    virtual void process() = 0;
+};
+
+class Child final : public Base {
+public:
+    void process() override {}
+};
+`
+	result, err := ExtractFile("/tmp/test.cpp", []byte(src), "cpp")
+	if err != nil {
+		t.Fatalf("ExtractFile failed: %v", err)
+	}
+	foundFinal := false
+	foundOverride := false
+	foundVirtual := false
+	for _, sym := range result.Symbols {
+		switch sym.Name {
+		case "Child":
+			if strings.Contains(sym.Annotations, "final") {
+				foundFinal = true
+			}
+		case "process":
+			if strings.Contains(sym.Annotations, "virtual") {
+				foundVirtual = true
+			}
+			if strings.Contains(sym.Annotations, "override") {
+				foundOverride = true
+			}
+		}
+	}
+	if !foundVirtual {
+		t.Fatal("expected C++ method virtual modifier annotation")
+	}
+	if !foundFinal {
+		t.Fatal("expected C++ class final modifier annotation")
+	}
+	if !foundOverride {
+		t.Fatal("expected C++ method override annotation")
+	}
+}
+
 // GAP-12: AST-based export detection across languages.
 func TestGapFix_ASTExportDetection(t *testing.T) {
 	tests := []struct {

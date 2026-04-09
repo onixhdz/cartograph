@@ -291,6 +291,7 @@ const cppQueries = "(function_definition declarator: (function_declarator declar
 	"(declaration declarator: (function_declarator declarator: (qualified_identifier name: (identifier) @name))) @definition.method\n" +
 	// Field method declarations (inside class body).
 	"(field_declaration declarator: (function_declarator declarator: (field_identifier) @name)) @definition.method\n" +
+	"(function_definition declarator: (function_declarator declarator: (field_identifier) @name)) @definition.method\n" +
 	"(class_specifier name: (type_identifier) @name body: (field_declaration_list)) @definition.class\n" +
 	"(class_specifier name: (type_identifier) @name) @definition.class\n" +
 	"(struct_specifier name: (type_identifier) @name body: (field_declaration_list)) @definition.struct\n" +

@@ -208,7 +208,7 @@ func TestWalk_LanguageDetection(t *testing.T) {
 		"Main.java":     "java",
 		"lib.rs":        "rust",
 		"test.cpp":      "cpp",
-		"header.h":      "c",
+		"header.h":      "cpp",
 		"prog.cs":       "csharp",
 		"app.rb":        "ruby",
 		"index.php":     "php",

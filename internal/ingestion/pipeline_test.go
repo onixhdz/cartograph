@@ -538,6 +538,28 @@ func TestPipeline_SymbolContentPopulated(t *testing.T) {
 	}
 }
 
+func TestPipeline_SymbolAnnotationsPopulated(t *testing.T) {
+	dir := testutil.TempDir(t, map[string]string{
+		"app.py": "class Demo:\n    @staticmethod\n    def helper():\n        pass\n",
+	})
+
+	p := NewPipeline(dir, PipelineOptions{})
+	if err := p.Run(); err != nil {
+		t.Fatalf("Pipeline.Run: %v", err)
+	}
+	g := p.GetGraph()
+
+	for _, n := range graph.FindNodesByLabel(g, graph.LabelMethod) {
+		if graph.GetStringProp(n, graph.PropName) == "helper" {
+			if got := graph.GetStringProp(n, graph.PropAnnotations); got != "staticmethod" {
+				t.Fatalf("helper annotations = %q, want staticmethod", got)
+			}
+			return
+		}
+	}
+	t.Fatal("expected helper method node")
+}
+
 func TestBuildImportAliasMap(t *testing.T) {
 	absToRel := map[string]string{
 		"/project/src/app.ts": "src/app.ts",

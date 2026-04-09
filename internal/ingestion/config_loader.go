@@ -19,6 +19,8 @@ const langPHP = "php"
 
 const langJava = "java"
 
+const langCPP = "cpp"
+
 const langPython = "python"
 
 const (
