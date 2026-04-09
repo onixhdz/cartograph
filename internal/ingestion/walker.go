@@ -11,8 +11,9 @@ import (
 	"slices"
 	"strings"
 
-	ts "github.com/realxen/cartograph/internal/treesitter"
 	ignore "github.com/sabhiram/go-gitignore"
+
+	ts "github.com/realxen/cartograph/internal/treesitter"
 )
 
 // WalkResult represents a single filesystem entry discovered during walking.
@@ -182,14 +183,50 @@ func readIgnoreLines(path string) []string {
 	return lines
 }
 
-// DetectLanguage maps a filename to a language string using the explicit
-// native tree-sitter registry.
+var supportingLanguageNamesByFilename = map[string]string{
+	"dockerfile": "dockerfile",
+}
+
+var supportingLanguageNamesBySuffix = map[string]string{
+	".json":         "json",
+	".yaml":         "yaml",
+	".yml":          "yaml",
+	".toml":         "toml",
+	".hcl":          "hcl",
+	".tf":           "hcl",
+	".tfvars":       "hcl",
+	".sql":          "sql",
+	".proto":        "protobuf",
+	".sh":           "bash",
+	".bash":         "bash",
+	".zsh":          "bash",
+	".bashrc":       "bash",
+	".bash_profile": "bash",
+	".bash_login":   "bash",
+	".profile":      "bash",
+	".zshrc":        "bash",
+	".zprofile":     "bash",
+}
+
+// DetectLanguage maps a filename to a language string using native detection
+// first, then supporting-language basename and suffix rules.
 func DetectLanguage(name string) string {
 	lang := ts.DetectLanguage(name)
-	if lang == nil {
-		return ""
+	if lang != nil {
+		return ts.LanguageName(lang)
 	}
-	return ts.LanguageName(lang)
+
+	lowerName := strings.ToLower(name)
+	if langName, ok := supportingLanguageNamesByFilename[filepath.Base(lowerName)]; ok {
+		return langName
+	}
+	for suffix, langName := range supportingLanguageNamesBySuffix {
+		if strings.HasSuffix(lowerName, suffix) {
+			return langName
+		}
+	}
+
+	return ""
 }
 
 // binaryExtensions is the set of file extensions considered binary.

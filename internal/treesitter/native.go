@@ -1,7 +1,9 @@
 package treesitter
 
 import (
+	"errors"
 	"fmt"
+	"math"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -9,6 +11,8 @@ import (
 
 	treekotlin "github.com/fwcd/tree-sitter-kotlin/bindings/go"
 	treeswift "github.com/gortexhq/tree-sitter-swift/bindings/go"
+	gotreesitter "github.com/odvcencio/gotreesitter"
+	gtsgrammars "github.com/odvcencio/gotreesitter/grammars"
 	treesitter "github.com/tree-sitter/go-tree-sitter"
 	treecsharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
 	treec "github.com/tree-sitter/tree-sitter-c/bindings/go"
@@ -37,115 +41,421 @@ const (
 	WalkStop
 )
 
+const maxIntValue = int(^uint(0) >> 1)
+
+func uintToUint32(v uint) uint32 {
+	if v > uint(math.MaxUint32) {
+		return math.MaxUint32
+	}
+	return uint32(v)
+}
+
+func uintToInt(v uint) int {
+	if v > uint(maxIntValue) {
+		return maxIntValue
+	}
+	return int(v)
+}
+
+func intToUint(v int) (uint, bool) {
+	if v < 0 {
+		return 0, false
+	}
+	return uint(v), true
+}
+
 type Language struct {
-	name  string
-	inner *treesitter.Language
+	name         string
+	native       *treesitter.Language
+	fallback     *gotreesitter.Language
+	usesFallback bool
 }
 
 func (l *Language) Language() *Language { return l }
 
-func (l *Language) NodeKindCount() uint32            { return l.inner.NodeKindCount() }
-func (l *Language) NodeKindForID(id uint16) string   { return l.inner.NodeKindForId(id) }
-func (l *Language) NodeKindIsNamed(id uint16) bool   { return l.inner.NodeKindIsNamed(id) }
-func (l *Language) NodeKindIsVisible(id uint16) bool { return l.inner.NodeKindIsVisible(id) }
-func (l *Language) FieldCount() uint32               { return l.inner.FieldCount() }
-func (l *Language) FieldNameForID(id uint16) string  { return l.inner.FieldNameForId(id) }
+func (l *Language) UsesFallback() bool { return l != nil && l.usesFallback }
+
+func (l *Language) NodeKindCount() uint32 {
+	if l == nil {
+		return 0
+	}
+	if l.usesFallback {
+		return l.fallback.SymbolCount
+	}
+	return l.native.NodeKindCount()
+}
+
+func (l *Language) NodeKindForID(id uint16) string {
+	if l == nil {
+		return ""
+	}
+	if l.usesFallback {
+		if int(id) < len(l.fallback.SymbolNames) {
+			return l.fallback.SymbolNames[id]
+		}
+		return ""
+	}
+	return l.native.NodeKindForId(id)
+}
+
+func (l *Language) NodeKindIsNamed(id uint16) bool {
+	if l == nil {
+		return false
+	}
+	if l.usesFallback {
+		return int(id) < len(l.fallback.SymbolMetadata) && l.fallback.SymbolMetadata[id].Named
+	}
+	return l.native.NodeKindIsNamed(id)
+}
+
+func (l *Language) NodeKindIsVisible(id uint16) bool {
+	if l == nil {
+		return false
+	}
+	if l.usesFallback {
+		return int(id) < len(l.fallback.SymbolMetadata) && l.fallback.SymbolMetadata[id].Visible
+	}
+	return l.native.NodeKindIsVisible(id)
+}
+
+func (l *Language) FieldCount() uint32 {
+	if l == nil {
+		return 0
+	}
+	if l.usesFallback {
+		return l.fallback.FieldCount
+	}
+	return l.native.FieldCount()
+}
+
+func (l *Language) FieldNameForID(id uint16) string {
+	if l == nil {
+		return ""
+	}
+	if l.usesFallback {
+		if int(id) < len(l.fallback.FieldNames) {
+			return l.fallback.FieldNames[id]
+		}
+		return ""
+	}
+	return l.native.FieldNameForId(id)
+}
+
 func (l *Language) FieldByName(name string) (uint16, bool) {
-	id := l.inner.FieldIdForName(name)
+	if l == nil {
+		return 0, false
+	}
+	if l.usesFallback {
+		id, ok := l.fallback.FieldByName(name)
+		return uint16(id), ok
+	}
+	id := l.native.FieldIdForName(name)
 	return id, id != 0
 }
 
 type Node struct {
-	inner *treesitter.Node
+	native       *treesitter.Node
+	fallback     *gotreesitter.Node
+	usesFallback bool
 }
 
 func wrapNode(n *treesitter.Node) *Node {
 	if n == nil {
 		return nil
 	}
-	return &Node{inner: n}
+	return &Node{native: n}
 }
 
-func (n *Node) IsNamed() bool           { return n != nil && n.inner.IsNamed() }
-func (n *Node) IsExtra() bool           { return n != nil && n.inner.IsExtra() }
-func (n *Node) IsError() bool           { return n != nil && n.inner.IsError() }
-func (n *Node) IsMissing() bool         { return n != nil && n.inner.IsMissing() }
-func (n *Node) HasError() bool          { return n != nil && n.inner.HasError() }
-func (n *Node) StartByte() uint32       { return uint32(n.inner.StartByte()) }
-func (n *Node) EndByte() uint32         { return uint32(n.inner.EndByte()) }
-func (n *Node) Type(_ *Language) string { return n.inner.Kind() }
-func (n *Node) Text(source []byte) string {
-	if n == nil || n.inner == nil {
+func wrapFallbackNode(n *gotreesitter.Node) *Node {
+	if n == nil {
+		return nil
+	}
+	return &Node{fallback: n, usesFallback: true}
+}
+
+func (n *Node) IsNamed() bool {
+	if n == nil {
+		return false
+	}
+	if n.usesFallback {
+		return n.fallback.IsNamed()
+	}
+	return n.native.IsNamed()
+}
+
+func (n *Node) IsExtra() bool {
+	if n == nil {
+		return false
+	}
+	if n.usesFallback {
+		return n.fallback.IsExtra()
+	}
+	return n.native.IsExtra()
+}
+
+func (n *Node) IsError() bool {
+	if n == nil {
+		return false
+	}
+	if n.usesFallback {
+		return n.fallback.IsError()
+	}
+	return n.native.IsError()
+}
+
+func (n *Node) IsMissing() bool {
+	if n == nil {
+		return false
+	}
+	if n.usesFallback {
+		return n.fallback.IsMissing()
+	}
+	return n.native.IsMissing()
+}
+
+func (n *Node) HasError() bool {
+	if n == nil {
+		return false
+	}
+	if n.usesFallback {
+		return n.fallback.HasError()
+	}
+	return n.native.HasError()
+}
+
+func (n *Node) StartByte() uint32 {
+	if n.usesFallback {
+		return n.fallback.StartByte()
+	}
+	return uintToUint32(n.native.StartByte())
+}
+
+func (n *Node) EndByte() uint32 {
+	if n.usesFallback {
+		return n.fallback.EndByte()
+	}
+	return uintToUint32(n.native.EndByte())
+}
+
+func (n *Node) Type(lang *Language) string {
+	if n == nil || lang == nil {
 		return ""
 	}
-	start := n.inner.StartByte()
-	end := n.inner.EndByte()
+	if n.usesFallback {
+		return n.fallback.Type(lang.fallback)
+	}
+	return n.native.Kind()
+}
+
+func (n *Node) Text(source []byte) string {
+	if n == nil {
+		return ""
+	}
+	if n.usesFallback {
+		return n.fallback.Text(source)
+	}
+	if n.native == nil {
+		return ""
+	}
+	start := n.native.StartByte()
+	end := n.native.EndByte()
 	if start >= end || end > uint(len(source)) {
 		return ""
 	}
-	return n.inner.Utf8Text(source)
+	return n.native.Utf8Text(source)
 }
+
 func (n *Node) StartPoint() Point {
-	p := n.inner.StartPosition()
-	return Point{Row: uint32(p.Row), Column: uint32(p.Column)}
+	if n.usesFallback {
+		p := n.fallback.StartPoint()
+		return Point{Row: p.Row, Column: p.Column}
+	}
+	p := n.native.StartPosition()
+	return Point{Row: uintToUint32(p.Row), Column: uintToUint32(p.Column)}
 }
+
 func (n *Node) EndPoint() Point {
-	p := n.inner.EndPosition()
-	return Point{Row: uint32(p.Row), Column: uint32(p.Column)}
+	if n.usesFallback {
+		p := n.fallback.EndPoint()
+		return Point{Row: p.Row, Column: p.Column}
+	}
+	p := n.native.EndPosition()
+	return Point{Row: uintToUint32(p.Row), Column: uintToUint32(p.Column)}
 }
-func (n *Node) Parent() *Node          { return wrapNode(n.inner.Parent()) }
-func (n *Node) NextSibling() *Node     { return wrapNode(n.inner.NextSibling()) }
-func (n *Node) PrevSibling() *Node     { return wrapNode(n.inner.PrevSibling()) }
-func (n *Node) ChildCount() int        { return int(n.inner.ChildCount()) }
-func (n *Node) NamedChildCount() int   { return int(n.inner.NamedChildCount()) }
-func (n *Node) Child(i int) *Node      { return wrapNode(n.inner.Child(uint(i))) }
-func (n *Node) NamedChild(i int) *Node { return wrapNode(n.inner.NamedChild(uint(i))) }
-func (n *Node) ChildByFieldName(name string, _ *Language) *Node {
-	return wrapNode(n.inner.ChildByFieldName(name))
+
+func (n *Node) Parent() *Node {
+	if n.usesFallback {
+		return wrapFallbackNode(n.fallback.Parent())
+	}
+	return wrapNode(n.native.Parent())
 }
-func (n *Node) FieldNameForChild(i uint32) string      { return n.inner.FieldNameForChild(i) }
-func (n *Node) FieldNameForNamedChild(i uint32) string { return n.inner.FieldNameForNamedChild(i) }
-func (n *Node) SExpr(_ *Language) string               { return n.inner.ToSexp() }
+
+func (n *Node) NextSibling() *Node {
+	if n.usesFallback {
+		return wrapFallbackNode(n.fallback.NextSibling())
+	}
+	return wrapNode(n.native.NextSibling())
+}
+
+func (n *Node) PrevSibling() *Node {
+	if n.usesFallback {
+		return wrapFallbackNode(n.fallback.PrevSibling())
+	}
+	return wrapNode(n.native.PrevSibling())
+}
+
+func (n *Node) ChildCount() int {
+	if n.usesFallback {
+		return n.fallback.ChildCount()
+	}
+	return uintToInt(n.native.ChildCount())
+}
+
+func (n *Node) NamedChildCount() int {
+	if n.usesFallback {
+		return n.fallback.NamedChildCount()
+	}
+	return uintToInt(n.native.NamedChildCount())
+}
+
+func (n *Node) Child(i int) *Node {
+	if n.usesFallback {
+		return wrapFallbackNode(n.fallback.Child(i))
+	}
+	ui, ok := intToUint(i)
+	if !ok {
+		return nil
+	}
+	return wrapNode(n.native.Child(ui))
+}
+
+func (n *Node) NamedChild(i int) *Node {
+	if n.usesFallback {
+		return wrapFallbackNode(n.fallback.NamedChild(i))
+	}
+	ui, ok := intToUint(i)
+	if !ok {
+		return nil
+	}
+	return wrapNode(n.native.NamedChild(ui))
+}
+
+func (n *Node) ChildByFieldName(name string, lang *Language) *Node {
+	if n.usesFallback {
+		if lang == nil || lang.fallback == nil {
+			return nil
+		}
+		return wrapFallbackNode(n.fallback.ChildByFieldName(name, lang.fallback))
+	}
+	return wrapNode(n.native.ChildByFieldName(name))
+}
+
+func (n *Node) FieldNameForChild(i uint32) string {
+	if n.usesFallback {
+		return ""
+	}
+	return n.native.FieldNameForChild(i)
+}
+
+func (n *Node) FieldNameForNamedChild(i uint32) string {
+	if n.usesFallback {
+		return ""
+	}
+	return n.native.FieldNameForNamedChild(i)
+}
+
+func (n *Node) SExpr(lang *Language) string {
+	if n.usesFallback {
+		return n.fallback.SExpr(lang.fallback)
+	}
+	return n.native.ToSexp()
+}
 
 type Tree struct {
-	inner *treesitter.Tree
+	native       *treesitter.Tree
+	fallback     *gotreesitter.Tree
+	usesFallback bool
 }
 
-func (t *Tree) RootNode() *Node { return wrapNode(t.inner.RootNode()) }
+func (t *Tree) RootNode() *Node {
+	if t == nil {
+		return nil
+	}
+	if t.usesFallback {
+		return wrapFallbackNode(t.fallback.RootNode())
+	}
+	return wrapNode(t.native.RootNode())
+}
+
 func (t *Tree) Close() {
-	if t != nil && t.inner != nil {
-		t.inner.Close()
+	if t == nil {
+		return
+	}
+	if t.usesFallback {
+		if t.fallback != nil {
+			t.fallback.Release()
+		}
+		return
+	}
+	if t.native != nil {
+		t.native.Close()
 	}
 }
 
 type Parser struct {
 	lang          *Language
 	timeoutMicros uint64
-	inner         *treesitter.Parser
+	native        *treesitter.Parser
+	fallback      *gotreesitter.Parser
 }
 
 func NewParser(lang *Language) *Parser {
-	p := &Parser{lang: lang, inner: treesitter.NewParser()}
-	if lang != nil {
-		_ = p.inner.SetLanguage(lang.inner)
+	p := &Parser{lang: lang}
+	if lang == nil {
+		return p
 	}
+	if lang.usesFallback {
+		p.fallback = gotreesitter.NewParser(lang.fallback)
+		return p
+	}
+	p.native = treesitter.NewParser()
+	_ = p.native.SetLanguage(lang.native)
 	return p
 }
 
 func (p *Parser) Parse(source []byte) (*Tree, error) {
+	if p.lang != nil && p.lang.usesFallback {
+		if p.timeoutMicros > 0 {
+			p.fallback.SetTimeoutMicros(p.timeoutMicros)
+		}
+		tree, err := p.fallback.Parse(source)
+		if err != nil {
+			return nil, fmt.Errorf("fallback parse: %w", err)
+		}
+		if tree == nil {
+			return nil, errors.New("parse returned nil tree")
+		}
+		return &Tree{fallback: tree, usesFallback: true}, nil
+	}
 	if p.timeoutMicros > 0 {
-		p.inner.SetTimeoutMicros(p.timeoutMicros)
+		p.native.SetTimeoutMicros(p.timeoutMicros) //nolint:staticcheck // shared wrapper still uses parser timeout semantics for native path
 	}
-	tree := p.inner.Parse(source, nil)
+	tree := p.native.Parse(source, nil)
 	if tree == nil {
-		return nil, fmt.Errorf("parse returned nil tree")
+		return nil, errors.New("parse returned nil tree")
 	}
-	return &Tree{inner: tree}, nil
+	return &Tree{native: tree}, nil
 }
 
 func (p *Parser) Close() {
-	if p != nil && p.inner != nil {
-		p.inner.Close()
+	if p == nil {
+		return
+	}
+	if p.lang != nil && p.lang.usesFallback {
+		return
+	}
+	if p.native != nil {
+		p.native.Close()
 	}
 }
 
@@ -175,13 +485,20 @@ func NewParserPool(lang *Language, opts ...ParserPoolOption) *ParserPool {
 }
 
 func (pp *ParserPool) Parse(source []byte) (*Tree, error) {
-	parser := pp.pool.Get().(*Parser)
+	v := pp.pool.Get()
+	parser, ok := v.(*Parser)
+	if !ok || parser == nil {
+		parser = NewParser(pp.lang)
+		parser.timeoutMicros = pp.timeoutMicros
+	}
 	defer pp.pool.Put(parser)
 	return parser.Parse(source)
 }
 
 type Query struct {
-	inner        *treesitter.Query
+	native       *treesitter.Query
+	fallback     *gotreesitter.Query
+	usesFallback bool
 	captureNames []string
 }
 
@@ -207,16 +524,29 @@ type QueryMatch struct {
 }
 
 func NewQuery(source string, lang *Language) (*Query, error) {
-	inner, err := treesitter.NewQuery(lang.inner, source)
-	if err != nil {
-		return nil, err
+	if lang.usesFallback {
+		inner, err := gotreesitter.NewQuery(source, lang.fallback)
+		if err != nil {
+			return nil, fmt.Errorf("compile fallback query: %w", err)
+		}
+		return &Query{fallback: inner, usesFallback: true, captureNames: inner.CaptureNames()}, nil
 	}
-	return &Query{inner: inner, captureNames: inner.CaptureNames()}, nil
+	inner, err := treesitter.NewQuery(lang.native, source)
+	if err != nil {
+		return nil, fmt.Errorf("compile native query: %w", err)
+	}
+	return &Query{native: inner, captureNames: inner.CaptureNames()}, nil
 }
 
 func (q *Query) Close() {
-	if q != nil && q.inner != nil {
-		q.inner.Close()
+	if q == nil {
+		return
+	}
+	if q.usesFallback {
+		return
+	}
+	if q.native != nil {
+		q.native.Close()
 	}
 }
 
@@ -224,12 +554,28 @@ func (q *Query) Execute(tree *Tree, source []byte) []QueryMatch {
 	if q == nil || tree == nil {
 		return nil
 	}
+	if q.usesFallback {
+		matches := q.fallback.Execute(tree.fallback)
+		out := make([]QueryMatch, 0, len(matches))
+		for _, match := range matches {
+			qm := QueryMatch{PatternIndex: match.PatternIndex}
+			for _, capture := range match.Captures {
+				qm.Captures = append(qm.Captures, QueryCapture{
+					Name:         capture.Name,
+					Node:         wrapFallbackNode(capture.Node),
+					TextOverride: capture.TextOverride,
+				})
+			}
+			out = append(out, qm)
+		}
+		return out
+	}
 	cursor := treesitter.NewQueryCursor()
 	defer cursor.Close()
-	matches := cursor.Matches(q.inner, tree.inner.RootNode(), source)
+	matches := cursor.Matches(q.native, tree.native.RootNode(), source)
 	var out []QueryMatch
 	for match := matches.Next(); match != nil; match = matches.Next() {
-		qm := QueryMatch{PatternIndex: int(match.PatternIndex)}
+		qm := QueryMatch{PatternIndex: uintToInt(match.PatternIndex)}
 		for _, capture := range match.Captures {
 			n := capture.Node
 			qm.Captures = append(qm.Captures, QueryCapture{
@@ -254,7 +600,8 @@ func Walk(root *Node, visit func(*Node, int) WalkAction) WalkAction {
 		case WalkSkipChildren:
 			return WalkContinue
 		}
-		for i := 0; i < n.ChildCount(); i++ {
+		childCount := n.ChildCount()
+		for i := range childCount {
 			child := n.Child(i)
 			if child == nil {
 				continue
@@ -271,6 +618,7 @@ func Walk(root *Node, visit func(*Node, int) WalkAction) WalkAction {
 type languageSpec struct {
 	name       string
 	extensions []string
+	filenames  []string
 	aliases    []string
 	build      func() *treesitter.Language
 }
@@ -296,19 +644,24 @@ var (
 	registryOnce sync.Once
 	byName       map[string]*Language
 	byExt        map[string]*Language
+	byFilename   map[string]*Language
 )
 
 func initRegistry() {
 	byName = make(map[string]*Language)
 	byExt = make(map[string]*Language)
+	byFilename = make(map[string]*Language)
 	for _, spec := range languageSpecs {
-		lang := &Language{name: spec.name, inner: spec.build()}
+		lang := &Language{name: spec.name, native: spec.build()}
 		byName[spec.name] = lang
 		for _, alias := range spec.aliases {
 			byName[alias] = lang
 		}
 		for _, ext := range spec.extensions {
 			byExt[ext] = lang
+		}
+		for _, filename := range spec.filenames {
+			byFilename[strings.ToLower(filename)] = lang
 		}
 	}
 }
@@ -324,6 +677,10 @@ func DetectLanguageByName(name string) *Language {
 
 func DetectLanguage(filename string) *Language {
 	registryOnce.Do(initRegistry)
+	base := strings.ToLower(filepath.Base(filename))
+	if lang, ok := byFilename[base]; ok {
+		return lang
+	}
 	ext := strings.ToLower(filepath.Ext(filename))
 	if lang, ok := byExt[ext]; ok {
 		return lang
@@ -339,5 +696,32 @@ func LanguageName(lang *Language) string {
 }
 
 func WithTimeout(d time.Duration) ParserPoolOption {
+	if d <= 0 {
+		return WithParserPoolTimeoutMicros(0)
+	}
 	return WithParserPoolTimeoutMicros(uint64(d / time.Microsecond))
+}
+
+func DetectFallbackLanguageByName(name string) *Language {
+	entry := gtsgrammars.DetectLanguageByName(name)
+	if entry == nil {
+		return nil
+	}
+	return &Language{
+		name:         entry.Name,
+		fallback:     entry.Language(),
+		usesFallback: true,
+	}
+}
+
+func DetectFallbackLanguage(filename string) *Language {
+	entry := gtsgrammars.DetectLanguage(filename)
+	if entry == nil {
+		return nil
+	}
+	return &Language{
+		name:         entry.Name,
+		fallback:     entry.Language(),
+		usesFallback: true,
+	}
 }

@@ -152,6 +152,9 @@ func (lc *langCache) get(language string) (*langCacheEntry, error) {
 
 	lang := ts.DetectLanguageByName(language)
 	if lang == nil {
+		lang = ts.DetectFallbackLanguageByName(language)
+	}
+	if lang == nil {
 		return nil, fmt.Errorf("unsupported language: %s", language)
 	}
 
@@ -160,13 +163,13 @@ func (lc *langCache) get(language string) (*langCacheEntry, error) {
 		queryStr, ok = LanguageQueries[language]
 	}
 	hasCustomQuery := ok
-	if !ok {
-		return nil, fmt.Errorf("no extraction queries for language %s", language)
-	}
-
-	query, err := ts.NewQuery(queryStr, lang)
-	if err != nil {
-		return nil, fmt.Errorf("compile query for %s: %w", language, err)
+	var query *ts.Query
+	if ok {
+		var err error
+		query, err = ts.NewQuery(queryStr, lang)
+		if err != nil {
+			return nil, fmt.Errorf("compile query for %s: %w", language, err)
+		}
 	}
 
 	ce := &langCacheEntry{
@@ -180,12 +183,14 @@ func (lc *langCache) get(language string) (*langCacheEntry, error) {
 	// queryPool provides per-goroutine *ts.Query instances. This avoids
 	// data races when multiple workers call Query.Execute concurrently —
 	// the gotreesitter library's query cursor carries mutable state.
-	ce.queryPool.New = func() any {
-		q, err := ts.NewQuery(queryStr, lang)
-		if err != nil {
-			return nil // will be caught at use site
+	if hasCustomQuery {
+		ce.queryPool.New = func() any {
+			q, err := ts.NewQuery(queryStr, lang)
+			if err != nil {
+				return nil // will be caught at use site
+			}
+			return q
 		}
-		return q
 	}
 	lc.entries[language] = ce
 	return ce, nil
@@ -241,15 +246,20 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 
 		// Borrow a per-goroutine query from the pool to avoid data races
 		// when multiple workers call Query.Execute on the same *ts.Query.
-		pooledQuery, _ := ce.queryPool.Get().(*ts.Query)
-		if pooledQuery == nil {
-			return nil, fmt.Errorf("failed to compile pooled query for %s", language)
+		if ce.hasCustomQuery {
+			pooledQuery, _ := ce.queryPool.Get().(*ts.Query)
+			if pooledQuery == nil {
+				return nil, fmt.Errorf("failed to compile pooled query for %s", language)
+			}
+			query = pooledQuery
 		}
-		query = pooledQuery
 		queryPoolEntry = ce
 	} else {
 		// Fallback: no cache, create everything fresh.
 		lang = ts.DetectLanguageByName(language)
+		if lang == nil {
+			lang = ts.DetectFallbackLanguageByName(language)
+		}
 		if lang == nil {
 			return nil, fmt.Errorf("unsupported language: %s", language)
 		}
@@ -259,13 +269,12 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 			queryStr, ok = LanguageQueries[language]
 		}
 		hasCustomQuery = ok
-		if !ok {
-			return nil, fmt.Errorf("no extraction queries for language %s", language)
-		}
-		var qerr error
-		query, qerr = ts.NewQuery(queryStr, lang)
-		if qerr != nil {
-			return nil, fmt.Errorf("compile query for %s: %w", language, qerr)
+		if ok {
+			var qerr error
+			query, qerr = ts.NewQuery(queryStr, lang)
+			if qerr != nil {
+				return nil, fmt.Errorf("compile query for %s: %w", language, qerr)
+			}
 		}
 	}
 
@@ -291,7 +300,10 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 		}
 	}
 
-	matches := query.Execute(tree, source)
+	var matches []ts.QueryMatch
+	if query != nil {
+		matches = query.Execute(tree, source)
+	}
 
 	result = &FileExtractionResult{}
 
@@ -597,7 +609,7 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 	// propagate assignment chains.
 	result.TypeBindings = extractTypeBindings(tree.RootNode(), source, filePath, lang)
 
-	if queryPoolEntry != nil {
+	if queryPoolEntry != nil && query != nil {
 		queryPoolEntry.queryPool.Put(query)
 	}
 

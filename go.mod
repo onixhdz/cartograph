@@ -120,5 +120,3 @@ replace gopkg.in/yaml.v3 => github.com/go-yaml/yaml/v3 v3.0.1
 replace gopkg.in/yaml.v2 => github.com/go-yaml/yaml/v2 v2.4.0
 
 replace gopkg.in/check.v1 => github.com/go-check/check v0.0.0-20161208181325-20d25e280405
-
-replace github.com/odvcencio/gotreesitter v0.10.0 => github.com/realxen/gotreesitter v0.10.3

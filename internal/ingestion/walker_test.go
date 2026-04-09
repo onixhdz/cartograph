@@ -654,6 +654,46 @@ func TestWalk_RubyExtensionlessFiles(t *testing.T) {
 	}
 }
 
+func TestWalk_SupportingLanguageDetection(t *testing.T) {
+	dir := testutil.TempDir(t, map[string]string{
+		"Dockerfile":     "FROM alpine:3.20\n",
+		"config.yaml":    "key: value\n",
+		"settings.json":  "{\"key\":\"value\"}\n",
+		"infra.tf":       "resource \"aws_s3_bucket\" \"x\" {}\n",
+		"schema.proto":   "syntax = \"proto3\";\n",
+		"script.sh":      "#!/bin/sh\necho hi\n",
+		"query.sql":      "select 1;\n",
+		"pyproject.toml": "[project]\nname='x'\n",
+	})
+
+	results, err := Walk(dir, WalkOptions{})
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+
+	langMap := make(map[string]string)
+	for _, r := range results {
+		if !r.IsDir {
+			langMap[filepath.Base(r.RelPath)] = r.Language
+		}
+	}
+
+	for file, want := range map[string]string{
+		"Dockerfile":     "dockerfile",
+		"config.yaml":    "yaml",
+		"settings.json":  "json",
+		"infra.tf":       "hcl",
+		"schema.proto":   "protobuf",
+		"script.sh":      "bash",
+		"query.sql":      "sql",
+		"pyproject.toml": "toml",
+	} {
+		if got := langMap[file]; got != want {
+			t.Errorf("file %s: expected language %q, got %q", file, want, got)
+		}
+	}
+}
+
 func TestIsDocFile(t *testing.T) {
 	docFiles := []string{
 		// README variants (case-insensitive)

@@ -1,14 +1,16 @@
 package extractors
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"testing"
 
-	ts "github.com/realxen/cartograph/internal/treesitter"
 	treesitter "github.com/tree-sitter/go-tree-sitter"
 	treesittergo "github.com/tree-sitter/tree-sitter-go/bindings/go"
+
+	ts "github.com/realxen/cartograph/internal/treesitter"
 )
 
 type normalizedCapture struct {
@@ -21,6 +23,13 @@ type normalizedCapture struct {
 	StartCol  uint32
 	EndRow    uint32
 	EndCol    uint32
+}
+
+func u32FromUint(v uint) uint32 {
+	if v > uint(^uint32(0)) {
+		return ^uint32(0)
+	}
+	return uint32(v)
 }
 
 func (c normalizedCapture) String() string {
@@ -125,16 +134,16 @@ func makeConfig() {
 func runGoSharedQuery(querySource string, source []byte) ([]normalizedCapture, error) {
 	lang := ts.DetectLanguageByName("go")
 	if lang == nil {
-		return nil, fmt.Errorf("shared go language not found")
+		return nil, errors.New("shared go language not found")
 	}
 	parser := ts.NewParser(lang)
 	tree, err := parser.Parse(source)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("shared parse: %w", err)
 	}
 	query, err := ts.NewQuery(querySource, lang)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("shared query compile: %w", err)
 	}
 	matches := query.Execute(tree, source)
 	var out []normalizedCapture
@@ -165,16 +174,16 @@ func runGoNativeQuery(querySource string, source []byte) ([]normalizedCapture, e
 	parser := treesitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(lang); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("set native language: %w", err)
 	}
 	tree := parser.Parse(source, nil)
 	if tree == nil {
-		return nil, fmt.Errorf("native parse returned nil tree")
+		return nil, errors.New("native parse returned nil tree")
 	}
 	defer tree.Close()
 	query, err := treesitter.NewQuery(lang, querySource)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("compile native query: %w", err)
 	}
 	defer query.Close()
 	cursor := treesitter.NewQueryCursor()
@@ -189,12 +198,12 @@ func runGoNativeQuery(querySource string, source []byte) ([]normalizedCapture, e
 				Name:      captureNames[capture.Index],
 				Text:      node.Utf8Text(source),
 				NodeType:  node.Kind(),
-				StartByte: uint32(node.StartByte()),
-				EndByte:   uint32(node.EndByte()),
-				StartRow:  uint32(node.StartPosition().Row),
-				StartCol:  uint32(node.StartPosition().Column),
-				EndRow:    uint32(node.EndPosition().Row),
-				EndCol:    uint32(node.EndPosition().Column),
+				StartByte: u32FromUint(node.StartByte()),
+				EndByte:   u32FromUint(node.EndByte()),
+				StartRow:  u32FromUint(node.StartPosition().Row),
+				StartCol:  u32FromUint(node.StartPosition().Column),
+				EndRow:    u32FromUint(node.EndPosition().Row),
+				EndCol:    u32FromUint(node.EndPosition().Column),
 			})
 		}
 	}
@@ -260,12 +269,12 @@ func diffCaptureLines(legacy, native []string) string {
 	sort.Strings(ordered)
 	var b strings.Builder
 	for _, key := range ordered {
-		for i := 0; i < legacyCounts[key]-nativeCounts[key]; i++ {
+		for range legacyCounts[key] - nativeCounts[key] {
 			b.WriteString("-")
 			b.WriteString(key)
 			b.WriteString("\n")
 		}
-		for i := 0; i < nativeCounts[key]-legacyCounts[key]; i++ {
+		for range nativeCounts[key] - legacyCounts[key] {
 			b.WriteString("+")
 			b.WriteString(key)
 			b.WriteString("\n")

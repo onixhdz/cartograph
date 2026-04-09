@@ -5,6 +5,7 @@ import ts "github.com/realxen/cartograph/internal/treesitter"
 // genericFallbackAllowlist is the explicit set of languages that may use the
 // generic AST fallback path once pipeline routing enables it.
 var genericFallbackAllowlist = map[string]bool{
+	"json":       true,
 	"yaml":       true,
 	"toml":       true,
 	"hcl":        true,
@@ -14,10 +15,16 @@ var genericFallbackAllowlist = map[string]bool{
 	"bash":       true,
 }
 
-// CanParse reports whether the given language name resolves to a registered
-// tree-sitter grammar.
-func CanParse(language string) bool {
+// HasNativeSupport reports whether the language is available via the native
+// tree-sitter bindings path.
+func HasNativeSupport(language string) bool {
 	return ts.DetectLanguageByName(language) != nil
+}
+
+// HasFallbackGrammar reports whether the language is available via the
+// gotreesitter fallback grammar registry.
+func HasFallbackGrammar(language string) bool {
+	return ts.DetectFallbackLanguageByName(language) != nil
 }
 
 // HasCustomQueries returns true if the given language has first-hand query support.
@@ -26,16 +33,28 @@ func HasCustomQueries(language string) bool {
 	return ok
 }
 
-// SupportsGenericFallback reports whether the language is explicitly approved
-// for generic AST-based fallback extraction and has a registered grammar.
-func SupportsGenericFallback(language string) bool {
-	return genericFallbackAllowlist[language] && CanParse(language)
+// UsesFallbackExtraction reports whether the language should route through the
+// generic AST fallback extraction path.
+func UsesFallbackExtraction(language string) bool {
+	return genericFallbackAllowlist[language] && HasFallbackGrammar(language) && !HasCustomQueries(language)
 }
 
-// CanExtract returns true if the given language has first-hand query support.
-// Kept as a compatibility shim while the pipeline moves to capability-based routing.
+// CanParse reports whether the given language name resolves to any registered
+// tree-sitter grammar.
+func CanParse(language string) bool {
+	return HasNativeSupport(language) || HasFallbackGrammar(language)
+}
+
+// SupportsGenericFallback is kept as a compatibility shim while callers move to
+// UsesFallbackExtraction.
+func SupportsGenericFallback(language string) bool {
+	return UsesFallbackExtraction(language)
+}
+
+// CanExtract reports whether the language should enter extraction at all.
+// Kept as a compatibility shim while callers move to capability-based routing.
 func CanExtract(language string) bool {
-	return HasCustomQueries(language)
+	return HasCustomQueries(language) || UsesFallbackExtraction(language)
 }
 
 // LanguagePreProcess maps language names to source-preprocessing functions

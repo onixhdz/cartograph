@@ -427,7 +427,6 @@ func (p *Pipeline) parseFiles(walkResults []WalkResult) *extractors.ParseResult 
 		if wr.IsDir || wr.Language == "" {
 			continue
 		}
-		// Include languages with hand-crafted queries or inferred tags queries.
 		if !extractors.CanExtract(wr.Language) {
 			continue
 		}

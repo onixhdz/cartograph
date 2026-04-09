@@ -738,10 +738,12 @@ main = putStrLn (greet "World")
 }
 
 func TestExtractFile_DataFormatSkipped(t *testing.T) {
-	// JSON should not have any tags query and should return an error.
-	_, err := ExtractFile("/tmp/test.json", []byte(`{"key": "value"}`), "json")
-	if err == nil {
-		t.Error("expected error for JSON (data format with no tags query)")
+	result, err := ExtractFile("/tmp/test.json", []byte(`{"key": "value"}`), "json")
+	if err != nil {
+		t.Fatalf("ExtractFile(json) error = %v, want nil", err)
+	}
+	if result == nil {
+		t.Fatal("ExtractFile(json) returned nil result")
 	}
 }
 
@@ -760,37 +762,51 @@ func TestCanExtract(t *testing.T) {
 		}
 	}
 
-	// Fallback-only, data format, and unknown languages should return false.
-	for _, lang := range []string{"lua", "elixir", "dart", "json", "yaml", "brainfuck_nonexistent"} {
+	// Non-allowlisted fallback languages and unknown languages should return false.
+	for _, lang := range []string{"lua", "elixir", "dart", "brainfuck_nonexistent"} {
 		if CanExtract(lang) {
 			t.Errorf("CanExtract(%q) = true, want false", lang)
+		}
+	}
+
+	for _, lang := range []string{"json", "yaml", "toml", "hcl", "sql", "protobuf", "dockerfile", "bash"} {
+		if !CanExtract(lang) {
+			t.Errorf("CanExtract(%q) = false, want true (planned fallback support)", lang)
 		}
 	}
 }
 
 func TestLanguageCapabilities(t *testing.T) {
 	tests := []struct {
-		lang              string
-		wantParse         bool
-		wantCustomQueries bool
-		wantFallback      bool
+		lang                string
+		wantNative          bool
+		wantFallbackGrammar bool
+		wantParse           bool
+		wantCustomQueries   bool
+		wantFallback        bool
 	}{
-		{lang: "go", wantParse: true, wantCustomQueries: true, wantFallback: false},
-		{lang: "scala", wantParse: true, wantCustomQueries: true, wantFallback: false},
-		{lang: "yaml", wantParse: false, wantCustomQueries: false, wantFallback: false},
-		{lang: "json", wantParse: false, wantCustomQueries: false, wantFallback: false},
-		{lang: "brainfuck_nonexistent", wantParse: false, wantCustomQueries: false, wantFallback: false},
+		{lang: "go", wantNative: true, wantFallbackGrammar: true, wantParse: true, wantCustomQueries: true, wantFallback: false},
+		{lang: "scala", wantNative: true, wantFallbackGrammar: true, wantParse: true, wantCustomQueries: true, wantFallback: false},
+		{lang: "yaml", wantNative: false, wantFallbackGrammar: true, wantParse: true, wantCustomQueries: false, wantFallback: true},
+		{lang: "json", wantNative: false, wantFallbackGrammar: true, wantParse: true, wantCustomQueries: false, wantFallback: true},
+		{lang: "brainfuck_nonexistent", wantNative: false, wantFallbackGrammar: false, wantParse: false, wantCustomQueries: false, wantFallback: false},
 	}
 
 	for _, tt := range tests {
+		if got := HasNativeSupport(tt.lang); got != tt.wantNative {
+			t.Errorf("HasNativeSupport(%q) = %v, want %v", tt.lang, got, tt.wantNative)
+		}
+		if got := HasFallbackGrammar(tt.lang); got != tt.wantFallbackGrammar {
+			t.Errorf("HasFallbackGrammar(%q) = %v, want %v", tt.lang, got, tt.wantFallbackGrammar)
+		}
 		if got := CanParse(tt.lang); got != tt.wantParse {
 			t.Errorf("CanParse(%q) = %v, want %v", tt.lang, got, tt.wantParse)
 		}
 		if got := HasCustomQueries(tt.lang); got != tt.wantCustomQueries {
 			t.Errorf("HasCustomQueries(%q) = %v, want %v", tt.lang, got, tt.wantCustomQueries)
 		}
-		if got := SupportsGenericFallback(tt.lang); got != tt.wantFallback {
-			t.Errorf("SupportsGenericFallback(%q) = %v, want %v", tt.lang, got, tt.wantFallback)
+		if got := UsesFallbackExtraction(tt.lang); got != tt.wantFallback {
+			t.Errorf("UsesFallbackExtraction(%q) = %v, want %v", tt.lang, got, tt.wantFallback)
 		}
 	}
 }
