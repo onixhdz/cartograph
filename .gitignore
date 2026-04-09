@@ -37,6 +37,7 @@ internal/embedding/local/.zig-cache/
 internal/embedding/local/.zig-target.stamp
 .zig-cache/
 .zig-global-cache/
+.zig-cache-global/
 
 # Task runner cache
 .task/

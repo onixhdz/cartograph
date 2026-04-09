@@ -1,6 +1,6 @@
 // Package plugin implements the plugin host that launches plugin binaries
-// as subprocesses and bridges bidirectional JSON-RPC 2.0 to the Cartograph
-// data source abstractions.
+// as subprocesses and bridges bidirectional JSON-RPC 2.0 to Cartograph's
+// plugin host interfaces.
 //
 // Plugins are standalone executables that communicate over stdin/stdout.
 // The protocol starts with a handshake line, then switches to newline-

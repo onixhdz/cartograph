@@ -114,6 +114,14 @@ func (m *mockClient) EmbedStatus(_ service.EmbedStatusRequest) (*service.EmbedSt
 	return &service.EmbedStatusResult{Status: ""}, nil
 }
 
+func (m *mockClient) PluginIngest(_ service.PluginIngestRequest) (*service.PluginIngestStatusResult, error) {
+	return &service.PluginIngestStatusResult{Status: "pending"}, nil
+}
+
+func (m *mockClient) PluginIngestStatus(_ service.PluginIngestStatusRequest) (*service.PluginIngestStatusResult, error) {
+	return &service.PluginIngestStatusResult{Status: ""}, nil
+}
+
 func (m *mockClient) Schema(req service.SchemaRequest) (*service.SchemaResult, error) {
 	return &service.SchemaResult{
 		NodeLabels: []service.NodeLabelSummary{

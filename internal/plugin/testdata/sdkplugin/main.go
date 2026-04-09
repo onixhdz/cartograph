@@ -11,7 +11,7 @@ import (
 )
 
 type sdkPlugin struct {
-	token string // stored during Configure
+	token string
 }
 
 func (p *sdkPlugin) Info() plugin.Info {
@@ -25,19 +25,20 @@ func (p *sdkPlugin) Info() plugin.Info {
 	}
 }
 
-func (p *sdkPlugin) Configure(ctx context.Context, host plugin.Host, connection string) error {
-	token, err := host.ConfigGet(ctx, "token")
-	if err != nil {
-		return fmt.Errorf("config_get token: %w", err)
-	}
-	if token == "" {
-		return fmt.Errorf("token is required")
-	}
-	p.token = token
-	return nil
+func (p *sdkPlugin) Resources(_ context.Context) ([]plugin.PluginResource, error) {
+	return nil, nil
 }
 
 func (p *sdkPlugin) Ingest(ctx context.Context, host plugin.Host, opts plugin.IngestOptions) (plugin.IngestResult, error) {
+	token, err := host.ConfigGet(ctx, "token")
+	if err != nil {
+		return plugin.IngestResult{}, fmt.Errorf("config_get token: %w", err)
+	}
+	if token == "" {
+		return plugin.IngestResult{}, fmt.Errorf("token is required")
+	}
+	p.token = token
+
 	if err := host.Emit(ctx,
 		plugin.Node{
 			ID:    "sdk:repo:api",

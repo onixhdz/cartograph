@@ -13,9 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/realxen/cartograph/internal/cloudgraph"
-	"github.com/realxen/cartograph/internal/datasource"
 	"github.com/realxen/cartograph/internal/plugin"
+	pluginsdk "github.com/realxen/cartograph/plugin"
 )
 
 // --- Lifecycle tests ---
@@ -25,7 +24,7 @@ func TestPluginDataSource_Info(t *testing.T) {
 
 	ds := &plugin.PluginDataSource{
 		BinaryPath: bin,
-		PluginConfig: cloudgraph.PluginConfig{
+		PluginConfig: plugin.PluginConfig{
 			Bin: "testhost",
 		},
 	}
@@ -45,22 +44,49 @@ func TestPluginDataSource_Info(t *testing.T) {
 	}
 }
 
-func TestPluginDataSource_ResourceTypes(t *testing.T) {
+func TestPluginDataSource_InfoResources(t *testing.T) {
 	bin := buildHostPlugin(t)
 
 	ds := &plugin.PluginDataSource{
 		BinaryPath: bin,
-		PluginConfig: cloudgraph.PluginConfig{
+		PluginConfig: plugin.PluginConfig{
 			Bin: "testhost",
 		},
 	}
 
-	types := ds.ResourceTypes()
-	if len(types) != 2 {
-		t.Fatalf("ResourceTypes() returned %d, want 2", len(types))
+	info := ds.Info()
+	if len(info.Resources) != 2 {
+		t.Fatalf("Info().Resources returned %d, want 2", len(info.Resources))
 	}
-	if types[0].Name != "Repository" {
-		t.Errorf("types[0].Name = %q", types[0].Name)
+	if info.Resources[0].Name != "Repository" {
+		t.Errorf("info.Resources[0].Name = %q", info.Resources[0].Name)
+	}
+}
+
+func TestInspectInstallMetadata(t *testing.T) {
+	bin := buildHostPlugin(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	meta, err := plugin.InspectInstallMetadata(ctx, bin, nil)
+	if err != nil {
+		t.Fatalf("InspectInstallMetadata: %v", err)
+	}
+	if meta.Name != testPluginName {
+		t.Errorf("Name = %q, want %s", meta.Name, testPluginName)
+	}
+	if meta.Version != testPluginVersion {
+		t.Errorf("Version = %q, want %s", meta.Version, testPluginVersion)
+	}
+	if meta.Description != "host test plugin" {
+		t.Errorf("Description = %q, want host test plugin", meta.Description)
+	}
+	if len(meta.Resources) != 1 {
+		t.Fatalf("Resources = %d, want 1", len(meta.Resources))
+	}
+	if meta.Resources[0].Name != "security-research" {
+		t.Errorf("resource name = %q, want security-research", meta.Resources[0].Name)
 	}
 }
 
@@ -74,7 +100,7 @@ func TestPluginDataSource_Ingest_Success(t *testing.T) {
 	ds := &plugin.PluginDataSource{
 		BinaryPath:     bin,
 		ConnectionName: "test_conn",
-		PluginConfig: cloudgraph.PluginConfig{
+		PluginConfig: plugin.PluginConfig{
 			Bin: "testhost",
 			Extra: map[string]any{
 				"token": "test-token-123",
@@ -95,7 +121,7 @@ func TestPluginDataSource_Ingest_Success(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	err := ds.Ingest(ctx, builder, datasource.IngestOptions{})
+	err := ds.Ingest(ctx, builder, pluginsdk.IngestOptions{})
 	if err != nil {
 		t.Fatalf("Ingest: %v", err)
 	}
@@ -131,7 +157,7 @@ func TestPluginDataSource_Ingest_ChecksumVerification(t *testing.T) {
 		ds := &plugin.PluginDataSource{
 			BinaryPath:     bin,
 			ConnectionName: "test",
-			PluginConfig: cloudgraph.PluginConfig{
+			PluginConfig: plugin.PluginConfig{
 				Bin:      "testhost",
 				Checksum: correctChecksum,
 				Extra:    map[string]any{"token": "tok"},
@@ -142,7 +168,7 @@ func TestPluginDataSource_Ingest_ChecksumVerification(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		err := ds.Ingest(ctx, &mockBuilder{}, datasource.IngestOptions{})
+		err := ds.Ingest(ctx, &mockBuilder{}, pluginsdk.IngestOptions{})
 		if err != nil {
 			t.Fatalf("Ingest with correct checksum: %v", err)
 		}
@@ -152,7 +178,7 @@ func TestPluginDataSource_Ingest_ChecksumVerification(t *testing.T) {
 		ds := &plugin.PluginDataSource{
 			BinaryPath:     bin,
 			ConnectionName: "test",
-			PluginConfig: cloudgraph.PluginConfig{
+			PluginConfig: plugin.PluginConfig{
 				Bin:      "testhost",
 				Checksum: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
 				Extra:    map[string]any{"token": "tok"},
@@ -162,7 +188,7 @@ func TestPluginDataSource_Ingest_ChecksumVerification(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		err := ds.Ingest(ctx, &mockBuilder{}, datasource.IngestOptions{})
+		err := ds.Ingest(ctx, &mockBuilder{}, pluginsdk.IngestOptions{})
 		if err == nil {
 			t.Fatal("expected error for wrong checksum")
 		}
@@ -170,14 +196,6 @@ func TestPluginDataSource_Ingest_ChecksumVerification(t *testing.T) {
 			t.Errorf("expected ErrChecksumMismatch, got: %v", err)
 		}
 	})
-}
-
-func TestPluginDataSource_Configure_NoOp(t *testing.T) {
-	ds := &plugin.PluginDataSource{}
-	err := ds.Configure(map[string]any{"anything": "goes"})
-	if err != nil {
-		t.Errorf("Configure should be no-op, got: %v", err)
-	}
 }
 
 // --- Security tests ---
@@ -256,7 +274,7 @@ func TestPluginDataSource_NodeLimit(t *testing.T) {
 	ds := &plugin.PluginDataSource{
 		BinaryPath:     bin,
 		ConnectionName: "test",
-		PluginConfig: cloudgraph.PluginConfig{
+		PluginConfig: plugin.PluginConfig{
 			Bin:   "testhost",
 			Extra: map[string]any{"token": "tok"},
 		},
@@ -270,7 +288,7 @@ func TestPluginDataSource_NodeLimit(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	err := ds.Ingest(ctx, &mockBuilder{}, datasource.IngestOptions{})
+	err := ds.Ingest(ctx, &mockBuilder{}, pluginsdk.IngestOptions{})
 	if err == nil {
 		t.Fatal("expected error for node limit exceeded")
 	}
@@ -289,7 +307,7 @@ func TestPluginDataSource_EdgeLimit(t *testing.T) {
 	ds := &plugin.PluginDataSource{
 		BinaryPath:     bin,
 		ConnectionName: "test",
-		PluginConfig: cloudgraph.PluginConfig{
+		PluginConfig: plugin.PluginConfig{
 			Bin:   "testhost",
 			Extra: map[string]any{"token": "tok"},
 		},
@@ -303,7 +321,7 @@ func TestPluginDataSource_EdgeLimit(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	err := ds.Ingest(ctx, &mockBuilder{}, datasource.IngestOptions{})
+	err := ds.Ingest(ctx, &mockBuilder{}, pluginsdk.IngestOptions{})
 	if err != nil {
 		t.Fatalf("Ingest should succeed with unlimited edges: %v", err)
 	}
@@ -359,7 +377,7 @@ func TestSDKPlugin_Info(t *testing.T) {
 
 	ds := &plugin.PluginDataSource{
 		BinaryPath: bin,
-		PluginConfig: cloudgraph.PluginConfig{
+		PluginConfig: plugin.PluginConfig{
 			Bin: "sdktest",
 		},
 	}
@@ -373,25 +391,25 @@ func TestSDKPlugin_Info(t *testing.T) {
 	}
 }
 
-func TestSDKPlugin_ResourceTypes(t *testing.T) {
+func TestSDKPlugin_InfoResources(t *testing.T) {
 	bin := buildSDKPlugin(t)
 
 	ds := &plugin.PluginDataSource{
 		BinaryPath: bin,
-		PluginConfig: cloudgraph.PluginConfig{
+		PluginConfig: plugin.PluginConfig{
 			Bin: "sdktest",
 		},
 	}
 
-	types := ds.ResourceTypes()
-	if len(types) != 2 {
-		t.Fatalf("ResourceTypes() returned %d, want 2", len(types))
+	info := ds.Info()
+	if len(info.Resources) != 2 {
+		t.Fatalf("Info().Resources returned %d, want 2", len(info.Resources))
 	}
-	if types[0].Name != "Repository" {
-		t.Errorf("types[0].Name = %q, want Repository", types[0].Name)
+	if info.Resources[0].Name != "Repository" {
+		t.Errorf("info.Resources[0].Name = %q, want Repository", info.Resources[0].Name)
 	}
-	if types[1].Name != "User" {
-		t.Errorf("types[1].Name = %q, want User", types[1].Name)
+	if info.Resources[1].Name != "User" {
+		t.Errorf("info.Resources[1].Name = %q, want User", info.Resources[1].Name)
 	}
 }
 
@@ -405,7 +423,7 @@ func TestSDKPlugin_Ingest(t *testing.T) {
 	ds := &plugin.PluginDataSource{
 		BinaryPath:     bin,
 		ConnectionName: "sdk_test_conn",
-		PluginConfig: cloudgraph.PluginConfig{
+		PluginConfig: plugin.PluginConfig{
 			Bin:   "sdktest",
 			Extra: map[string]any{"token": "sdk-test-token"}, //nolint:gosec // G101: test credentials
 		},
@@ -424,7 +442,7 @@ func TestSDKPlugin_Ingest(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	err := ds.Ingest(ctx, builder, datasource.IngestOptions{})
+	err := ds.Ingest(ctx, builder, pluginsdk.IngestOptions{})
 	if err != nil {
 		t.Fatalf("Ingest: %v", err)
 	}

@@ -4,19 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/realxen/cartograph/internal/datasource"
 	"github.com/realxen/cartograph/internal/jsonrpc2"
 )
 
 // HostHandler handles incoming JSON-RPC 2.0 requests and notifications from
 // a plugin process. It provides host services: config resolution, caching,
-// HTTP proxying, graph emission, and logging.
+// graph emission, and logging.
 type HostHandler struct {
 	// Config is the key-value config for this connection (resolved from
 	// config.toml Extra fields). Keys ending in "_env" have already been
@@ -24,15 +20,11 @@ type HostHandler struct {
 	Config map[string]any
 
 	// Builder receives emitted nodes and edges from the plugin.
-	Builder datasource.GraphBuilder
+	Builder GraphBuilder
 
 	// Cache is the backing store for plugin-scoped caching.
 	// If nil, cache operations return not-found / no-op.
 	Cache CacheStore
-
-	// HTTPClient is used for proxied HTTP requests. If nil, http.DefaultClient
-	// is used.
-	HTTPClient *http.Client
 
 	// Logger receives log messages from the plugin. If nil, logs are discarded.
 	Logger func(pluginName string, level string, msg string)
@@ -61,8 +53,6 @@ func (h *HostHandler) Handle(ctx context.Context, req *jsonrpc2.Request) (any, e
 		return h.handleCacheGet(req)
 	case "cache_set":
 		return h.handleCacheSet(req)
-	case "http_request":
-		return h.handleHTTPRequest(ctx, req)
 
 	// Notification methods (fire-and-forget, no response).
 	case "emit_node":
@@ -156,72 +146,6 @@ func (h *HostHandler) handleCacheSet(req *jsonrpc2.Request) (any, error) {
 		h.Cache.Set(params.Key, params.Value, time.Duration(params.TTL)*time.Second)
 	}
 	return cacheSetResult{OK: true}, nil
-}
-
-type httpRequestParams struct {
-	Method  string            `json:"method"`
-	URL     string            `json:"url"`
-	Headers map[string]string `json:"headers"`
-	Body    *string           `json:"body"`
-}
-
-type httpRequestResult struct {
-	Status  int               `json:"status"`
-	Headers map[string]string `json:"headers"`
-	Body    string            `json:"body"`
-}
-
-func (h *HostHandler) handleHTTPRequest(ctx context.Context, req *jsonrpc2.Request) (any, error) {
-	var params httpRequestParams
-	if err := json.Unmarshal(req.Params, &params); err != nil {
-		return nil, fmt.Errorf("%w: %w", jsonrpc2.ErrInvalidParams, err)
-	}
-	if params.Method == "" {
-		return nil, fmt.Errorf("%w: empty HTTP method", jsonrpc2.ErrInvalidParams)
-	}
-	if params.URL == "" {
-		return nil, fmt.Errorf("%w: empty URL", jsonrpc2.ErrInvalidParams)
-	}
-
-	var bodyReader io.Reader
-	if params.Body != nil {
-		bodyReader = strings.NewReader(*params.Body)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, params.Method, params.URL, bodyReader)
-	if err != nil {
-		return nil, jsonrpc2.NewError(-32000, fmt.Sprintf("creating HTTP request: %v", err)) //nolint:wrapcheck // wire error by design
-	}
-	for k, v := range params.Headers {
-		httpReq.Header.Set(k, v)
-	}
-
-	client := h.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
-	}
-
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		return nil, jsonrpc2.NewError(-32000, fmt.Sprintf("HTTP request failed: %v", err)) //nolint:wrapcheck // wire error by design
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, jsonrpc2.NewError(-32000, fmt.Sprintf("reading HTTP response: %v", err)) //nolint:wrapcheck // wire error by design
-	}
-
-	headers := make(map[string]string)
-	for k := range resp.Header {
-		headers[k] = resp.Header.Get(k)
-	}
-
-	return httpRequestResult{
-		Status:  resp.StatusCode,
-		Headers: headers,
-		Body:    string(body),
-	}, nil
 }
 
 type emitNodeParams struct {

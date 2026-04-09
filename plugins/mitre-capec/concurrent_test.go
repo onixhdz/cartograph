@@ -147,14 +147,11 @@ func TestConcurrent_HighVolumeInProcess(t *testing.T) {
 		t.Fatalf("read fixture: %v", err)
 	}
 
-	mock := plugintest.MockHTTP([]plugintest.Route{
-		{
-			Method: "GET",
-			URL:    "https://example.com/capec.json",
-			Status: 200,
-			Body:   string(fixtureData),
-		},
-	})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(fixtureData)
+	}))
+	defer srv.Close()
 
 	// Run the plugin many times in parallel against separate hosts.
 	const numRuns = 20
@@ -169,17 +166,12 @@ func TestConcurrent_HighVolumeInProcess(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			h := plugintest.NewHost(plugintest.Config{
-				"stix_url": "https://example.com/capec.json",
+				"stix_url": srv.URL + "/capec.json",
 			})
-			h.SetHTTPHandler(mock.Handler())
 			hosts[idx] = h
 
 			p := &capecPlugin{}
 			ctx := context.Background()
-			if err := p.Configure(ctx, h, "test"); err != nil {
-				t.Errorf("run %d: Configure: %v", idx, err)
-				return
-			}
 			r, err := p.Ingest(ctx, h, plugin.IngestOptions{})
 			if err != nil {
 				t.Errorf("run %d: Ingest: %v", idx, err)
@@ -214,25 +206,20 @@ func BenchmarkPluginIngest_InProcess(b *testing.B) {
 		b.Fatalf("read fixture: %v", err)
 	}
 
-	mock := plugintest.MockHTTP([]plugintest.Route{
-		{
-			Method: "GET",
-			URL:    "https://example.com/capec.json",
-			Status: 200,
-			Body:   string(fixtureData),
-		},
-	})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(fixtureData)
+	}))
+	defer srv.Close()
 
 	b.ResetTimer()
 	for range b.N {
 		h := plugintest.NewHost(plugintest.Config{
-			"stix_url": "https://example.com/capec.json",
+			"stix_url": srv.URL + "/capec.json",
 		})
-		h.SetHTTPHandler(mock.Handler())
 
 		p := &capecPlugin{}
 		ctx := context.Background()
-		_ = p.Configure(ctx, h, "test")
 		_, err := p.Ingest(ctx, h, plugin.IngestOptions{})
 		if err != nil {
 			b.Fatalf("Ingest: %v", err)
@@ -248,26 +235,21 @@ func BenchmarkPluginIngest_InProcess_Parallel(b *testing.B) {
 		b.Fatalf("read fixture: %v", err)
 	}
 
-	mock := plugintest.MockHTTP([]plugintest.Route{
-		{
-			Method: "GET",
-			URL:    "https://example.com/capec.json",
-			Status: 200,
-			Body:   string(fixtureData),
-		},
-	})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(fixtureData)
+	}))
+	defer srv.Close()
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			h := plugintest.NewHost(plugintest.Config{
-				"stix_url": "https://example.com/capec.json",
+				"stix_url": srv.URL + "/capec.json",
 			})
-			h.SetHTTPHandler(mock.Handler())
 
 			p := &capecPlugin{}
 			ctx := context.Background()
-			_ = p.Configure(ctx, h, "test")
 			_, err := p.Ingest(ctx, h, plugin.IngestOptions{})
 			if err != nil {
 				b.Fatalf("Ingest: %v", err)

@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/realxen/cartograph/internal/cloudgraph"
-	"github.com/realxen/cartograph/internal/datasource"
 	internalPlugin "github.com/realxen/cartograph/internal/plugin"
 	"github.com/realxen/cartograph/plugin"
 )
@@ -155,7 +153,7 @@ func RunBinary(t testing.TB, binaryPath string, opts RunBinaryOptions) *BinaryRe
 
 	ds := &internalPlugin.PluginDataSource{
 		BinaryPath: binaryPath,
-		PluginConfig: cloudgraph.PluginConfig{
+		PluginConfig: internalPlugin.PluginConfig{
 			Bin:   "test",
 			Extra: extra,
 		},
@@ -174,33 +172,19 @@ func RunBinary(t testing.TB, binaryPath string, opts RunBinaryOptions) *BinaryRe
 	}
 
 	info := ds.Info()
-	result.Info = plugin.Info{
-		Name:    info.Name,
-		Version: info.Version,
-	}
-	types := ds.ResourceTypes()
-	for _, rt := range types {
-		result.Info.Resources = append(result.Info.Resources, plugin.Resource{
-			Name:  rt.Name,
-			Label: rt.Kind,
-		})
-	}
+	result.Info = info
 
 	ctx, cancel := context.WithTimeout(context.Background(), opts.Timeout)
 	defer cancel()
 
-	ingestOpts := datasource.IngestOptions{
-		ResourceTypes: opts.IngestOptions.ResourceTypes,
-		Concurrency:   opts.IngestOptions.Concurrency,
-	}
-	if err := ds.Ingest(ctx, builder, ingestOpts); err != nil {
+	if err := ds.Ingest(ctx, builder, opts.IngestOptions); err != nil {
 		result.errs = append(result.errs, err)
 	}
 
 	return result
 }
 
-// collectingBuilder is a datasource.GraphBuilder that records emissions
+// collectingBuilder is a plugin.GraphBuilder that records emissions
 // into a BinaryResult. Thread-safe: notification handlers run concurrently.
 type collectingBuilder struct {
 	result *BinaryResult

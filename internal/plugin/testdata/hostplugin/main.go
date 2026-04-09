@@ -2,7 +2,6 @@
 // It supports the full handshake protocol and the core RPC methods:
 //
 //	info      — returns plugin metadata and resource types
-//	configure — calls config_get to validate credentials
 //	ingest    — emits nodes/edges via notifications, uses host services
 //	close     — clean shutdown
 //
@@ -54,24 +53,19 @@ func main() {
 
 		case "info":
 			return map[string]any{
-				"name":    pluginName,
-				"version": pluginVersion,
+				"name":        pluginName,
+				"version":     pluginVersion,
+				"description": "host test plugin",
 				"resources": []map[string]string{
 					{"name": "Repository", "label": "TestHostRepo"},
 					{"name": "User", "label": "TestHostUser"},
 				},
 			}, nil
 
-		case "configure":
-			// Call config_get to retrieve the token.
-			var token string
-			if err := conn.Call(ctx, "config_get", map[string]string{"key": "token"}).Await(ctx, &token); err != nil {
-				return nil, fmt.Errorf("config_get failed: %w", err)
-			}
-			if token == "" {
-				return nil, jsonrpc2.NewError(-32000, "empty token")
-			}
-			return map[string]bool{"ok": true}, nil
+		case "resources":
+			return []map[string]string{
+				{"name": "security-research", "content": "Use this test plugin for resource inspection tests."},
+			}, nil
 
 		case "ingest":
 			var opts struct {
@@ -81,6 +75,14 @@ func main() {
 				if err := json.Unmarshal(req.Params, &opts); err != nil {
 					return nil, err
 				}
+			}
+
+			var token string
+			if err := conn.Call(ctx, "config_get", map[string]string{"key": "token"}).Await(ctx, &token); err != nil {
+				return nil, fmt.Errorf("config_get failed: %w", err)
+			}
+			if token == "" {
+				return nil, jsonrpc2.NewError(-32000, "empty token")
 			}
 
 			// Emit some test nodes.

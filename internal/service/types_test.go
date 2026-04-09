@@ -97,17 +97,19 @@ func TestAPIErrorImplementsError(t *testing.T) {
 
 func TestAllMethodsComplete(t *testing.T) {
 	expected := map[string]bool{
-		MethodQuery:       true,
-		MethodContext:     true,
-		MethodCypher:      true,
-		MethodImpact:      true,
-		MethodCat:         true,
-		MethodReload:      true,
-		MethodStatus:      true,
-		MethodShutdown:    true,
-		MethodSchema:      true,
-		MethodEmbed:       true,
-		MethodEmbedStatus: true,
+		MethodQuery:              true,
+		MethodContext:            true,
+		MethodCypher:             true,
+		MethodImpact:             true,
+		MethodCat:                true,
+		MethodReload:             true,
+		MethodStatus:             true,
+		MethodShutdown:           true,
+		MethodSchema:             true,
+		MethodEmbed:              true,
+		MethodEmbedStatus:        true,
+		MethodPluginIngest:       true,
+		MethodPluginIngestStatus: true,
 	}
 	if len(AllMethods) != len(expected) {
 		t.Errorf("AllMethods has %d entries, expected %d", len(AllMethods), len(expected))

@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 
@@ -354,42 +356,29 @@ func TestPluginInfo(t *testing.T) {
 	if info.Version != "0.1.0" {
 		t.Errorf("version: got %q, want %q", info.Version, "0.1.0")
 	}
+	if info.Description == "" {
+		t.Error("description: got empty, want non-empty")
+	}
 	if len(info.Resources) != 3 {
 		t.Errorf("resources: got %d, want 3", len(info.Resources))
 	}
 }
 
-func TestPluginConfigure(t *testing.T) {
-	t.Run("defaults", func(t *testing.T) {
-		p := &capecPlugin{}
-		host := plugintest.NewHost(nil)
-		if err := p.Configure(context.Background(), host, "test"); err != nil {
-			t.Fatalf("Configure: %v", err)
-		}
-		if p.stixURL != defaultSTIXURL {
-			t.Errorf("stixURL: got %q, want default", p.stixURL)
-		}
-		if p.includeDeprecated {
-			t.Error("includeDeprecated: got true, want false")
-		}
-	})
-
-	t.Run("custom config", func(t *testing.T) {
-		p := &capecPlugin{}
-		host := plugintest.NewHost(plugintest.Config{
-			"stix_url":           "https://example.com/capec.json",
-			"include_deprecated": "true",
-		})
-		if err := p.Configure(context.Background(), host, "test"); err != nil {
-			t.Fatalf("Configure: %v", err)
-		}
-		if p.stixURL != "https://example.com/capec.json" {
-			t.Errorf("stixURL: got %q, want custom URL", p.stixURL)
-		}
-		if !p.includeDeprecated {
-			t.Error("includeDeprecated: got false, want true")
-		}
-	})
+func TestPluginResources(t *testing.T) {
+	p := &capecPlugin{}
+	resources, err := p.Resources(context.Background())
+	if err != nil {
+		t.Fatalf("Resources: %v", err)
+	}
+	if len(resources) != 1 {
+		t.Fatalf("resources: got %d, want 1", len(resources))
+	}
+	if resources[0].Name != "security-research" {
+		t.Errorf("resource name: got %q, want %q", resources[0].Name, "security-research")
+	}
+	if resources[0].Content == "" {
+		t.Error("resource content: got empty, want non-empty")
+	}
 }
 
 func TestPluginIngest_WithFixture(t *testing.T) {
@@ -398,25 +387,18 @@ func TestPluginIngest_WithFixture(t *testing.T) {
 		t.Fatalf("read fixture: %v", err)
 	}
 
-	mock := plugintest.MockHTTP([]plugintest.Route{
-		{
-			Method: "GET",
-			URL:    "https://example.com/capec.json",
-			Status: 200,
-			Body:   string(fixtureData),
-		},
-	})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(fixtureData)
+	}))
+	defer srv.Close()
 
 	host := plugintest.NewHost(plugintest.Config{
-		"stix_url": "https://example.com/capec.json",
+		"stix_url": srv.URL + "/capec.json",
 	})
-	host.SetHTTPHandler(mock.Handler())
 
 	p := &capecPlugin{}
 	ctx := context.Background()
-	if err := p.Configure(ctx, host, "test"); err != nil {
-		t.Fatalf("Configure: %v", err)
-	}
 
 	result, err := p.Ingest(ctx, host, plugin.IngestOptions{})
 	if err != nil {
@@ -430,11 +412,6 @@ func TestPluginIngest_WithFixture(t *testing.T) {
 		t.Errorf("result.Edges: got %d, want 7", result.Edges)
 	}
 
-	// Verify HTTP was called.
-	if mock.RequestCount() != 1 {
-		t.Errorf("HTTP requests: got %d, want 1", mock.RequestCount())
-	}
-
 	// Verify logs.
 	host.AssertLogContains(t, "info", "fetching CAPEC STIX bundle")
 	host.AssertLogContains(t, "info", "emitted 6 nodes, 7 edges")
@@ -446,25 +423,20 @@ func TestPluginIngest_CacheSkip(t *testing.T) {
 		t.Fatalf("read fixture: %v", err)
 	}
 
-	mock := plugintest.MockHTTP([]plugintest.Route{
-		{
-			Method: "GET",
-			URL:    "https://example.com/capec.json",
-			Status: 200,
-			Body:   string(fixtureData),
-		},
-	})
+	var requests int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(fixtureData)
+	}))
+	defer srv.Close()
 
 	host := plugintest.NewHost(plugintest.Config{
-		"stix_url": "https://example.com/capec.json",
+		"stix_url": srv.URL + "/capec.json",
 	})
-	host.SetHTTPHandler(mock.Handler())
 
 	p := &capecPlugin{}
 	ctx := context.Background()
-	if err := p.Configure(ctx, host, "test"); err != nil {
-		t.Fatalf("Configure: %v", err)
-	}
 
 	// First ingest: should emit.
 	result1, err := p.Ingest(ctx, host, plugin.IngestOptions{})
@@ -488,33 +460,26 @@ func TestPluginIngest_CacheSkip(t *testing.T) {
 	}
 
 	// Should have been fetched twice (cache only skips emission, not download).
-	if mock.RequestCount() != 2 {
-		t.Errorf("HTTP requests: got %d, want 2", mock.RequestCount())
+	if requests != 2 {
+		t.Errorf("HTTP requests: got %d, want 2", requests)
 	}
 
 	host.AssertLogContains(t, "info", "unchanged")
 }
 
 func TestPluginIngest_HTTPError(t *testing.T) {
-	mock := plugintest.MockHTTP([]plugintest.Route{
-		{
-			Method: "GET",
-			URL:    "https://example.com/capec.json",
-			Status: 503,
-			Body:   "Service Unavailable",
-		},
-	})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("Service Unavailable"))
+	}))
+	defer srv.Close()
 
 	host := plugintest.NewHost(plugintest.Config{
-		"stix_url": "https://example.com/capec.json",
+		"stix_url": srv.URL + "/capec.json",
 	})
-	host.SetHTTPHandler(mock.Handler())
 
 	p := &capecPlugin{}
 	ctx := context.Background()
-	if err := p.Configure(ctx, host, "test"); err != nil {
-		t.Fatalf("Configure: %v", err)
-	}
 
 	_, err := p.Ingest(ctx, host, plugin.IngestOptions{})
 	if err == nil {

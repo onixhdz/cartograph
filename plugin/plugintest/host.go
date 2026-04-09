@@ -3,18 +3,13 @@
 // The primary type is [Host], a mock implementation of [plugin.Host] that
 // records emitted nodes, edges, and log messages for assertion in tests.
 // No Cartograph installation or running host process is required.
-//
-// For plugins that use host.HTTPRequest, [MockHTTP] builds a handler from
-// a route table of canned responses.
-//
 // For full integration testing against a compiled plugin binary,
 // [RunBinary] launches the binary as a subprocess and runs the complete
-// protocol lifecycle (handshake → info → configure → ingest → close).
+// protocol lifecycle (handshake → info → ingest → close).
 package plugintest
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -56,7 +51,6 @@ type Host struct {
 	mu     sync.Mutex
 	config Config
 	cache  map[string]cacheEntry
-	httpFn func(ctx context.Context, req plugin.HTTPRequest) (*plugin.HTTPResponse, error)
 
 	nodes []Node
 	edges []Edge
@@ -77,14 +71,6 @@ func NewHost(config Config) *Host {
 		config: config,
 		cache:  make(map[string]cacheEntry),
 	}
-}
-
-// SetHTTPHandler sets the function used to handle HTTPRequest calls.
-// Use [MockHTTP] to build one from a route table.
-func (h *Host) SetHTTPHandler(fn func(ctx context.Context, req plugin.HTTPRequest) (*plugin.HTTPResponse, error)) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.httpFn = fn
 }
 
 // ConfigGet returns the config value for key, or an error if not found.
@@ -123,18 +109,6 @@ func (h *Host) CacheSet(_ context.Context, key, value string, ttlSeconds int) er
 	}
 	h.cache[key] = entry
 	return nil
-}
-
-// HTTPRequest delegates to the configured HTTP handler, or returns an error
-// if none is set.
-func (h *Host) HTTPRequest(ctx context.Context, req plugin.HTTPRequest) (*plugin.HTTPResponse, error) {
-	h.mu.Lock()
-	fn := h.httpFn
-	h.mu.Unlock()
-	if fn == nil {
-		return nil, errors.New("plugintest: no HTTP handler configured (use Host.SetHTTPHandler or MockHTTP)")
-	}
-	return fn(ctx, req)
 }
 
 // Emit records one or more graph element emissions.

@@ -114,46 +114,12 @@ func TestHost_Log(t *testing.T) {
 	}
 }
 
-func TestHost_HTTPRequest_NoHandler(t *testing.T) {
-	h := NewHost(nil)
-	ctx := context.Background()
-
-	_, err := h.HTTPRequest(ctx, plugin.HTTPRequest{Method: "GET", URL: "http://example.com"})
-	if err == nil {
-		t.Fatal("expected error when no HTTP handler configured")
-	}
-}
-
-func TestHost_HTTPRequest_WithHandler(t *testing.T) {
-	h := NewHost(nil)
-	ctx := context.Background()
-
-	h.SetHTTPHandler(func(_ context.Context, req plugin.HTTPRequest) (*plugin.HTTPResponse, error) {
-		return &plugin.HTTPResponse{Status: 200, Body: `{"ok":true}`}, nil
-	})
-
-	resp, err := h.HTTPRequest(ctx, plugin.HTTPRequest{Method: "GET", URL: "http://example.com"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.Status != 200 {
-		t.Errorf("status: got %d, want 200", resp.Status)
-	}
-}
-
 // TestHost_PluginLifecycle exercises a complete plugin lifecycle using the mock host.
 func TestHost_PluginLifecycle(t *testing.T) {
 	h := NewHost(Config{"api_key": "test-key"})
 	ctx := context.Background()
 
 	p := &fakePlugin{}
-
-	if err := p.Configure(ctx, h, "my_conn"); err != nil {
-		t.Fatal(err)
-	}
-	if p.key != "test-key" {
-		t.Errorf("plugin key: got %q, want %q", p.key, "test-key")
-	}
 
 	result, err := p.Ingest(ctx, h, plugin.IngestOptions{})
 	if err != nil {
@@ -175,9 +141,7 @@ func TestHost_PluginLifecycle(t *testing.T) {
 }
 
 // fakePlugin is a minimal plugin for testing the mock host.
-type fakePlugin struct {
-	key string
-}
+type fakePlugin struct{}
 
 func (p *fakePlugin) Info() plugin.Info {
 	return plugin.Info{
@@ -190,16 +154,15 @@ func (p *fakePlugin) Info() plugin.Info {
 	}
 }
 
-func (p *fakePlugin) Configure(ctx context.Context, host plugin.Host, _ string) error {
-	key, err := host.ConfigGet(ctx, "api_key")
-	if err != nil {
-		return fmt.Errorf("config_get: %w", err)
-	}
-	p.key = key
-	return nil
+func (p *fakePlugin) Resources(_ context.Context) ([]plugin.PluginResource, error) {
+	return nil, nil
 }
 
 func (p *fakePlugin) Ingest(ctx context.Context, host plugin.Host, _ plugin.IngestOptions) (plugin.IngestResult, error) {
+	_, err := host.ConfigGet(ctx, "api_key")
+	if err != nil {
+		return plugin.IngestResult{}, fmt.Errorf("config_get api_key: %w", err)
+	}
 	if err := host.Emit(ctx,
 		plugin.Node{ID: "fake:widget:1", Label: "FakeWidget", Properties: map[string]any{"name": "Sprocket"}},
 		plugin.Node{ID: "fake:owner:alice", Label: "FakeOwner", Properties: map[string]any{"login": "alice"}},

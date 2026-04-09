@@ -3,13 +3,19 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 
 	"github.com/realxen/cartograph/plugin"
 )
 
 const defaultSTIXURL = "https://raw.githubusercontent.com/mitre/cti/master/capec/2.1/stix-capec.json"
+
+//go:embed security-research.md
+var securityResearchSkill string
 
 type capecPlugin struct {
 	stixURL           string
@@ -18,8 +24,9 @@ type capecPlugin struct {
 
 func (p *capecPlugin) Info() plugin.Info {
 	return plugin.Info{
-		Name:    "mitre-capec", //nolint:misspell // MITRE is the organization name
-		Version: "0.1.0",
+		Name:        "mitre-capec", //nolint:misspell // MITRE is the organization name
+		Version:     "0.1.0",
+		Description: "CAPEC security knowledge graph and investigation guidance",
 		Resources: []plugin.Resource{
 			{Name: "Pattern", Label: "CAPECPattern"},
 			{Name: "Mitigation", Label: "CAPECMitigation"},
@@ -28,7 +35,16 @@ func (p *capecPlugin) Info() plugin.Info {
 	}
 }
 
-func (p *capecPlugin) Configure(ctx context.Context, host plugin.Host, _ string) error {
+func (p *capecPlugin) Resources(_ context.Context) ([]plugin.PluginResource, error) {
+	return []plugin.PluginResource{
+		{
+			Name:    "security-research",
+			Content: securityResearchSkill,
+		},
+	}, nil
+}
+
+func (p *capecPlugin) Ingest(ctx context.Context, host plugin.Host, opts plugin.IngestOptions) (plugin.IngestResult, error) {
 	url, err := host.ConfigGet(ctx, "stix_url")
 	if err == nil && url != "" {
 		p.stixURL = url
@@ -36,15 +52,12 @@ func (p *capecPlugin) Configure(ctx context.Context, host plugin.Host, _ string)
 		p.stixURL = defaultSTIXURL
 	}
 
+	p.includeDeprecated = false
 	dep, err := host.ConfigGet(ctx, "include_deprecated")
 	if err == nil && dep == "true" {
 		p.includeDeprecated = true
 	}
 
-	return nil
-}
-
-func (p *capecPlugin) Ingest(ctx context.Context, host plugin.Host, opts plugin.IngestOptions) (plugin.IngestResult, error) {
 	_ = host.Log(ctx, "info", "fetching CAPEC STIX bundle from "+p.stixURL)
 
 	// Fetch the STIX bundle.
@@ -88,19 +101,27 @@ func (p *capecPlugin) Ingest(ctx context.Context, host plugin.Host, opts plugin.
 	return plugin.IngestResult{Nodes: result.nodes, Edges: result.edges}, nil
 }
 
-// fetchBundle downloads the STIX bundle via the host HTTP proxy.
-func (p *capecPlugin) fetchBundle(ctx context.Context, host plugin.Host) ([]byte, error) {
-	resp, err := host.HTTPRequest(ctx, plugin.HTTPRequest{
-		Method: "GET",
-		URL:    p.stixURL,
-	})
+// fetchBundle downloads the STIX bundle directly.
+func (p *capecPlugin) fetchBundle(ctx context.Context, _ plugin.Host) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.stixURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("fetch STIX bundle: %w", err)
 	}
-	if resp.Status != 200 {
-		return nil, fmt.Errorf("fetch STIX bundle: HTTP %d", resp.Status)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch STIX bundle: %w", err)
 	}
-	return []byte(resp.Body), nil
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("fetch STIX bundle: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("fetch STIX bundle: HTTP %d", resp.StatusCode)
+	}
+	return body, nil
 }
 
 func (p *capecPlugin) Close() error {

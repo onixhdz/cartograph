@@ -1,9 +1,9 @@
 ---
 name: cartograph
-description: 'Cartograph: graph-powered code intelligence. Use when the user asks to index, analyze, understand, or explore a repository or codebase. Covers CLI commands, practical workflows, and deep-dive architecture analysis.'
+description: "Cartograph: graph-powered code intelligence. Use when the user asks to index, analyze, understand, or explore a repository or codebase. Covers CLI commands, practical workflows, and deep-dive architecture analysis."
 metadata:
   author: cartograph
-  version: '1.0'
+  version: "1.0"
 ---
 
 # Cartograph Skill Router
@@ -25,6 +25,13 @@ All references are topic files in the `references/` directory relative to this
 file. Read the matching file and follow its instructions. Load only the
 reference(s) needed for the user's request.
 
+**Explicit rule:** Before routing any task, check whether `references/plugins.json` exists. If it
+does, read it first and treat it as the installed plugin-reference index.
+
+If the file lists plugin references relevant to the user's task, load those
+referenced files before answering. Treat plugin references as supplemental
+guidance, not as executable skills.
+
 ## Service Architecture & Execution Modes
 
 Cartograph has three execution modes. **Always prefer the background
@@ -44,6 +51,7 @@ service also exposes a **Streamable HTTP MCP endpoint at `/mcp`**,
 enabled by default (opt-out: `--no-mcp`).
 
 **When to start the service:**
+
 - Before running multiple queries — avoids reloading graphs per command
 - Before or during embedding (`--embed async` auto-starts it)
 - When configuring an AI editor to use the `/mcp` endpoint directly
@@ -58,6 +66,7 @@ commands.
 
 **Agent rule:** If you plan to run 2+ queries or any embedding work,
 start the service first:
+
 ```bash
 cartograph serve start
 ```
@@ -207,6 +216,7 @@ repository or project without explicitly mentioning cartograph.
 **Action:** Confirm the user wants to use cartograph before proceeding.
 
 **Skip confirmation when:**
+
 - The user explicitly mentions "cartograph".
 - The skill was already used in this conversation.
 - The current repo is already indexed (`cartograph list`).

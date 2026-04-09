@@ -1,6 +1,4 @@
-// Package cloudgraph provides configuration loading and orchestration for
-// Cartograph's data source plugin system.
-package cloudgraph
+package plugin
 
 import (
 	"errors"
@@ -11,18 +9,18 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-// Config represents the top-level config.toml configuration.
+// Config represents the top-level config.toml plugin configuration.
 type Config struct {
 	Plugins map[string]PluginConfig `toml:"plugin"`
 }
 
 // PluginConfig is the configuration for a single plugin connection.
 type PluginConfig struct {
-	// Bin is the plugin binary name (e.g., "miter-capec"). If empty,
-	// defaults to the section key name (e.g., [plugin.capec] → "capec").
+	// Bin is the plugin binary name (e.g., "capec-plugin"). If empty,
+	// defaults to the section key name.
 	Bin string `toml:"bin"`
 	// Checksum is the optional SHA-256 checksum of the plugin binary.
-	// Format: "sha256:<hex>". Mandatory in secure mode.
+	// Format: "sha256:<hex>".
 	Checksum string `toml:"checksum"`
 
 	// Timeout is the maximum time the plugin is allowed to run per ingestion.
@@ -36,8 +34,7 @@ type PluginConfig struct {
 	// MaxEdges is the maximum number of edges the plugin may emit.
 	MaxEdges int `toml:"max_edges"`
 
-	// Pattern is used for aggregator plugins (e.g., "aws_*"). Fan-out
-	// logic is deferred to Phase 3.
+	// Pattern is used for aggregator plugins (e.g., "aws_*").
 	Pattern string `toml:"pattern"`
 
 	// Extra holds all additional key-value pairs (credentials, org, etc.).
@@ -77,7 +74,6 @@ func LoadConfig(path string) (*Config, error) {
 
 // ParseConfig parses config.toml content from bytes.
 func ParseConfig(data []byte) (*Config, error) {
-	// First pass: decode into raw maps to capture extra fields.
 	var raw struct {
 		Plugins map[string]map[string]any `toml:"plugin"`
 	}
@@ -85,7 +81,6 @@ func ParseConfig(data []byte) (*Config, error) {
 		return nil, fmt.Errorf("parsing config.toml: %w", err)
 	}
 
-	// Second pass: decode into typed config for known fields.
 	var cfg Config
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parsing config.toml: %w", err)
@@ -120,19 +115,12 @@ func ParseConfig(data []byte) (*Config, error) {
 }
 
 // Validate checks that all plugin configurations are well-formed.
-// An empty config (no plugins) is valid — config.toml is optional.
 func (c *Config) Validate() error {
 	var errs []error
-	for name, pc := range c.Plugins {
-		// Aggregators only need a pattern.
+	for _, pc := range c.Plugins {
 		if pc.Pattern != "" {
 			continue
 		}
-		// Plugin binary is resolved from Bin or the section key name,
-		// so there's nothing required here. But we do a basic sanity
-		// check: warn if the section key is empty (shouldn't happen with
-		// valid TOML, but guard against programmatic construction).
-		_ = name // section key is always present in valid TOML
 	}
 
 	if len(errs) > 0 {
@@ -141,10 +129,6 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// resolveEnvKeys replaces values for keys ending in "_env" with the
-// corresponding environment variable value. The "_env" suffix is stripped
-// from the key. For example, "token_env" = "GITHUB_TOKEN" becomes
-// "token" = <value of $GITHUB_TOKEN>.
 func resolveEnvKeys(m map[string]any) error {
 	var envKeys []string
 	for k := range m {

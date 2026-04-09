@@ -511,6 +511,61 @@ func (s *Server) handleEmbedStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handlePluginIngest(w http.ResponseWriter, r *http.Request) {
+	s.resetIdleTimer(r.Context())
+	if !requirePOST(w, r) {
+		return
+	}
+	var req PluginIngestRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.PluginName == "" {
+		writeError(w, http.StatusBadRequest, "missing pluginName")
+		return
+	}
+	job := s.StartPluginIngestJob(r.Context(), req)
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(Response{Result: &PluginIngestStatusResult{ //nolint:errchkjson
+		PluginName: job.PluginName,
+		Status:     job.Status,
+		Nodes:      job.Nodes,
+		Edges:      job.Edges,
+		Error:      job.Error,
+		Duration:   job.Duration,
+	}})
+}
+
+func (s *Server) handlePluginIngestStatus(w http.ResponseWriter, r *http.Request) {
+	s.resetIdleTimer(r.Context())
+	if !requirePOST(w, r) {
+		return
+	}
+	var req PluginIngestStatusRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.PluginName == "" {
+		writeError(w, http.StatusBadRequest, "missing pluginName")
+		return
+	}
+	job := s.GetPluginIngestJob(req.PluginName)
+	if job == nil {
+		writeJSON(w, &PluginIngestStatusResult{PluginName: req.PluginName, Status: ""})
+		return
+	}
+	writeJSON(w, &PluginIngestStatusResult{
+		PluginName: job.PluginName,
+		Status:     job.Status,
+		Nodes:      job.Nodes,
+		Edges:      job.Edges,
+		Error:      job.Error,
+		Duration:   job.Duration,
+	})
+}
+
 // ParseLineRange parses a "start-end" line range string.
 // Returns (0, 0, nil) if s is empty (no range requested).
 func ParseLineRange(s string) (start, end int, err error) {

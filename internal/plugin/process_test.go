@@ -150,14 +150,14 @@ func TestLaunchPlugin_BidirectionalCallback(t *testing.T) {
 	}
 	defer p.Close()
 
-	// Call configure, which internally calls config_get back to us.
+	// Call ingest, which internally calls config_get back to us.
 	var result map[string]any
-	err = p.Conn.Call(ctx, "configure", map[string]string{"connection": "test"}).Await(ctx, &result)
+	err = p.Conn.Call(ctx, "ingest", map[string]string{"connection": "test"}).Await(ctx, &result)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result["ok"] != true {
-		t.Errorf("configure result = %v", result)
+	if result["nodes"] != float64(2) || result["edges"] != float64(1) {
+		t.Errorf("ingest result = %v", result)
 	}
 }
 

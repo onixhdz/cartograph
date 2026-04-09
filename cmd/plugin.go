@@ -4,23 +4,26 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/cloudprivacylabs/lpg/v2"
 
-	"github.com/realxen/cartograph/internal/cloudgraph"
-	"github.com/realxen/cartograph/internal/datasource"
 	"github.com/realxen/cartograph/internal/plugin"
+	"github.com/realxen/cartograph/internal/service"
+	pluginsdk "github.com/realxen/cartograph/plugin"
 )
 
 // PluginCmd is the top-level "plugin" command group.
 type PluginCmd struct {
-	Install PluginInstallCmd `cmd:"" default:"withargs" help:"Install a plugin binary and run initial ingestion."`
+	Install PluginInstallCmd `cmd:"" default:"withargs" help:"Install a plugin binary and optionally run ingestion."`
 	List    PluginListCmd    `cmd:"" help:"List installed plugins."`
 	Rm      PluginRmCmd      `cmd:"" help:"Remove an installed plugin and its data."`
 	Ingest  PluginIngestCmd  `cmd:"" help:"Run data ingestion for an installed plugin."`
@@ -28,12 +31,28 @@ type PluginCmd struct {
 
 // --- plugin install ---
 
-// PluginInstallCmd installs a plugin binary and runs initial ingestion.
+// PluginInstallCmd installs a plugin binary and optionally runs ingestion.
 type PluginInstallCmd struct {
 	Path     string `arg:"" help:"Path to the plugin binary."`
 	Name     string `help:"Override plugin name (default: binary filename)." short:"n"`
 	Checksum string `help:"Expected SHA-256 checksum (sha256:<hex>)." short:"c"`
-	NoIngest bool   `help:"Skip automatic ingestion after install." name:"no-ingest"`
+	Ingest   string `help:"Plugin ingest mode: off, async, or sync." default:"sync" enum:"off,async,sync"`
+}
+
+type installedPluginRegistry struct {
+	Plugins []installedPluginEntry `json:"plugins"`
+}
+
+type installedPluginEntry struct {
+	Name        string                    `json:"name"`
+	Description string                    `json:"description,omitempty"`
+	Version     string                    `json:"version"`
+	Resources   []installedPluginResource `json:"resources,omitempty"`
+}
+
+type installedPluginResource struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
 }
 
 func (c *PluginInstallCmd) Run(_ *CLI) error {
@@ -86,22 +105,34 @@ func (c *PluginInstallCmd) Run(_ *CLI) error {
 		return fmt.Errorf("plugin install: set permissions: %w", err)
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	meta, err := plugin.InspectInstallMetadata(ctx, dst, nil)
+	if err != nil {
+		sp.StopWithFailure("Install failed")
+		return fmt.Errorf("plugin install: inspect metadata: %w", err)
+	}
+	if err := storeInstalledPluginMetadata(name, meta); err != nil {
+		sp.StopWithFailure("Install failed")
+		return fmt.Errorf("plugin install: store resources: %w", err)
+	}
+	if err := syncInstalledPluginRegistryToSkills(); err != nil {
+		fmt.Printf("  Warning: failed to sync plugin references to installed cartograph skills: %v\n", err)
+	}
+
 	sp.StopWithSuccess(fmt.Sprintf("Installed %s -> %s", name, dst))
 
 	hash, err := hashPluginFile(dst)
 	if err == nil {
 		fmt.Printf("  Checksum: sha256:%s\n", hash)
 	}
+	if meta != nil && len(meta.Resources) > 0 {
+		fmt.Printf("  Resources: %d installed\n", len(meta.Resources))
+	}
 
-	// Auto-ingest unless --no-ingest.
-	if !c.NoIngest {
-		fmt.Println()
-		pc := resolvePluginConfig(name)
-		if err := runIngest(name, name, pc); err != nil {
-			fmt.Printf("  Warning: initial ingestion failed: %v\n", err)
-			fmt.Println("  You can retry with: cartograph plugin ingest", name)
-			// Don't fail the install — the binary is already installed.
-		}
+	if err := requestPluginIngest(name, name, nil, 0, c.Ingest); err != nil {
+		fmt.Printf("  Warning: plugin ingestion failed: %v\n", err)
+		fmt.Println("  You can retry with: cartograph plugin ingest", name)
 	}
 
 	return nil
@@ -185,6 +216,12 @@ func (c *PluginRmCmd) Run(_ *CLI) error {
 	if err := os.RemoveAll(dataDir); err != nil {
 		fmt.Printf("  Warning: failed to remove data directory %s: %v\n", dataDir, err)
 	}
+	if err := removeInstalledPluginMetadata(c.Name); err != nil {
+		fmt.Printf("  Warning: failed to update plugin registry: %v\n", err)
+	}
+	if err := syncInstalledPluginRegistryToSkills(); err != nil {
+		fmt.Printf("  Warning: failed to sync plugin references to installed cartograph skills: %v\n", err)
+	}
 
 	fmt.Printf("Removed plugin %q\n", c.Name)
 	return nil
@@ -199,6 +236,7 @@ type PluginIngestCmd struct {
 	Config        string   `help:"Path to config.toml." short:"c" type:"existingfile"`
 	ResourceTypes []string `help:"Limit ingestion to these resource types." short:"t" sep:","`
 	Concurrency   int      `help:"Maximum concurrent API calls (overrides config)." default:"0"`
+	Ingest        string   `help:"Plugin ingest mode: off, async, or sync." default:"sync" enum:"off,async,sync"`
 }
 
 func (c *PluginIngestCmd) Run(_ *CLI) error {
@@ -212,7 +250,8 @@ func (c *PluginIngestCmd) Run(_ *CLI) error {
 		pc.Extra["_cli_resource_types"] = c.ResourceTypes
 	}
 
-	return runIngest(c.Name, c.Name, pc)
+	_ = pc
+	return requestPluginIngest(c.Name, c.Name, c.ResourceTypes, c.Concurrency, c.Ingest)
 }
 
 // --- Shared helpers ---
@@ -225,6 +264,10 @@ func PluginBinDir() string {
 // PluginDataDir returns the per-plugin data directory for the given plugin name.
 func PluginDataDir(name string) string {
 	return filepath.Join(DefaultDataDir(), "plugins", "data", name)
+}
+
+func PluginRegistryPath() string {
+	return filepath.Join(DefaultDataDir(), "plugins", "plugins.json")
 }
 
 // resolvePluginBinary looks for a plugin binary in the plugins bin directory.
@@ -240,20 +283,20 @@ func resolvePluginBinary(name string) string {
 // resolvePluginConfig loads config.toml and looks up the plugin. If the
 // config file doesn't exist or the plugin isn't in it, returns an empty
 // PluginConfig (the plugin runs with its own defaults).
-func resolvePluginConfig(name string) cloudgraph.PluginConfig {
+func resolvePluginConfig(name string) plugin.PluginConfig {
 	configPath := filepath.Join(DefaultDataDir(), "config.toml")
-	cfg, err := cloudgraph.LoadConfig(configPath)
+	cfg, err := plugin.LoadConfig(configPath)
 	if err == nil {
 		if pc, ok := cfg.Plugins[name]; ok {
 			return pc
 		}
 	}
-	return cloudgraph.PluginConfig{}
+	return plugin.PluginConfig{}
 }
 
 // runIngest runs the full ingestion lifecycle for an installed plugin.
 // pluginName is the binary name; connectionName is the config key (often the same).
-func runIngest(pluginName, connectionName string, pc cloudgraph.PluginConfig) error {
+func runIngest(pluginName, connectionName string, pc plugin.PluginConfig) error {
 	// Resolve binary name: Bin override or use plugin name.
 	binName := pc.Bin
 	if binName == "" {
@@ -267,7 +310,7 @@ func runIngest(pluginName, connectionName string, pc cloudgraph.PluginConfig) er
 	fmt.Printf("Ingesting %q (plugin: %s)\n", connectionName, binName)
 
 	g := lpg.NewGraph()
-	builder := datasource.NewLPGGraphBuilder(g, datasource.LPGGraphBuilderOptions{
+	builder := plugin.NewLPGGraphBuilder(g, plugin.LPGGraphBuilderOptions{
 		Transactional: true,
 	})
 
@@ -286,10 +329,7 @@ func runIngest(pluginName, connectionName string, pc cloudgraph.PluginConfig) er
 		Stderr:         stderrFn,
 	}
 
-	opts := datasource.IngestOptions{}
-	if pc.CacheTTL.Duration > 0 {
-		opts.CacheTTL = pc.CacheTTL.Duration
-	}
+	opts := pluginsdk.IngestOptions{}
 	if pc.Concurrency > 0 {
 		opts.Concurrency = pc.Concurrency
 	}
@@ -340,6 +380,73 @@ func runIngest(pluginName, connectionName string, pc cloudgraph.PluginConfig) er
 	return nil
 }
 
+func requestPluginIngest(pluginName, connectionName string, resourceTypes []string, concurrency int, mode string) error {
+	if mode == embedOff {
+		fmt.Println("  Ingest skipped.")
+		fmt.Printf("  Next step: cartograph plugin ingest %s\n", pluginName)
+		return nil
+	}
+
+	dataDir := DefaultDataDir()
+	client := connectOrStartService(dataDir)
+	if client == nil {
+		if mode == embedAsync {
+			return errors.New("could not connect to background service")
+		}
+		pc := resolvePluginConfig(connectionName)
+		if len(resourceTypes) > 0 {
+			if pc.Extra == nil {
+				pc.Extra = make(map[string]any)
+			}
+			pc.Extra["_cli_resource_types"] = resourceTypes
+		}
+		if concurrency > 0 {
+			pc.Concurrency = concurrency
+		}
+		return runIngest(pluginName, connectionName, pc)
+	}
+
+	status, err := client.PluginIngest(service.PluginIngestRequest{
+		PluginName:     pluginName,
+		ConnectionName: connectionName,
+		ResourceTypes:  resourceTypes,
+		Concurrency:    concurrency,
+	})
+	if err != nil {
+		return fmt.Errorf("request plugin ingest: %w", err)
+	}
+
+	if mode == embedAsync {
+		fmt.Println("  Plugin ingest running in background...")
+		return nil
+	}
+
+	sp := newSpinner("Running plugin ingestion...")
+	sp.Start()
+	for {
+		time.Sleep(500 * time.Millisecond)
+		st, err := client.PluginIngestStatus(service.PluginIngestStatusRequest{PluginName: pluginName})
+		if err != nil {
+			sp.StopWithFailure(fmt.Sprintf("Plugin ingest status check failed: %v", err))
+			return fmt.Errorf("check plugin ingest status: %w", err)
+		}
+		switch st.Status {
+		case statusComplete:
+			sp.StopWithSuccess(fmt.Sprintf("Plugin ingest complete (%d nodes, %d edges)", st.Nodes, st.Edges))
+			return nil
+		case statusFailed:
+			sp.StopWithFailure("Plugin ingest failed: " + st.Error)
+			return fmt.Errorf("plugin ingest failed: %s", st.Error)
+		default:
+			if status != nil && status.Status == statusPending {
+				sp.Update("Waiting for another plugin ingest job to finish...")
+			} else {
+				sp.Update("Running plugin ingestion...")
+			}
+		}
+	}
+}
+
 // copyFile copies src to dst, creating or truncating dst.
 func copyFile(src, dst string) error {
 	in, err := os.Open(src)
@@ -386,7 +493,7 @@ func hashPluginFile(path string) (string, error) {
 func probePluginInfo(binPath string) (name, version string, resources []string) {
 	ds := &plugin.PluginDataSource{
 		BinaryPath: binPath,
-		PluginConfig: cloudgraph.PluginConfig{
+		PluginConfig: plugin.PluginConfig{
 			Bin: filepath.Base(binPath),
 		},
 	}
@@ -401,18 +508,163 @@ func probePluginInfo(binPath string) (name, version string, resources []string) 
 		version = "-"
 	}
 
-	types := ds.ResourceTypes()
-	for _, t := range types {
+	for _, t := range info.Resources {
 		resources = append(resources, t.Name)
 	}
 	return name, version, resources
+}
+
+func storeInstalledPluginMetadata(pluginName string, meta *plugin.InstallMetadata) error {
+	pluginDir := PluginDataDir(pluginName)
+	resourcesDir := filepath.Join(pluginDir, "resources")
+	if err := os.MkdirAll(resourcesDir, 0o750); err != nil {
+		return fmt.Errorf("mkdir %s: %w", resourcesDir, err)
+	}
+
+	entry := installedPluginEntry{
+		Name: pluginName,
+	}
+	if meta != nil {
+		entry.Description = meta.Description
+		entry.Version = meta.Version
+		for _, r := range meta.Resources {
+			fileName := sanitizePluginResourceName(r.Name) + ".md"
+			path := filepath.Join(resourcesDir, fileName)
+			if err := os.WriteFile(path, []byte(r.Content), 0o600); err != nil {
+				return fmt.Errorf("write resource %s: %w", path, err)
+			}
+			entry.Resources = append(entry.Resources, installedPluginResource{
+				Name: r.Name,
+				Path: path,
+			})
+		}
+	}
+
+	reg, err := loadInstalledPluginRegistry()
+	if err != nil {
+		return fmt.Errorf("load installed plugin registry: %w", err)
+	}
+	replaced := false
+	for i := range reg.Plugins {
+		if reg.Plugins[i].Name == pluginName {
+			reg.Plugins[i] = entry
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		reg.Plugins = append(reg.Plugins, entry)
+	}
+	return saveInstalledPluginRegistry(reg)
+}
+
+func removeInstalledPluginMetadata(pluginName string) error {
+	reg, err := loadInstalledPluginRegistry()
+	if err != nil {
+		return fmt.Errorf("load installed plugin registry: %w", err)
+	}
+	filtered := reg.Plugins[:0]
+	for _, p := range reg.Plugins {
+		if p.Name != pluginName {
+			filtered = append(filtered, p)
+		}
+	}
+	reg.Plugins = filtered
+	return saveInstalledPluginRegistry(reg)
+}
+
+func loadInstalledPluginRegistry() (*installedPluginRegistry, error) {
+	path := PluginRegistryPath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &installedPluginRegistry{}, nil
+		}
+		return nil, fmt.Errorf("read installed plugin registry %s: %w", path, err)
+	}
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return &installedPluginRegistry{}, nil
+	}
+	var reg installedPluginRegistry
+	if err := json.Unmarshal(data, &reg); err != nil {
+		return nil, fmt.Errorf("unmarshal installed plugin registry %s: %w", path, err)
+	}
+	return &reg, nil
+}
+
+func saveInstalledPluginRegistry(reg *installedPluginRegistry) error {
+	path := PluginRegistryPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return fmt.Errorf("mkdir %s: %w", filepath.Dir(path), err)
+	}
+	sort.Slice(reg.Plugins, func(i, j int) bool {
+		return reg.Plugins[i].Name < reg.Plugins[j].Name
+	})
+	data, err := json.MarshalIndent(reg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal installed plugin registry: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("write installed plugin registry %s: %w", path, err)
+	}
+	return nil
+}
+
+func syncInstalledPluginRegistryToSkills() error {
+	regPath := PluginRegistryPath()
+	data, err := os.ReadFile(regPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("read installed plugin registry %s: %w", regPath, err)
+		}
+		data = []byte("{\n  \"plugins\": []\n}\n")
+	}
+
+	for _, target := range discoverInstalled(true) {
+		dir := filepath.Join(expandHome(target.GlobalDir), "cartograph", "references")
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			return fmt.Errorf("mkdir %s: %w", dir, err)
+		}
+		pluginsPath := filepath.Join(dir, "plugins.json")
+		if err := os.WriteFile(pluginsPath, data, 0o600); err != nil { //nolint:gosec // path is constructed from trusted install locations
+			return fmt.Errorf("write mirrored plugin registry %s: %w", pluginsPath, err)
+		}
+	}
+
+	for _, target := range discoverInstalled(false) {
+		dir := filepath.Join(target.LocalDir, "cartograph", "references")
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			return fmt.Errorf("mkdir %s: %w", dir, err)
+		}
+		pluginsPath := filepath.Join(dir, "plugins.json")
+		if err := os.WriteFile(pluginsPath, data, 0o600); err != nil { //nolint:gosec // path is constructed from trusted install locations
+			return fmt.Errorf("write mirrored plugin registry %s: %w", pluginsPath, err)
+		}
+	}
+
+	return nil
+}
+
+func sanitizePluginResourceName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	name = strings.ReplaceAll(name, " ", "-")
+	var b strings.Builder
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			b.WriteRune(r)
+		}
+	}
+	if b.Len() == 0 {
+		return "resource"
+	}
+	return b.String()
 }
 
 // warnIfReferenced checks if a plugin is referenced in the default
 // config.toml and prints a warning if so.
 func warnIfReferenced(pluginName string) {
 	configPath := filepath.Join(DefaultDataDir(), "config.toml")
-	cfg, err := cloudgraph.LoadConfig(configPath)
+	cfg, err := plugin.LoadConfig(configPath)
 	if err != nil {
 		return // No config or can't read — skip warning.
 	}

@@ -4,23 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"sync"
 	"time"
 
-	"github.com/realxen/cartograph/internal/cloudgraph"
-	"github.com/realxen/cartograph/internal/datasource"
+	pluginsdk "github.com/realxen/cartograph/plugin"
 )
 
-// PluginDataSource implements datasource.DataSource backed by a plugin process.
+// PluginDataSource implements host-side execution for a process-based plugin.
 // Each call to Ingest launches a fresh plugin process, runs the full lifecycle
-// (info → configure → ingest → close), and commits or rolls back the results.
+// (info → ingest → close), and commits or rolls back the results.
 type PluginDataSource struct {
 	// BinaryPath is the path to the plugin binary.
 	BinaryPath string
 
 	// PluginConfig is the connection configuration from config.toml.
-	PluginConfig cloudgraph.PluginConfig
+	PluginConfig PluginConfig
 
 	// ConnectionName is the name of this connection in config.toml.
 	ConnectionName string
@@ -31,9 +29,6 @@ type PluginDataSource struct {
 	// Cache is the backing store for plugin-scoped caching. Optional.
 	Cache CacheStore
 
-	// HTTPClient is used for proxied HTTP requests. Optional.
-	HTTPClient *http.Client
-
 	// Logger receives log messages from the plugin. Optional.
 	Logger func(pluginName string, level string, msg string)
 
@@ -41,20 +36,16 @@ type PluginDataSource struct {
 	Stderr func(pluginName string, line string)
 
 	// KindResolver maps vendor labels to normalized ResourceKinds. Optional.
-	KindResolver datasource.KindResolver
+	KindResolver KindResolver
 
 	mu           sync.Mutex
-	cachedInfo   *datasource.DataSourceInfo
-	cachedTypes  []datasource.ResourceType
+	cachedInfo   *pluginsdk.Info
 	probeTimeout time.Duration // for testing; 0 = 30s default
 }
 
-// Compile-time check.
-var _ datasource.DataSource = (*PluginDataSource)(nil)
-
-// Info returns metadata about this plugin data source. On first call, it
+// Info returns metadata about this plugin. On first call, it
 // launches the plugin briefly to retrieve info, then caches the result.
-func (s *PluginDataSource) Info() datasource.DataSourceInfo {
+func (s *PluginDataSource) Info() pluginsdk.Info {
 	s.mu.Lock()
 	if s.cachedInfo != nil {
 		info := *s.cachedInfo
@@ -63,10 +54,10 @@ func (s *PluginDataSource) Info() datasource.DataSourceInfo {
 	}
 	s.mu.Unlock()
 
-	info, types, err := s.probePlugin()
+	info, err := s.probePlugin()
 	if err != nil {
 		// Return minimal info on probe failure.
-		return datasource.DataSourceInfo{
+		return pluginsdk.Info{
 			Name:        s.PluginConfig.Bin,
 			Description: fmt.Sprintf("plugin probe failed: %v", err),
 		}
@@ -74,46 +65,20 @@ func (s *PluginDataSource) Info() datasource.DataSourceInfo {
 
 	s.mu.Lock()
 	s.cachedInfo = &info
-	s.cachedTypes = types
 	s.mu.Unlock()
 
 	return info
 }
 
-// Configure is a no-op — actual configuration happens during Ingest when
-// the plugin process is launched. The PluginConfig is already stored.
-func (s *PluginDataSource) Configure(_ map[string]any) error {
-	return nil
-}
-
-// ResourceTypes returns the resource types this plugin provides.
-// Probes the plugin on first call if not already cached.
-func (s *PluginDataSource) ResourceTypes() []datasource.ResourceType {
-	s.mu.Lock()
-	if s.cachedTypes != nil {
-		types := s.cachedTypes
-		s.mu.Unlock()
-		return types
-	}
-	s.mu.Unlock()
-
-	s.Info()
-
-	s.mu.Lock()
-	types := s.cachedTypes
-	s.mu.Unlock()
-	return types
-}
-
 // Ingest runs the full plugin lifecycle:
 //  1. Verify checksum (if configured)
 //  2. Launch plugin process
-//  3. Call info → configure → ingest
+//  3. Call info → ingest
 //  4. Collect emitted nodes/edges via notifications
 //  5. On success: commit to builder
 //  6. On error/timeout: rollback
 //  7. Close plugin
-func (s *PluginDataSource) Ingest(ctx context.Context, builder datasource.GraphBuilder, opts datasource.IngestOptions) error {
+func (s *PluginDataSource) Ingest(ctx context.Context, builder GraphBuilder, opts pluginsdk.IngestOptions) error {
 	// Verify checksum if configured.
 	if s.PluginConfig.Checksum != "" {
 		if err := VerifyChecksum(s.BinaryPath, s.PluginConfig.Checksum); err != nil {
@@ -150,7 +115,6 @@ func (s *PluginDataSource) Ingest(ctx context.Context, builder datasource.GraphB
 		Config:     s.PluginConfig.Extra,
 		Builder:    builder,
 		Cache:      s.Cache,
-		HTTPClient: s.HTTPClient,
 		Logger:     s.Logger,
 		PluginName: s.ConnectionName,
 		OnEmitNode: func() {
@@ -181,15 +145,13 @@ func (s *PluginDataSource) Ingest(ctx context.Context, builder datasource.GraphB
 	}
 
 	s.mu.Lock()
-	s.cachedInfo = &datasource.DataSourceInfo{
-		Name:    infoResp.Name,
-		Version: infoResp.Version,
+	s.cachedInfo = &pluginsdk.Info{
+		Name:        infoResp.Name,
+		Version:     infoResp.Version,
+		Description: infoResp.Description,
+		Resources:   pluginInfoResources(infoResp.Resources),
 	}
 	s.mu.Unlock()
-
-	if err := s.callConfigure(limitCtx, proc); err != nil {
-		return fmt.Errorf("plugin %q: configure: %w", s.ConnectionName, err)
-	}
 
 	if err := s.callIngest(limitCtx, proc, opts); err != nil {
 		// Check if it was a limit breach.
@@ -219,15 +181,36 @@ func (s *PluginDataSource) Ingest(ctx context.Context, builder datasource.GraphB
 }
 
 type pluginInfoResponse struct {
-	Name      string              `json:"name"`
-	Version   string              `json:"version"`
-	Resources []pluginResourceDef `json:"resources"`
+	Name        string              `json:"name"`
+	Version     string              `json:"version"`
+	Description string              `json:"description"`
+	Resources   []pluginResourceDef `json:"resources"`
 }
 
 type pluginResourceDef struct {
 	Name  string `json:"name"`
 	Label string `json:"label"`
 	Kind  string `json:"kind"`
+}
+
+type pluginInstallResource struct {
+	Name    string `json:"name"`
+	Content string `json:"content"`
+}
+
+// InstallMetadata is lightweight install-time metadata retrieved directly
+// from a plugin binary. It is separate from graph ingestion.
+type InstallMetadata struct {
+	Name        string
+	Version     string
+	Description string
+	Resources   []InstallResource
+}
+
+// InstallResource is install-time reference content exposed by a plugin.
+type InstallResource struct {
+	Name    string
+	Content string
 }
 
 func (s *PluginDataSource) callInfo(ctx context.Context, proc *PluginProcess) (*pluginInfoResponse, error) {
@@ -238,13 +221,47 @@ func (s *PluginDataSource) callInfo(ctx context.Context, proc *PluginProcess) (*
 	return &resp, nil
 }
 
-func (s *PluginDataSource) callConfigure(ctx context.Context, proc *PluginProcess) error {
-	var result json.RawMessage
-	params := map[string]string{"connection": s.ConnectionName}
-	if err := proc.Conn.Call(ctx, "configure", params).Await(ctx, &result); err != nil {
-		return err //nolint:wrapcheck
+func (s *PluginDataSource) callResources(ctx context.Context, proc *PluginProcess) ([]pluginInstallResource, error) {
+	var resp []pluginInstallResource
+	if err := proc.Conn.Call(ctx, "resources", struct{}{}).Await(ctx, &resp); err != nil {
+		return nil, err //nolint:wrapcheck
 	}
-	return nil
+	if resp == nil {
+		return []pluginInstallResource{}, nil
+	}
+	return resp, nil
+}
+
+// InspectInstallMetadata launches a plugin briefly, retrieves its install-time
+// metadata and optional resources, and then closes it.
+func InspectInstallMetadata(ctx context.Context, binaryPath string, stderr func(name, line string)) (*InstallMetadata, error) {
+	proc, err := LaunchPlugin(ctx, binaryPath, LaunchOptions{Stderr: stderr})
+	if err != nil {
+		return nil, err
+	}
+	defer proc.Close()
+
+	s := &PluginDataSource{BinaryPath: binaryPath}
+	infoResp, err := s.callInfo(ctx, proc)
+	if err != nil {
+		return nil, err
+	}
+	resourceResp, err := s.callResources(ctx, proc)
+	if err != nil {
+		return nil, err
+	}
+	_ = s.callClose(ctx, proc)
+
+	meta := &InstallMetadata{
+		Name:        infoResp.Name,
+		Version:     infoResp.Version,
+		Description: infoResp.Description,
+		Resources:   make([]InstallResource, 0, len(resourceResp)),
+	}
+	for _, r := range resourceResp {
+		meta.Resources = append(meta.Resources, InstallResource(r))
+	}
+	return meta, nil
 }
 
 type ingestParams struct {
@@ -252,7 +269,7 @@ type ingestParams struct {
 	Concurrency   int      `json:"concurrency,omitempty"`
 }
 
-func (s *PluginDataSource) callIngest(ctx context.Context, proc *PluginProcess, opts datasource.IngestOptions) error {
+func (s *PluginDataSource) callIngest(ctx context.Context, proc *PluginProcess, opts pluginsdk.IngestOptions) error {
 	params := ingestParams{
 		ResourceTypes: opts.ResourceTypes,
 		Concurrency:   opts.Concurrency,
@@ -276,7 +293,7 @@ func (s *PluginDataSource) callClose(ctx context.Context, proc *PluginProcess) e
 }
 
 // probePlugin launches the plugin briefly to call info and then shuts it down.
-func (s *PluginDataSource) probePlugin() (datasource.DataSourceInfo, []datasource.ResourceType, error) {
+func (s *PluginDataSource) probePlugin() (pluginsdk.Info, error) {
 	timeout := s.probeTimeout
 	if timeout == 0 {
 		timeout = 30 * time.Second
@@ -288,27 +305,30 @@ func (s *PluginDataSource) probePlugin() (datasource.DataSourceInfo, []datasourc
 		Stderr: s.Stderr,
 	})
 	if err != nil {
-		return datasource.DataSourceInfo{}, nil, err
+		return pluginsdk.Info{}, err
 	}
 	defer proc.Close()
 
 	resp, err := s.callInfo(ctx, proc)
 	if err != nil {
-		return datasource.DataSourceInfo{}, nil, err
+		return pluginsdk.Info{}, err
 	}
 
-	info := datasource.DataSourceInfo{
-		Name:    resp.Name,
-		Version: resp.Version,
-	}
+	return pluginsdk.Info{
+		Name:        resp.Name,
+		Version:     resp.Version,
+		Description: resp.Description,
+		Resources:   pluginInfoResources(resp.Resources),
+	}, nil
+}
 
-	var types []datasource.ResourceType
-	for _, r := range resp.Resources {
-		types = append(types, datasource.ResourceType{
-			Name: r.Name,
-			Kind: r.Kind,
+func pluginInfoResources(defs []pluginResourceDef) []pluginsdk.Resource {
+	resources := make([]pluginsdk.Resource, 0, len(defs))
+	for _, r := range defs {
+		resources = append(resources, pluginsdk.Resource{
+			Name:  r.Name,
+			Label: r.Label,
 		})
 	}
-
-	return info, types, nil
+	return resources
 }

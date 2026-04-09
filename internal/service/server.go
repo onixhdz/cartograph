@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
@@ -19,10 +20,12 @@ import (
 
 	"github.com/realxen/cartograph/internal/embedding"
 	"github.com/realxen/cartograph/internal/graph"
+	internalplugin "github.com/realxen/cartograph/internal/plugin"
 	"github.com/realxen/cartograph/internal/search"
 	"github.com/realxen/cartograph/internal/storage"
 	"github.com/realxen/cartograph/internal/storage/bbolt"
 	"github.com/realxen/cartograph/internal/version"
+	pluginsdk "github.com/realxen/cartograph/plugin"
 )
 
 // DefaultIdleTimeout is the default duration after which the server
@@ -33,6 +36,9 @@ const (
 	networkUnix        = "unix"
 	embedStatusRunning = "running"
 	embedProviderLlama = "llamacpp"
+	statusPending      = "pending"
+	statusComplete     = "complete"
+	statusFailed       = "failed"
 )
 
 // Server is the background service that holds in-memory graphs and
@@ -63,6 +69,11 @@ type Server struct {
 	embedMu   sync.Mutex
 	embedSem  chan struct{} // concurrency limiter for embed jobs (capacity = max concurrent)
 
+	// Plugin ingest job tracking
+	pluginIngestJobs map[string]*pluginIngestJob
+	pluginIngestMu   sync.Mutex
+	pluginIngestSem  chan struct{}
+
 	// queryProvider is a lazily initialized embedding provider for
 	// embedding query text at search time (hybrid search).
 	queryProvider     embedding.Provider
@@ -88,6 +99,17 @@ type embedJob struct {
 	DownloadPercent int    // 0-100
 }
 
+type pluginIngestJob struct {
+	PluginName string
+	Status     string
+	Nodes      int
+	Edges      int
+	Error      string
+	Duration   string
+	StartedAt  time.Time
+	Cancel     context.CancelFunc
+}
+
 // NewServer creates a Server. It tries to listen on the unix socket at
 // socketPath first; if that fails (e.g. unsupported OS / permissions) it
 // falls back to TCP on localhost with an ephemeral port.
@@ -111,19 +133,21 @@ func NewServer(socketPath string, lockfile *Lockfile, dataDir string) (*Server, 
 	}
 
 	s := &Server{
-		graph:       make(map[string]*lpg.Graph),
-		searchIdx:   make(map[string]*search.Index),
-		resolvers:   make(map[string]*storage.ContentResolver),
-		repoDirs:    make(map[string]string),
-		embedJobs:   make(map[string]*embedJob),
-		embedSem:    make(chan struct{}, 1), // serialize embed jobs by default
-		dataDir:     dataDir,
-		listener:    ln,
-		lockfile:    lockfile,
-		idleTimeout: DefaultIdleTimeout,
-		done:        make(chan struct{}),
-		Addr:        addr,
-		Network:     network,
+		graph:            make(map[string]*lpg.Graph),
+		searchIdx:        make(map[string]*search.Index),
+		resolvers:        make(map[string]*storage.ContentResolver),
+		repoDirs:         make(map[string]string),
+		embedJobs:        make(map[string]*embedJob),
+		embedSem:         make(chan struct{}, 1), // serialize embed jobs by default
+		pluginIngestJobs: make(map[string]*pluginIngestJob),
+		pluginIngestSem:  make(chan struct{}, 1),
+		dataDir:          dataDir,
+		listener:         ln,
+		lockfile:         lockfile,
+		idleTimeout:      DefaultIdleTimeout,
+		done:             make(chan struct{}),
+		Addr:             addr,
+		Network:          network,
 	}
 
 	mux := s.setupRoutes()
@@ -625,6 +649,8 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc(RouteShutdown, s.handleShutdown)
 	mux.HandleFunc(RouteEmbed, s.handleEmbed)
 	mux.HandleFunc(RouteEmbedStatus, s.handleEmbedStatus)
+	mux.HandleFunc(RoutePluginIngest, s.handlePluginIngest)
+	mux.HandleFunc(RoutePluginIngestStatus, s.handlePluginIngestStatus)
 	return mux
 }
 
@@ -676,6 +702,103 @@ func (s *Server) StartEmbedJob(ctx context.Context, req EmbedRequest) *embedJob 
 
 	go func() { defer cancel(); s.runEmbedJob(jobCtx, job, req) }()
 	return job
+}
+
+func (s *Server) GetPluginIngestJob(name string) *pluginIngestJob {
+	s.pluginIngestMu.Lock()
+	defer s.pluginIngestMu.Unlock()
+	j, ok := s.pluginIngestJobs[name]
+	if !ok {
+		return nil
+	}
+	cp := *j
+	return &cp
+}
+
+func (s *Server) StartPluginIngestJob(ctx context.Context, req PluginIngestRequest) *pluginIngestJob {
+	s.pluginIngestMu.Lock()
+	if existing, ok := s.pluginIngestJobs[req.PluginName]; ok {
+		if existing.Status == statusPending || existing.Status == embedStatusRunning {
+			s.pluginIngestMu.Unlock()
+			return existing
+		}
+	}
+	jobCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	job := &pluginIngestJob{
+		PluginName: req.PluginName,
+		Status:     statusPending,
+		Cancel:     cancel,
+	}
+	s.pluginIngestJobs[req.PluginName] = job
+	s.pluginIngestMu.Unlock()
+
+	go func() { defer cancel(); s.runPluginIngestJob(jobCtx, job, req) }()
+	return job
+}
+
+func (s *Server) runPluginIngestJob(ctx context.Context, job *pluginIngestJob, req PluginIngestRequest) {
+	select {
+	case s.pluginIngestSem <- struct{}{}:
+		defer func() { <-s.pluginIngestSem }()
+	case <-ctx.Done():
+		s.pluginIngestMu.Lock()
+		job.Status = statusFailed
+		job.Error = "canceled"
+		s.pluginIngestMu.Unlock()
+		return
+	}
+
+	s.pluginIngestMu.Lock()
+	job.Status = embedStatusRunning
+	job.StartedAt = time.Now()
+	s.pluginIngestMu.Unlock()
+
+	connection := req.ConnectionName
+	if connection == "" {
+		connection = req.PluginName
+	}
+	configPath := filepath.Join(s.dataDir, "config.toml")
+	pc := internalplugin.PluginConfig{}
+	if cfg, err := internalplugin.LoadConfig(configPath); err == nil {
+		if got, ok := cfg.Plugins[connection]; ok {
+			pc = got
+		}
+	}
+
+	binPath := filepath.Join(s.dataDir, "plugins", "bin", req.PluginName)
+	if _, err := os.Stat(binPath); err != nil {
+		s.pluginIngestMu.Lock()
+		job.Status = statusFailed
+		job.Error = "plugin binary not found: " + req.PluginName
+		s.pluginIngestMu.Unlock()
+		return
+	}
+
+	g := lpg.NewGraph()
+	builder := internalplugin.NewLPGGraphBuilder(g, internalplugin.LPGGraphBuilderOptions{Transactional: true})
+	ds := &internalplugin.PluginDataSource{
+		BinaryPath:     binPath,
+		PluginConfig:   pc,
+		ConnectionName: connection,
+	}
+	if err := ds.Ingest(ctx, builder, pluginsdk.IngestOptions{
+		ResourceTypes: req.ResourceTypes,
+		Concurrency:   req.Concurrency,
+	}); err != nil {
+		s.pluginIngestMu.Lock()
+		job.Status = statusFailed
+		job.Error = err.Error()
+		s.pluginIngestMu.Unlock()
+		return
+	}
+	nodes, edges := builder.Commit()
+	dur := time.Since(job.StartedAt).Round(time.Millisecond)
+	s.pluginIngestMu.Lock()
+	job.Status = statusComplete
+	job.Nodes = nodes
+	job.Edges = edges
+	job.Duration = dur.String()
+	s.pluginIngestMu.Unlock()
 }
 
 // runEmbedJob performs embedding in a background goroutine. Vectors are

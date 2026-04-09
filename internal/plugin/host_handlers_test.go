@@ -3,9 +3,6 @@ package plugin_test
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -250,78 +247,6 @@ func TestHostHandler_CacheEmptyKey(t *testing.T) {
 	_, err = h.Handle(ctx, req)
 	if err == nil {
 		t.Fatal("expected error for empty key")
-	}
-}
-
-// --- http_request tests ---
-
-func TestHostHandler_HTTPRequest(t *testing.T) {
-	// Start a test HTTP server.
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Custom", "test-header")
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, `{"repos": []}`)
-	}))
-	defer server.Close()
-
-	h := &plugin.HostHandler{
-		HTTPClient: server.Client(),
-	}
-	ctx := context.Background()
-
-	req := makeRequest("http_request", map[string]any{
-		"method":  "GET",
-		"url":     server.URL + "/api/repos",
-		"headers": map[string]string{"Accept": "application/json"},
-	})
-	result, err := h.Handle(ctx, req)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	data, err := json.Marshal(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var httpResult struct {
-		Status  int               `json:"status"`
-		Headers map[string]string `json:"headers"`
-		Body    string            `json:"body"`
-	}
-	if err := json.Unmarshal(data, &httpResult); err != nil {
-		t.Fatal(err)
-	}
-	if httpResult.Status != 200 {
-		t.Errorf("status = %d, want 200", httpResult.Status)
-	}
-	if httpResult.Body != `{"repos": []}` {
-		t.Errorf("body = %q", httpResult.Body)
-	}
-	if httpResult.Headers["X-Custom"] != "test-header" {
-		t.Errorf("missing custom header")
-	}
-}
-
-func TestHostHandler_HTTPRequest_InvalidParams(t *testing.T) {
-	h := &plugin.HostHandler{}
-	ctx := context.Background()
-
-	tests := []struct {
-		name   string
-		params any
-	}{
-		{name: "empty method", params: map[string]string{"method": "", "url": "http://example.com"}},
-		{name: "empty url", params: map[string]string{"method": "GET", "url": ""}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			req := makeRequest("http_request", tt.params)
-			_, err := h.Handle(ctx, req)
-			if err == nil {
-				t.Fatal("expected error")
-			}
-		})
 	}
 }
 
@@ -595,13 +520,7 @@ func TestHostHandler_E2E_FullLifecycle(t *testing.T) {
 		t.Errorf("info name = %v", info["name"])
 	}
 
-	// 2. Call configure (plugin calls config_get back to us).
-	var configResult map[string]any
-	if err := p.Conn.Call(ctx, "configure", map[string]string{"connection": "test"}).Await(ctx, &configResult); err != nil {
-		t.Fatalf("configure: %v", err)
-	}
-
-	// 3. Call ingest (plugin emits nodes/edges via notifications).
+	// 2. Call ingest (plugin calls config_get and emits nodes/edges via notifications).
 	var ingestResult map[string]any
 	if err := p.Conn.Call(ctx, "ingest", nil).Await(ctx, &ingestResult); err != nil {
 		t.Fatalf("ingest: %v", err)
@@ -631,7 +550,7 @@ func TestHostHandler_E2E_FullLifecycle(t *testing.T) {
 		t.Errorf("expected at least 1 log message, got %d", logCount)
 	}
 
-	// 4. Call close.
+	// 3. Call close.
 	var closeResult map[string]any
 	if err := p.Conn.Call(ctx, "close", nil).Await(ctx, &closeResult); err != nil {
 		t.Fatalf("close: %v", err)

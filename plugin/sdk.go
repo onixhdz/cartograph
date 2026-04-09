@@ -1,4 +1,4 @@
-// Package plugin is the SDK for building Cartograph data source plugins.
+// Package plugin is the SDK for building Cartograph plugins.
 //
 // A plugin is a standalone binary that feeds external data into the
 // Cartograph knowledge graph. The SDK handles all protocol details —
@@ -19,13 +19,9 @@
 //	    }
 //	}
 //
-//	func (p *myPlugin) Configure(ctx context.Context, host plugin.Host, connection string) error {
-//	    token, err := host.ConfigGet(ctx, "api_key")
-//	    if err != nil { return err }
-//	    if token == "" { return fmt.Errorf("api_key is required") }
-//	    return nil
+//	func (p *myPlugin) Resources(ctx context.Context) ([]plugin.PluginResource, error) {
+//	    return nil, nil
 //	}
-//
 //	func (p *myPlugin) Ingest(ctx context.Context, host plugin.Host, opts plugin.IngestOptions) (plugin.IngestResult, error) {
 //	    err := host.Emit(ctx,
 //	        plugin.Node{ID: "my:widget:1", Label: "MyWidget", Properties: map[string]any{"name": "Sprocket"}},
@@ -57,14 +53,14 @@ const (
 )
 
 // Plugin is the interface that plugin authors implement. The host calls
-// these methods in order: Info → Configure → Ingest → (optional Close).
+// these methods in order: Info → Resources → Ingest → (optional Close).
 type Plugin interface {
 	// Info returns metadata about this plugin. Called once after launch.
 	Info() Info
 
-	// Configure is called once with the connection name from config.toml.
-	// Use host.ConfigGet to retrieve credentials and settings.
-	Configure(ctx context.Context, host Host, connection string) error
+	// Resources returns install-time reference content for this plugin.
+	// Return nil or an empty slice when the plugin has no install-time resources.
+	Resources(ctx context.Context) ([]PluginResource, error)
 
 	// Ingest is the main entry point. Fetch data from your external source
 	// and emit nodes/edges via the host. Return the total counts.
@@ -79,9 +75,10 @@ type Closer interface {
 
 // Info describes the plugin and the resource types it provides.
 type Info struct {
-	Name      string
-	Version   string
-	Resources []Resource
+	Name        string
+	Version     string
+	Description string
+	Resources   []Resource
 }
 
 // Resource declares a type of resource the plugin can emit.
@@ -104,6 +101,13 @@ type IngestOptions struct {
 type IngestResult struct {
 	Nodes int
 	Edges int
+}
+
+// PluginResource is install-time reference content provided by a plugin.
+// The host owns storage location and lifecycle.
+type PluginResource struct {
+	Name    string `json:"name"`
+	Content string `json:"content"`
 }
 
 // Element is a graph element emitted by a plugin during ingestion.
@@ -131,9 +135,7 @@ func (Node) isElement() {}
 
 func (Edge) isElement() {}
 
-// Host provides services to the plugin. It is passed to Configure and
-// Ingest so the plugin can retrieve config, cache data, emit graph
-// elements, and log messages.
+// Host provides services to the plugin during ingestion.
 type Host interface {
 	// Emit emits one or more graph elements to the host.
 	// The elements may be [Node] or [Edge].
@@ -151,11 +153,6 @@ type Host interface {
 	// CacheSet stores a value with a TTL in seconds. Use 0 for no expiry.
 	CacheSet(ctx context.Context, key, value string, ttlSeconds int) error
 
-	// HTTPRequest performs an HTTP request through the host. This is useful
-	// when the host injects auth headers or enforces rate limiting. For
-	// direct HTTP access, use net/http — plugins have no restrictions.
-	HTTPRequest(ctx context.Context, req HTTPRequest) (*HTTPResponse, error)
-
 	// EmitNode emits a node into the knowledge graph.
 	EmitNode(ctx context.Context, node Node) error
 
@@ -164,21 +161,6 @@ type Host interface {
 
 	// Log sends a log message to the host. Levels: "debug", "info", "warn", "error".
 	Log(ctx context.Context, level, msg string) error
-}
-
-// HTTPRequest is an HTTP request to send through the host.
-type HTTPRequest struct {
-	Method  string            `json:"method"`
-	URL     string            `json:"url"`
-	Headers map[string]string `json:"headers,omitempty"`
-	Body    string            `json:"body,omitempty"`
-}
-
-// HTTPResponse is the result of an HTTP request made through the host.
-type HTTPResponse struct {
-	Status  int               `json:"status"`
-	Headers map[string]string `json:"headers,omitempty"`
-	Body    string            `json:"body"`
 }
 
 // Run starts the plugin. Call this from main(). It handles the magic
@@ -235,24 +217,21 @@ func dispatch(ctx context.Context, p Plugin, host *hostBridge, req *jsonrpc2.Req
 			}
 		}
 		return map[string]any{
-			"name":      info.Name,
-			"version":   info.Version,
-			"resources": resources,
+			"name":        info.Name,
+			"version":     info.Version,
+			"description": info.Description,
+			"resources":   resources,
 		}, nil
 
-	case "configure":
-		var params struct {
-			Connection string `json:"connection"`
+	case "resources":
+		resources, err := p.Resources(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("resources: %w", err)
 		}
-		if req.Params != nil {
-			if err := json.Unmarshal(req.Params, &params); err != nil {
-				return nil, fmt.Errorf("invalid configure params: %w", err)
-			}
+		if resources == nil {
+			return []PluginResource{}, nil
 		}
-		if err := p.Configure(ctx, host, params.Connection); err != nil {
-			return nil, fmt.Errorf("configure: %w", err)
-		}
-		return map[string]bool{"ok": true}, nil
+		return resources, nil
 
 	case "ingest":
 		var params struct {
@@ -325,15 +304,6 @@ func (h *hostBridge) CacheSet(ctx context.Context, key, value string, ttlSeconds
 		return fmt.Errorf("cache_set(%q): %w", key, err)
 	}
 	return nil
-}
-
-func (h *hostBridge) HTTPRequest(ctx context.Context, req HTTPRequest) (*HTTPResponse, error) {
-	var resp HTTPResponse
-	err := h.conn.Call(ctx, "http_request", req).Await(ctx, &resp)
-	if err != nil {
-		return nil, fmt.Errorf("http_request: %w", err)
-	}
-	return &resp, nil
 }
 
 func (h *hostBridge) Emit(ctx context.Context, elems ...Element) error {

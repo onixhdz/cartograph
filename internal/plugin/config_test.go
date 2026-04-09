@@ -1,8 +1,6 @@
-package cloudgraph
+package plugin
 
-import (
-	"testing"
-)
+import "testing"
 
 func TestParseConfigBasic(t *testing.T) {
 	toml := `
@@ -86,7 +84,6 @@ token_env = "TEST_GITHUB_TOKEN"
 	if pc.Extra["token"] != "ghp_secret123" {
 		t.Errorf("token = %v, want ghp_secret123", pc.Extra["token"])
 	}
-	// _env key should be removed.
 	if _, ok := pc.Extra["token_env"]; ok {
 		t.Error("token_env key should be removed after resolution")
 	}
@@ -118,34 +115,21 @@ func TestValidateEmptyPlugins(t *testing.T) {
 }
 
 func TestValidateAggregatorSkipsBin(t *testing.T) {
-	cfg := &Config{
-		Plugins: map[string]PluginConfig{
-			"all_aws": {Pattern: "aws_*"},
-		},
-	}
+	cfg := &Config{Plugins: map[string]PluginConfig{"all_aws": {Pattern: "aws_*"}}}
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("aggregator should not require bin: %v", err)
 	}
 }
 
 func TestValidateValid(t *testing.T) {
-	cfg := &Config{
-		Plugins: map[string]PluginConfig{
-			"github": {Bin: "github"},
-		},
-	}
+	cfg := &Config{Plugins: map[string]PluginConfig{"github": {Bin: "github"}}}
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
 
 func TestValidateNoBin(t *testing.T) {
-	// A plugin with no bin is valid — the section key name is used as binary name.
-	cfg := &Config{
-		Plugins: map[string]PluginConfig{
-			"capec": {},
-		},
-	}
+	cfg := &Config{Plugins: map[string]PluginConfig{"capec": {}}}
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("plugin with no bin should be valid (section key used): %v", err)
 	}

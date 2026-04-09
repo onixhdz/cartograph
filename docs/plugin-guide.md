@@ -3,7 +3,7 @@
 Plugins are standalone binaries that feed external data (cloud APIs, SaaS
 platforms, databases) into Cartograph's knowledge graph.
 
-The `plugin` SDK handles all protocol details for you. You implement three
+The `plugin` SDK handles all protocol details for you. You implement four
 methods and call `plugin.Run` — that's it.
 
 ## Quick Start
@@ -45,22 +45,28 @@ func (p *myPlugin) Info() plugin.Info {
 	}
 }
 
-func (p *myPlugin) Configure(ctx context.Context, host plugin.Host, connection string) error {
-	key, err := host.ConfigGet(ctx, "api_key")
-	if err != nil {
-		return err
-	}
-	if key == "" {
-		return fmt.Errorf("api_key is required")
-	}
-	p.apiKey = key
-	return nil
+func (p *myPlugin) Resources(ctx context.Context) ([]plugin.PluginResource, error) {
+	return []plugin.PluginResource{
+		{
+			Name:    "usage-guide",
+			Content: "Use this plugin for widget inventory and owner relationships.",
+		},
+	}, nil
 }
 
 func (p *myPlugin) Ingest(ctx context.Context, host plugin.Host, opts plugin.IngestOptions) (plugin.IngestResult, error) {
+	key, err := host.ConfigGet(ctx, "api_key")
+	if err != nil {
+		return plugin.IngestResult{}, err
+	}
+	if key == "" {
+		return plugin.IngestResult{}, fmt.Errorf("api_key is required")
+	}
+	p.apiKey = key
+
 	// Fetch your data here (net/http, goroutines, anything goes).
 
-	err := host.Emit(ctx,
+	err = host.Emit(ctx,
 		plugin.Node{
 			ID:    "my:widget:1",
 			Label: "MyWidget",
@@ -102,6 +108,9 @@ go build -o my-source .
 cartograph plugin install ./my-source
 ```
 
+Install-time resources returned by `Resources()` are fetched during
+`cartograph plugin install` and stored by Cartograph for later agent/router use.
+
 ### 4. Configure a connection
 
 Create or edit `~/.local/share/cartograph/config.toml`:
@@ -137,8 +146,12 @@ Every plugin implements three methods:
 | Method      | Purpose                                                       |
 |-------------|---------------------------------------------------------------|
 | `Info()`    | Return your plugin's name, version, and resource types        |
-| `Configure` | Retrieve credentials via `host.ConfigGet`, validate settings  |
+| `Resources` | Return install-time references/instructions for the plugin    |
 | `Ingest`    | Fetch data, emit nodes/edges via `host`, return counts        |
+
+`Resources()` is for install-time reference content such as documentation,
+investigation guidance, or agent instructions. Return `nil, nil` or an empty
+slice if your plugin has no install-time resources.
 
 Optional: implement `plugin.Closer` to add cleanup logic:
 
@@ -151,14 +164,13 @@ func (p *myPlugin) Close() error {
 
 ### `plugin.Host` interface
 
-The `host` parameter in `Configure` and `Ingest` provides these services:
+The `host` parameter in `Ingest` provides these services:
 
 | Method                 | What it does                                          |
 |------------------------|-------------------------------------------------------|
 | `host.ConfigGet`       | Get a config value from config.toml                   |
 | `host.CacheGet`        | Retrieve a cached value (survives across runs)        |
 | `host.CacheSet`        | Store a value with TTL in seconds                     |
-| `host.HTTPRequest`     | HTTP request through the host (for proxied auth)      |
 | `host.EmitNode`        | Emit a node into the graph                            |
 | `host.EmitEdge`        | Emit a directed edge between two nodes                |
 | `host.Log`             | Send a log message (debug, info, warn, error)         |
@@ -206,20 +218,6 @@ value, found, err := host.CacheGet(ctx, "repos_etag")
 
 Cache survives across ingestion runs. Use it for ETags, pagination
 cursors, incremental sync tokens.
-
-### HTTP
-
-```go
-resp, err := host.HTTPRequest(ctx, plugin.HTTPRequest{
-    Method:  "GET",
-    URL:     "https://api.example.com/widgets",
-    Headers: map[string]string{"Authorization": "Bearer " + token},
-})
-```
-
-Useful when the host injects auth or enforces rate limiting. For direct
-HTTP access, use `net/http` — plugins are full Go binaries with no
-restrictions.
 
 ### Logging
 
@@ -311,17 +309,7 @@ func TestMyPlugin_Ingest(t *testing.T) {
         "api_key": "test-key",
     })
 
-    // Mock HTTP responses if your plugin uses host.HTTPRequest.
-    mock := plugintest.MockHTTP([]plugintest.Route{
-        {Method: "GET", URL: "https://api.example.com/widgets", Status: 200, Body: `[{"id":1}]`},
-    })
-    h.SetHTTPHandler(mock.Handler())
-
     p := &myPlugin{}
-
-    if err := p.Configure(context.Background(), h, "test_conn"); err != nil {
-        t.Fatal(err)
-    }
     result, err := p.Ingest(context.Background(), h, plugin.IngestOptions{})
     if err != nil {
         t.Fatal(err)
@@ -330,11 +318,6 @@ func TestMyPlugin_Ingest(t *testing.T) {
     // Assert on emissions.
     h.AssertNodeCount(t, 1)
     h.AssertNodeExists(t, "my:widget:1", "MyWidget")
-
-    // Assert on HTTP requests made.
-    if mock.RequestCount() != 1 {
-        t.Errorf("expected 1 HTTP request, got %d", mock.RequestCount())
-    }
 }
 ```
 
