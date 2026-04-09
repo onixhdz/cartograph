@@ -1,6 +1,6 @@
 module github.com/realxen/cartograph
 
-go 1.25.0
+go 1.25.6
 
 require (
 	github.com/alecthomas/kong v1.14.0
@@ -8,9 +8,11 @@ require (
 	github.com/charmbracelet/huh v1.0.0
 	github.com/cloudprivacylabs/lpg/v2 v2.0.2
 	github.com/cloudprivacylabs/opencypher v1.0.0
+	github.com/fwcd/tree-sitter-kotlin v0.0.0-20260411204054-55622a49bd59
 	github.com/go-git/go-billy/v6 v6.0.0-20260226131633-45bd0956d66f
 	github.com/go-git/go-git/v6 v6.0.0-20260323155804-7ae1cb62d6b7
 	github.com/gofrs/flock v0.13.0
+	github.com/gortexhq/tree-sitter-swift v0.1.1-0.20260424235305-8dde3a3327dd
 	github.com/klauspost/compress v1.18.4
 	github.com/modelcontextprotocol/go-sdk v1.5.0
 	github.com/odvcencio/gotreesitter v0.10.0

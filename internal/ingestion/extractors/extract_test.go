@@ -768,6 +768,33 @@ func TestCanExtract(t *testing.T) {
 	}
 }
 
+func TestLanguageCapabilities(t *testing.T) {
+	tests := []struct {
+		lang              string
+		wantParse         bool
+		wantCustomQueries bool
+		wantFallback      bool
+	}{
+		{lang: "go", wantParse: true, wantCustomQueries: true, wantFallback: false},
+		{lang: "scala", wantParse: true, wantCustomQueries: true, wantFallback: false},
+		{lang: "yaml", wantParse: false, wantCustomQueries: false, wantFallback: false},
+		{lang: "json", wantParse: false, wantCustomQueries: false, wantFallback: false},
+		{lang: "brainfuck_nonexistent", wantParse: false, wantCustomQueries: false, wantFallback: false},
+	}
+
+	for _, tt := range tests {
+		if got := CanParse(tt.lang); got != tt.wantParse {
+			t.Errorf("CanParse(%q) = %v, want %v", tt.lang, got, tt.wantParse)
+		}
+		if got := HasCustomQueries(tt.lang); got != tt.wantCustomQueries {
+			t.Errorf("HasCustomQueries(%q) = %v, want %v", tt.lang, got, tt.wantCustomQueries)
+		}
+		if got := SupportsGenericFallback(tt.lang); got != tt.wantFallback {
+			t.Errorf("SupportsGenericFallback(%q) = %v, want %v", tt.lang, got, tt.wantFallback)
+		}
+	}
+}
+
 func TestExtractFile_ExistingLanguages_NoRegression(t *testing.T) {
 	// Verify all 13 original languages still use their hand-crafted queries
 	// by checking that extraction works and produces symbols.
@@ -1352,7 +1379,6 @@ void test() {
 
 // GAP-7: Kotlin complete rewrite — heritage, companion, enum, typealias.
 func TestGapFix_KotlinCompleteRewrite(t *testing.T) {
-	t.Skip("kotlin temporarily disabled in first native-engine pass until local binding is added")
 	src := `package com.example
 
 interface Speaker {
@@ -1425,7 +1451,6 @@ typealias StringList = List<String>
 
 // GAP-8: Swift typealias and extension conformance heritage.
 func TestGapFix_SwiftTypealiasAndExtensionConformance(t *testing.T) {
-	t.Skip("swift temporarily disabled in first native-engine pass until local binding is added")
 	src := `protocol Speaker {
     func talk()
 }

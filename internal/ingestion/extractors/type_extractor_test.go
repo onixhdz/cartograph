@@ -617,9 +617,6 @@ func TestTypeBinding_MultiLanguage(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.lang == "kotlin" || tc.lang == "swift" {
-				t.Skip("language temporarily disabled in first native-engine pass until local binding is added")
-			}
 			result, err := ExtractFile(tc.file, []byte(tc.source), tc.lang)
 			if err != nil {
 				t.Fatalf("ExtractFile: %v", err)

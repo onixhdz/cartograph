@@ -1,9 +1,41 @@
 package extractors
 
-// CanExtract returns true if the given language has first-hand query support.
-func CanExtract(language string) bool {
+import ts "github.com/realxen/cartograph/internal/treesitter"
+
+// genericFallbackAllowlist is the explicit set of languages that may use the
+// generic AST fallback path once pipeline routing enables it.
+var genericFallbackAllowlist = map[string]bool{
+	"yaml":       true,
+	"toml":       true,
+	"hcl":        true,
+	"sql":        true,
+	"protobuf":   true,
+	"dockerfile": true,
+	"bash":       true,
+}
+
+// CanParse reports whether the given language name resolves to a registered
+// tree-sitter grammar.
+func CanParse(language string) bool {
+	return ts.DetectLanguageByName(language) != nil
+}
+
+// HasCustomQueries returns true if the given language has first-hand query support.
+func HasCustomQueries(language string) bool {
 	_, ok := LanguageQueries[language]
 	return ok
+}
+
+// SupportsGenericFallback reports whether the language is explicitly approved
+// for generic AST-based fallback extraction and has a registered grammar.
+func SupportsGenericFallback(language string) bool {
+	return genericFallbackAllowlist[language] && CanParse(language)
+}
+
+// CanExtract returns true if the given language has first-hand query support.
+// Kept as a compatibility shim while the pipeline moves to capability-based routing.
+func CanExtract(language string) bool {
+	return HasCustomQueries(language)
 }
 
 // LanguagePreProcess maps language names to source-preprocessing functions
@@ -328,9 +360,7 @@ const ktQueries = "(class_declaration (type_identifier) @name) @definition.class
 	"(property_declaration (variable_declaration (simple_identifier) @name)) @definition.property\n" +
 	// Kotlin spawn: launch { }, async { }, GlobalScope.launch { }
 	"(call_expression (simple_identifier) @_fn (#match? @_fn \"^(launch|async)$\")) @spawn\n" +
-	"(call_expression (navigation_expression (simple_identifier) @_fn (#match? @_fn \"^(launch|async)$\"))) @spawn\n" +
-	// Kotlin delegate: identifier passed as function argument
-	"(call_expression (value_arguments (value_argument (simple_identifier) @delegate.target))) @delegate\n"
+	"(call_expression (navigation_expression (simple_identifier) @_fn (#match? @_fn \"^(launch|async)$\"))) @spawn\n"
 
 const swiftQueries = "(class_declaration \"class\" name: (type_identifier) @name) @definition.class\n" +
 	"(class_declaration \"struct\" name: (type_identifier) @name) @definition.struct\n" +
@@ -352,9 +382,7 @@ const swiftQueries = "(class_declaration \"class\" name: (type_identifier) @name
 	// Extension conformance heritage.
 	"(class_declaration \"extension\" name: (user_type (type_identifier) @heritage.class) (inheritance_specifier inherits_from: (user_type (type_identifier) @heritage.extends))) @heritage\n" +
 	// Swift spawn: Task { }, Task.detached { }, DispatchQueue.global().async { }
-	"(call_expression (simple_identifier) @_fn (#eq? @_fn \"Task\")) @spawn\n" +
-	// Swift delegate: identifier passed as function argument
-	"(call_expression (value_arguments (value_argument (simple_identifier) @delegate.target))) @delegate\n"
+	"(call_expression (simple_identifier) @_fn (#eq? @_fn \"Task\")) @spawn\n"
 
 const scalaQueries = // Class-like definitions.
 "(class_definition name: (identifier) @name) @definition.class\n" +

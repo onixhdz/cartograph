@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	treekotlin "github.com/fwcd/tree-sitter-kotlin/bindings/go"
+	treeswift "github.com/gortexhq/tree-sitter-swift/bindings/go"
 	treesitter "github.com/tree-sitter/go-tree-sitter"
 	treecsharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
 	treec "github.com/tree-sitter/tree-sitter-c/bindings/go"
@@ -284,8 +286,10 @@ var languageSpecs = []languageSpec{
 	{name: "c", extensions: []string{".c", ".h"}, build: func() *treesitter.Language { return treesitter.NewLanguage(treec.Language()) }},
 	{name: "ruby", extensions: []string{".rb"}, build: func() *treesitter.Language { return treesitter.NewLanguage(treeruby.Language()) }},
 	{name: "php", extensions: []string{".php"}, build: func() *treesitter.Language { return treesitter.NewLanguage(treephp.LanguagePHP()) }},
+	{name: "kotlin", extensions: []string{".kt", ".kts"}, build: func() *treesitter.Language { return treesitter.NewLanguage(treekotlin.Language()) }},
 	{name: "csharp", extensions: []string{".cs"}, aliases: []string{"c_sharp"}, build: func() *treesitter.Language { return treesitter.NewLanguage(treecsharp.Language()) }},
 	{name: "scala", extensions: []string{".scala", ".sc"}, build: func() *treesitter.Language { return treesitter.NewLanguage(treescala.Language()) }},
+	{name: "swift", extensions: []string{".swift"}, build: func() *treesitter.Language { return treesitter.NewLanguage(treeswift.Language()) }},
 }
 
 var (
