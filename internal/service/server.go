@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -408,6 +409,13 @@ func (s *Server) lazyLoadGraph(repo string) error {
 			return fmt.Errorf("repo %s: %w", repo, err)
 		}
 	}
+	if entry.Meta.PluginName != "" && entry.Meta.PluginVersion != "" {
+		currentVersion := installedPluginVersion(s.dataDir, entry.Meta.PluginName)
+		if currentVersion != "" && currentVersion != entry.Meta.PluginVersion {
+			return fmt.Errorf("repo %s: plugin dataset is stale (built with plugin %s %s, installed version is %s); run 'cartograph plugin ingest %s'",
+				repo, entry.Meta.PluginName, entry.Meta.PluginVersion, currentVersion, entry.Meta.PluginName)
+		}
+	}
 
 	repoDir := filepath.Join(s.dataDir, entry.Name, entry.Hash)
 	dbPath := filepath.Join(repoDir, "graph.db")
@@ -554,6 +562,32 @@ func (s *Server) lazyInitResolver(repo string) *storage.ContentResolver {
 // ToolBackend instances. This must be called before Start.
 func (s *Server) SetBackendFactory(f BackendFactory) {
 	s.backendFactory = f
+}
+
+func installedPluginVersion(dataDir, pluginName string) string {
+	if dataDir == "" || pluginName == "" {
+		return ""
+	}
+	path := filepath.Join(dataDir, "plugins", "plugins.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var reg struct {
+		Plugins []struct {
+			Name    string `json:"name"`
+			Version string `json:"version"`
+		} `json:"plugins"`
+	}
+	if err := json.Unmarshal(data, &reg); err != nil {
+		return ""
+	}
+	for _, p := range reg.Plugins {
+		if p.Name == pluginName {
+			return p.Version
+		}
+	}
+	return ""
 }
 
 // BuildStatus returns a StatusResult snapshot of the server's current state.
@@ -796,6 +830,7 @@ func (s *Server) runPluginIngestJob(ctx context.Context, job *pluginIngestJob, r
 	nodes, edges := builder.Commit()
 	if err := internalplugin.PersistPluginDataset(internalplugin.PluginDataset{
 		PluginName:     req.PluginName,
+		PluginVersion:  installedPluginVersion(s.dataDir, req.PluginName),
 		ConnectionName: connection,
 		DataDir:        s.dataDir,
 		PluginDataDir:  filepath.Join(s.dataDir, "plugins", "data", req.PluginName),

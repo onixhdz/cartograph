@@ -149,6 +149,7 @@ func TestPersistPluginDataset(t *testing.T) {
 
 	if err := internalplugin.PersistPluginDataset(internalplugin.PluginDataset{
 		PluginName:     testPluginName,
+		PluginVersion:  "0.1.0",
 		ConnectionName: testPluginName,
 		DataDir:        DefaultDataDir(),
 		PluginDataDir:  PluginDataDir(testPluginName),
@@ -179,6 +180,9 @@ func TestPersistPluginDataset(t *testing.T) {
 	}
 	if entry.Meta.PluginName != testPluginName {
 		t.Fatalf("PluginName = %q, want %q", entry.Meta.PluginName, testPluginName)
+	}
+	if entry.Meta.PluginVersion != "0.1.0" {
+		t.Fatalf("PluginVersion = %q, want %q", entry.Meta.PluginVersion, "0.1.0")
 	}
 
 	store, err := bbolt.New(filepath.Join(repoDir, "graph.db"))
@@ -216,6 +220,7 @@ func TestRemovePluginDataset(t *testing.T) {
 	})
 	if err := internalplugin.PersistPluginDataset(internalplugin.PluginDataset{
 		PluginName:     testPluginName,
+		PluginVersion:  "0.1.0",
 		ConnectionName: testPluginName,
 		DataDir:        DefaultDataDir(),
 		PluginDataDir:  PluginDataDir(testPluginName),
@@ -243,5 +248,75 @@ func TestRemovePluginDataset(t *testing.T) {
 	}
 	if _, ok := reg.Get(testPluginName); ok {
 		t.Fatalf("plugin dataset registry entry still exists")
+	}
+}
+
+func TestPersistPluginDatasetReplacesDatasetAtomically(t *testing.T) {
+	oldHome := os.Getenv("HOME")
+	t.Cleanup(func() {
+		_ = os.Setenv("HOME", oldHome)
+	})
+	tmp := t.TempDir()
+	if err := os.Setenv("HOME", tmp); err != nil {
+		t.Fatalf("set HOME: %v", err)
+	}
+
+	buildGraph := func(id string) *lpg.Graph {
+		g := lpg.NewGraph()
+		graph.AddFileNode(g, graph.FileProps{
+			BaseNodeProps: graph.BaseNodeProps{ID: id, Name: id + ".md"},
+			FilePath:      id + ".md",
+			Language:      "markdown",
+		})
+		return g
+	}
+
+	if err := internalplugin.PersistPluginDataset(internalplugin.PluginDataset{
+		PluginName:     testPluginName,
+		PluginVersion:  "0.1.0",
+		ConnectionName: testPluginName,
+		DataDir:        DefaultDataDir(),
+		PluginDataDir:  PluginDataDir(testPluginName),
+		Graph:          buildGraph("first"),
+		NodeCount:      1,
+		EdgeCount:      0,
+		StartedAt:      time.Now(),
+	}); err != nil {
+		t.Fatalf("first PersistPluginDataset: %v", err)
+	}
+
+	if err := internalplugin.PersistPluginDataset(internalplugin.PluginDataset{
+		PluginName:     testPluginName,
+		PluginVersion:  "0.2.0",
+		ConnectionName: testPluginName,
+		DataDir:        DefaultDataDir(),
+		PluginDataDir:  PluginDataDir(testPluginName),
+		Graph:          buildGraph("second"),
+		NodeCount:      1,
+		EdgeCount:      0,
+		StartedAt:      time.Now(),
+	}); err != nil {
+		t.Fatalf("second PersistPluginDataset: %v", err)
+	}
+
+	repoHash := internalplugin.PluginDatasetHash(testPluginName, testPluginName)
+	repoDir := filepath.Join(DefaultDataDir(), testPluginName, repoHash)
+	if _, err := os.Stat(repoDir + ".tmp"); !os.IsNotExist(err) {
+		t.Fatalf("temp dir still exists: %v", err)
+	}
+	if _, err := os.Stat(repoDir + ".old"); !os.IsNotExist(err) {
+		t.Fatalf("old dir still exists: %v", err)
+	}
+
+	reg, err := storage.NewRegistry(DefaultDataDir())
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	entry, err := reg.Resolve(testPluginName)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if entry.Meta.PluginVersion != "0.2.0" {
+		t.Fatalf("PluginVersion = %q, want %q", entry.Meta.PluginVersion, "0.2.0")
 	}
 }

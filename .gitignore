@@ -30,6 +30,7 @@ go.work.sum
 /cartograph
 /cartograph-*-*
 /mitre-capec
+/plugins/bin/
 
 # local cgo build artifacts
 internal/embedding/local/zig-out/

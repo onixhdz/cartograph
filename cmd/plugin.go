@@ -351,6 +351,7 @@ func runIngest(pluginName, connectionName string, pc plugin.PluginConfig) error 
 	duration := time.Since(start)
 	if err := plugin.PersistPluginDataset(plugin.PluginDataset{
 		PluginName:     pluginName,
+		PluginVersion:  installedPluginVersion(pluginName),
 		ConnectionName: connectionName,
 		DataDir:        DefaultDataDir(),
 		PluginDataDir:  PluginDataDir(pluginName),
@@ -624,6 +625,19 @@ func saveInstalledPluginRegistry(reg *installedPluginRegistry) error {
 		return fmt.Errorf("write installed plugin registry %s: %w", path, err)
 	}
 	return nil
+}
+
+func installedPluginVersion(pluginName string) string {
+	reg, err := loadInstalledPluginRegistry()
+	if err != nil {
+		return ""
+	}
+	for _, p := range reg.Plugins {
+		if p.Name == pluginName {
+			return p.Version
+		}
+	}
+	return ""
 }
 
 func syncInstalledPluginRegistryToSkills() error {

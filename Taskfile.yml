@@ -53,6 +53,7 @@ tasks:
     cmds:
       - task: clean:zig
       - rm -rf '{{joinPath .ROOT_DIR ".task"}}'
+      - rm -rf '{{joinPath .ROOT_DIR "plugins/bin"}}'
       - rm -f '{{joinPath .ROOT_DIR "cartograph"}}' '{{joinPath .ROOT_DIR "cartograph-darwin-amd64"}}' '{{joinPath .ROOT_DIR "cartograph-darwin-arm64"}}' '{{joinPath .ROOT_DIR "cartograph-linux-amd64"}}' '{{joinPath .ROOT_DIR "cartograph-linux-arm64"}}' '{{joinPath .ROOT_DIR "cartograph-windows-amd64.exe"}}'
 
   clean:zig:
@@ -106,6 +107,19 @@ tasks:
       - task: build:target:linux
       - task: build:target:mac
       - task: build:target:windows
+
+  build:plugins:
+    desc: Build all plugin binaries
+    cmds:
+      - mkdir -p '{{joinPath .ROOT_DIR "plugins/bin"}}'
+      - >
+        for main in plugins/*/main.go; do
+          [ -f "$main" ] || continue
+          dir=$(dirname "$main")
+          name=$(basename "$dir")
+          echo "Building plugin: $name"
+          go build -trimpath -o "{{joinPath .ROOT_DIR "plugins/bin"}}/$name" "./$dir"
+        done
 
   build:target:linux:
     desc: Build cartograph for all Linux targets

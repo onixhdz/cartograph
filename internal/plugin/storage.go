@@ -20,6 +20,7 @@ import (
 
 type PluginDataset struct {
 	PluginName     string
+	PluginVersion  string
 	ConnectionName string
 	DataDir        string
 	PluginDataDir  string
@@ -34,11 +35,15 @@ func PersistPluginDataset(ds PluginDataset) error {
 	repoName := ds.ConnectionName
 	repoHash := PluginDatasetHash(ds.PluginName, ds.ConnectionName)
 	repoDir := filepath.Join(ds.DataDir, repoName, repoHash)
-	if err := os.MkdirAll(repoDir, 0o750); err != nil {
-		return fmt.Errorf("persist plugin dataset: create dir: %w", err)
+	tmpDir := repoDir + ".tmp"
+	if err := os.RemoveAll(tmpDir); err != nil {
+		return fmt.Errorf("persist plugin dataset: clear temp dir: %w", err)
+	}
+	if err := os.MkdirAll(tmpDir, 0o750); err != nil {
+		return fmt.Errorf("persist plugin dataset: create temp dir: %w", err)
 	}
 
-	store, err := bbolt.New(filepath.Join(repoDir, "graph.db"))
+	store, err := bbolt.New(filepath.Join(tmpDir, "graph.db"))
 	if err != nil {
 		return fmt.Errorf("persist plugin dataset: open store: %w", err)
 	}
@@ -47,10 +52,7 @@ func PersistPluginDataset(ds PluginDataset) error {
 		return fmt.Errorf("persist plugin dataset: save graph: %w", err)
 	}
 
-	blevePath := filepath.Join(repoDir, "search.bleve")
-	if err := os.RemoveAll(blevePath); err != nil {
-		return fmt.Errorf("persist plugin dataset: remove search index: %w", err)
-	}
+	blevePath := filepath.Join(tmpDir, "search.bleve")
 	idx, err := search.NewIndex(blevePath)
 	if err != nil {
 		return fmt.Errorf("persist plugin dataset: create search index: %w", err)
@@ -66,6 +68,25 @@ func PersistPluginDataset(ds PluginDataset) error {
 	indexedAt := ds.IndexedAt
 	if indexedAt.IsZero() {
 		indexedAt = time.Now()
+	}
+
+	oldDir := repoDir + ".old"
+	if err := os.RemoveAll(oldDir); err != nil {
+		return fmt.Errorf("persist plugin dataset: clear old dir: %w", err)
+	}
+	if _, err := os.Stat(repoDir); err == nil {
+		if err := os.Rename(repoDir, oldDir); err != nil {
+			return fmt.Errorf("persist plugin dataset: move old dataset aside: %w", err)
+		}
+	}
+	if err := os.Rename(tmpDir, repoDir); err != nil {
+		if _, restoreErr := os.Stat(oldDir); restoreErr == nil {
+			_ = os.Rename(oldDir, repoDir)
+		}
+		return fmt.Errorf("persist plugin dataset: activate new dataset: %w", err)
+	}
+	if err := os.RemoveAll(oldDir); err != nil {
+		return fmt.Errorf("persist plugin dataset: remove old dataset: %w", err)
 	}
 
 	registry, err := storage.NewRegistry(ds.DataDir)
@@ -87,6 +108,7 @@ func PersistPluginDataset(ds PluginDataset) error {
 			BinaryVersion:        version.BuildVersion,
 			Languages:            collectPluginLanguages(ds.Graph),
 			PluginName:           ds.PluginName,
+			PluginVersion:        ds.PluginVersion,
 		},
 	}); err != nil {
 		return fmt.Errorf("persist plugin dataset: update registry: %w", err)
