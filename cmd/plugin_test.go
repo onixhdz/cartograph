@@ -14,6 +14,7 @@ import (
 	internalplugin "github.com/realxen/cartograph/internal/plugin"
 	"github.com/realxen/cartograph/internal/storage"
 	"github.com/realxen/cartograph/internal/storage/bbolt"
+	"github.com/realxen/cartograph/plugin"
 )
 
 const testPluginName = "mitre-capec" //nolint:misspell // MITRE is the organization name
@@ -32,6 +33,10 @@ func TestStoreInstalledPluginMetadata(t *testing.T) {
 		Name:        testPluginName,
 		Version:     "0.1.0",
 		Description: "CAPEC security guidance",
+		Entities: []plugin.Entity{{
+			Name:  "AttackPattern",
+			Label: "CAPECPattern",
+		}},
 		Resources: []internalplugin.InstallResource{
 			{Name: "security-research", Content: "# CAPEC"},
 		},
@@ -46,7 +51,7 @@ func TestStoreInstalledPluginMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read registry: %v", err)
 	}
-	var reg installedPluginRegistry
+	var reg internalplugin.InstalledRegistry
 	if err := json.Unmarshal(data, &reg); err != nil {
 		t.Fatalf("unmarshal registry: %v", err)
 	}
@@ -55,6 +60,12 @@ func TestStoreInstalledPluginMetadata(t *testing.T) {
 	}
 	if reg.Plugins[0].Name != testPluginName {
 		t.Errorf("name = %q, want %s", reg.Plugins[0].Name, testPluginName)
+	}
+	if len(reg.Plugins[0].Entities) != 1 {
+		t.Fatalf("entities = %d, want 1", len(reg.Plugins[0].Entities))
+	}
+	if reg.Plugins[0].Entities[0].Label != "CAPECPattern" {
+		t.Fatalf("entity label = %q, want %q", reg.Plugins[0].Entities[0].Label, "CAPECPattern")
 	}
 	if len(reg.Plugins[0].Resources) != 1 {
 		t.Fatalf("resources = %d, want 1", len(reg.Plugins[0].Resources))
@@ -96,6 +107,10 @@ func TestSyncInstalledPluginRegistryToSkillBase(t *testing.T) {
 		Name:        testPluginName,
 		Version:     "0.1.0",
 		Description: "CAPEC security guidance",
+		Entities: []plugin.Entity{{
+			Name:  "AttackPattern",
+			Label: "CAPECPattern",
+		}},
 		Resources: []internalplugin.InstallResource{{
 			Name:    "security-research",
 			Content: "# CAPEC",

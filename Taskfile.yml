@@ -141,6 +141,7 @@ tasks:
           esac
     status:
       - test -f zig-out/lib/{{.EMBEDDING_LIB_FILE}}
+      - test -f zig-out/include/inference.h
       - test -f .zig-target.stamp
       - test "$(cat .zig-target.stamp)" = "{{.TARGET}}"
     cmds:

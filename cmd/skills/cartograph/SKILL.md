@@ -139,6 +139,29 @@ Cartograph commands that read the knowledge graph (`query`, `context`,
 `impact`, `cypher`, `cat`) require a prior `analyze` run. If no index
 exists for the target repo, run `cartograph analyze` first.
 
+### Prefer `cartograph cat` for Real Code
+
+When inspecting source code in an indexed repository, prefer `cartograph cat`
+over builtin file-reading tools. The normal investigation loop should stay
+inside Cartograph as long as possible:
+
+```bash
+cartograph query "<theme>" -l 8
+cartograph context <symbol> --depth 2 --content
+cartograph impact <symbol> --direction upstream -d 3
+cartograph cat <file> -l <startLine>-<endLine>
+```
+
+Avoid builtin file reads for indexed repositories unless one of these is true:
+
+- The repository was cloned by Cartograph and local filesystem access is
+  explicitly needed for a non-Cartograph workflow.
+- You need a file operation that Cartograph does not provide.
+- The user explicitly asks for direct file reads outside the Cartograph loop.
+
+If the repo was not cloned by Cartograph, do not fall back to builtin file
+reads just to inspect source that `cartograph cat` can show.
+
 ### Re-index After Code Changes
 
 The knowledge graph reflects code at index time. After refactoring, merging,

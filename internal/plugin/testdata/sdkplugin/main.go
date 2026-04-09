@@ -18,7 +18,7 @@ func (p *sdkPlugin) Info() plugin.Info {
 	return plugin.Info{
 		Name:    "sdktest",
 		Version: "0.2.0",
-		Resources: []plugin.Resource{
+		Entities: []plugin.Entity{
 			{Name: "Repository", Label: "SDKTestRepo"},
 			{Name: "User", Label: "SDKTestUser"},
 		},

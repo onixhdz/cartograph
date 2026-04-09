@@ -363,8 +363,14 @@ func TestPluginInfo(t *testing.T) {
 	if info.Description == "" {
 		t.Error("description: got empty, want non-empty")
 	}
-	if len(info.Resources) != 3 {
-		t.Errorf("resources: got %d, want 3", len(info.Resources))
+	if len(info.Entities) != 3 {
+		t.Errorf("entities: got %d, want 3", len(info.Entities))
+	}
+	if info.Entities[0].Query == nil {
+		t.Fatal("pattern entity query config is nil")
+	}
+	if len(info.Entities[0].Query.SearchProps) != 3 {
+		t.Fatalf("pattern search props: got %d, want 3", len(info.Entities[0].Query.SearchProps))
 	}
 }
 

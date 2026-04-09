@@ -44,7 +44,7 @@ func TestPluginDataSource_Info(t *testing.T) {
 	}
 }
 
-func TestPluginDataSource_InfoResources(t *testing.T) {
+func TestPluginDataSource_InfoEntities(t *testing.T) {
 	bin := buildHostPlugin(t)
 
 	ds := &plugin.PluginDataSource{
@@ -55,11 +55,11 @@ func TestPluginDataSource_InfoResources(t *testing.T) {
 	}
 
 	info := ds.Info()
-	if len(info.Resources) != 2 {
-		t.Fatalf("Info().Resources returned %d, want 2", len(info.Resources))
+	if len(info.Entities) != 2 {
+		t.Fatalf("Info().Entities returned %d, want 2", len(info.Entities))
 	}
-	if info.Resources[0].Name != "Repository" {
-		t.Errorf("info.Resources[0].Name = %q", info.Resources[0].Name)
+	if info.Entities[0].Name != "Repository" {
+		t.Errorf("info.Entities[0].Name = %q", info.Entities[0].Name)
 	}
 }
 
@@ -402,14 +402,14 @@ func TestSDKPlugin_InfoResources(t *testing.T) {
 	}
 
 	info := ds.Info()
-	if len(info.Resources) != 2 {
-		t.Fatalf("Info().Resources returned %d, want 2", len(info.Resources))
+	if len(info.Entities) != 2 {
+		t.Fatalf("Info().Entities returned %d, want 2", len(info.Entities))
 	}
-	if info.Resources[0].Name != "Repository" {
-		t.Errorf("info.Resources[0].Name = %q, want Repository", info.Resources[0].Name)
+	if info.Entities[0].Name != "Repository" {
+		t.Errorf("info.Entities[0].Name = %q, want Repository", info.Entities[0].Name)
 	}
-	if info.Resources[1].Name != "User" {
-		t.Errorf("info.Resources[1].Name = %q, want User", info.Resources[1].Name)
+	if info.Entities[1].Name != "User" {
+		t.Errorf("info.Entities[1].Name = %q, want User", info.Entities[1].Name)
 	}
 }
 

@@ -149,7 +149,7 @@ func (s *PluginDataSource) Ingest(ctx context.Context, builder GraphBuilder, opt
 		Name:        infoResp.Name,
 		Version:     infoResp.Version,
 		Description: infoResp.Description,
-		Resources:   pluginInfoResources(infoResp.Resources),
+		Entities:    pluginInfoEntities(infoResp.Entities),
 	}
 	s.mu.Unlock()
 
@@ -181,16 +181,22 @@ func (s *PluginDataSource) Ingest(ctx context.Context, builder GraphBuilder, opt
 }
 
 type pluginInfoResponse struct {
-	Name        string              `json:"name"`
-	Version     string              `json:"version"`
-	Description string              `json:"description"`
-	Resources   []pluginResourceDef `json:"resources"`
+	Name        string            `json:"name"`
+	Version     string            `json:"version"`
+	Description string            `json:"description"`
+	Entities    []pluginEntityDef `json:"entities"`
 }
 
-type pluginResourceDef struct {
+type pluginEntityDef struct {
 	Name  string `json:"name"`
 	Label string `json:"label"`
-	Kind  string `json:"kind"`
+	Query *struct {
+		SearchProps []string `json:"searchProps"`
+		Display     []struct {
+			Prop  string `json:"prop"`
+			Label string `json:"label"`
+		} `json:"display"`
+	} `json:"query,omitempty"`
 }
 
 type pluginInstallResource struct {
@@ -204,6 +210,7 @@ type InstallMetadata struct {
 	Name        string
 	Version     string
 	Description string
+	Entities    []pluginsdk.Entity
 	Resources   []InstallResource
 }
 
@@ -256,6 +263,7 @@ func InspectInstallMetadata(ctx context.Context, binaryPath string, stderr func(
 		Name:        infoResp.Name,
 		Version:     infoResp.Version,
 		Description: infoResp.Description,
+		Entities:    pluginInfoEntities(infoResp.Entities),
 		Resources:   make([]InstallResource, 0, len(resourceResp)),
 	}
 	for _, r := range resourceResp {
@@ -318,17 +326,28 @@ func (s *PluginDataSource) probePlugin() (pluginsdk.Info, error) {
 		Name:        resp.Name,
 		Version:     resp.Version,
 		Description: resp.Description,
-		Resources:   pluginInfoResources(resp.Resources),
+		Entities:    pluginInfoEntities(resp.Entities),
 	}, nil
 }
 
-func pluginInfoResources(defs []pluginResourceDef) []pluginsdk.Resource {
-	resources := make([]pluginsdk.Resource, 0, len(defs))
-	for _, r := range defs {
-		resources = append(resources, pluginsdk.Resource{
-			Name:  r.Name,
-			Label: r.Label,
-		})
+func pluginInfoEntities(defs []pluginEntityDef) []pluginsdk.Entity {
+	entities := make([]pluginsdk.Entity, 0, len(defs))
+	for _, e := range defs {
+		entity := pluginsdk.Entity{
+			Name:  e.Name,
+			Label: e.Label,
+		}
+		if e.Query != nil {
+			display := make([]pluginsdk.DisplayField, 0, len(e.Query.Display))
+			for _, field := range e.Query.Display {
+				display = append(display, pluginsdk.DisplayField{Prop: field.Prop, Label: field.Label})
+			}
+			entity.Query = &pluginsdk.EntityQuery{
+				SearchProps: e.Query.SearchProps,
+				Display:     display,
+			}
+		}
+		entities = append(entities, entity)
 	}
-	return resources
+	return entities
 }

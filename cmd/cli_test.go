@@ -13,7 +13,10 @@ import (
 	"github.com/realxen/cartograph/internal/storage"
 )
 
-const testRepo = "myrepo"
+const (
+	testRepo          = "myrepo"
+	testPluginDataset = "capec-plugin"
+)
 
 type mockClient struct {
 	queryCalled    bool
@@ -34,6 +37,14 @@ type mockClient struct {
 func (m *mockClient) Query(req service.QueryRequest) (*service.QueryResult, error) {
 	m.queryCalled = true
 	m.lastQueryReq = req
+	if req.Plugin {
+		return &service.QueryResult{
+			PluginResults: []service.PluginQueryMatch{{
+				NodeID: "capec:66",
+				Fields: []service.PluginDisplayField{{Label: "Name", Value: "SQL Injection"}},
+			}},
+		}, nil
+	}
 	return &service.QueryResult{
 		Processes: []service.ProcessMatch{
 			{Name: "HandleRequest", Relevance: 0.95},
@@ -175,10 +186,10 @@ func TestQueryCmd(t *testing.T) {
 		mc := &mockClient{}
 		cli := &CLI{Client: mc}
 		cmd := &QueryCmd{
-			SearchQuery: "handle request",
-			Repo:        testRepo,
-			Limit:       5,
-			Content:     true,
+			SearchQuery:    "handle request",
+			TargetSelector: TargetSelector{Repo: testRepo},
+			Limit:          5,
+			Content:        true,
 		}
 
 		out := captureStdout(t, func() {
@@ -754,7 +765,9 @@ func TestNilClient(t *testing.T) {
 		name string
 		run  func() error
 	}{
-		{"Query", func() error { return (&QueryCmd{SearchQuery: "test", Repo: "r"}).Run(cli) }},
+		{"Query", func() error {
+			return (&QueryCmd{SearchQuery: "test", TargetSelector: TargetSelector{Repo: "r"}}).Run(cli)
+		}},
 		{"Context", func() error { return (&ContextCmd{Name: "Foo", Repo: "r"}).Run(cli) }},
 		{"Impact", func() error { return (&ImpactCmd{Target: "Foo", Repo: "r"}).Run(cli) }},
 		{"Cypher", func() error { return (&CypherCmd{Query: "q", TargetSelector: TargetSelector{Repo: "r"}}).Run(cli) }},
@@ -771,5 +784,30 @@ func TestNilClient(t *testing.T) {
 				t.Errorf("expected no-service message, got %q", out)
 			}
 		})
+	}
+}
+
+func TestQueryCmdPluginTarget(t *testing.T) {
+	mc := &mockClient{}
+	cli := &CLI{Client: mc}
+	cmd := &QueryCmd{SearchQuery: "sql injection", TargetSelector: TargetSelector{Plugin: testPluginDataset}}
+
+	out := captureStdout(t, func() {
+		if err := cmd.Run(cli); err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+	})
+
+	if !mc.queryCalled {
+		t.Fatal("expected query to be called")
+	}
+	if !mc.lastQueryReq.Plugin {
+		t.Fatal("expected plugin query flag to be set")
+	}
+	if mc.lastQueryReq.Repo != testPluginDataset {
+		t.Fatalf("repo = %q, want %q", mc.lastQueryReq.Repo, testPluginDataset)
+	}
+	if !strings.Contains(out, "Name: SQL Injection") {
+		t.Fatalf("expected plugin result output, got %q", out)
 	}
 }

@@ -1,7 +1,7 @@
 // hostplugin is a minimal plugin binary for testing the plugin host.
 // It supports the full handshake protocol and the core RPC methods:
 //
-//	info      — returns plugin metadata and resource types
+//	info      — returns plugin metadata and entity types
 //	ingest    — emits nodes/edges via notifications, uses host services
 //	close     — clean shutdown
 //
@@ -56,7 +56,7 @@ func main() {
 				"name":        pluginName,
 				"version":     pluginVersion,
 				"description": "host test plugin",
-				"resources": []map[string]string{
+				"entities": []map[string]string{
 					{"name": "Repository", "label": "TestHostRepo"},
 					{"name": "User", "label": "TestHostUser"},
 				},

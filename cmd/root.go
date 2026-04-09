@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -99,9 +100,9 @@ func resolveRepo(explicit string) (string, error) {
 	return resolved, nil
 }
 
-func resolveTarget(repo, plugin, command string) (string, error) {
+func resolveTarget(repo, plugin string) (string, error) {
 	if repo != "" && plugin != "" {
-		return "", fmt.Errorf("%s: specify either -r or -p, not both", command)
+		return "", errors.New("specify either -r or -p, not both")
 	}
 	target := repo
 	if plugin != "" {
@@ -115,8 +116,8 @@ type TargetSelector struct {
 	Plugin string `help:"Plugin dataset name." short:"p"`
 }
 
-func (t TargetSelector) Resolve(command string) (string, error) {
-	return resolveTarget(t.Repo, t.Plugin, command)
+func (t TargetSelector) Resolve() (string, error) {
+	return resolveTarget(t.Repo, t.Plugin)
 }
 
 // CloneCmd clones a remote Git repository without indexing.
@@ -1819,11 +1820,11 @@ func (c *CatCmd) Run(cli *CLI) error {
 
 // QueryCmd searches the knowledge graph.
 type QueryCmd struct {
-	SearchQuery  string `arg:"" help:"Search query text."`
-	Repo         string `help:"Repository name to search." short:"r"`
-	Limit        int    `help:"Maximum number of results." default:"10" short:"l"`
-	Content      bool   `help:"Include source content in results."`
-	IncludeTests bool   `help:"Include test files in results." name:"include-tests"`
+	SearchQuery string `arg:"" help:"Search query text."`
+	TargetSelector
+	Limit        int  `help:"Maximum number of results." default:"10" short:"l"`
+	Content      bool `help:"Include source content in results."`
+	IncludeTests bool `help:"Include test files in results." name:"include-tests"`
 }
 
 func (c *QueryCmd) Run(cli *CLI) error {
@@ -1832,13 +1833,14 @@ func (c *QueryCmd) Run(cli *CLI) error {
 		return nil
 	}
 
-	repo, err := resolveRepo(c.Repo)
+	repo, err := c.Resolve()
 	if err != nil {
-		return err
+		return fmt.Errorf("query: %w", err)
 	}
 
 	req := service.QueryRequest{
 		Repo:         repo,
+		Plugin:       c.Plugin != "",
 		Text:         c.SearchQuery,
 		Limit:        c.Limit,
 		Content:      c.Content,
@@ -1847,6 +1849,19 @@ func (c *QueryCmd) Run(cli *CLI) error {
 	result, err := cli.Client.Query(req)
 	if err != nil {
 		return fmt.Errorf("query: %w", err)
+	}
+
+	if len(result.PluginResults) > 0 {
+		for i, match := range result.PluginResults {
+			fmt.Printf("%d.\n", i+1)
+			for _, field := range match.Fields {
+				fmt.Printf("  %s: %s\n", field.Label, field.Value)
+			}
+			if i < len(result.PluginResults)-1 {
+				fmt.Println()
+			}
+		}
+		return nil
 	}
 
 	if len(result.Processes) > 0 {
@@ -2058,9 +2073,9 @@ func (c *CypherCmd) Run(cli *CLI) error {
 		return nil
 	}
 
-	repo, err := c.Resolve("cypher")
+	repo, err := c.Resolve()
 	if err != nil {
-		return err
+		return fmt.Errorf("cypher: %w", err)
 	}
 
 	req := service.CypherRequest{
@@ -2099,9 +2114,9 @@ func (c *SchemaCmd) Run(cli *CLI) error {
 		fmt.Println(errNoService)
 		return nil
 	}
-	repo, err := c.Resolve("schema")
+	repo, err := c.Resolve()
 	if err != nil {
-		return err
+		return fmt.Errorf("schema: %w", err)
 	}
 
 	result, err := cli.Client.Schema(service.SchemaRequest{Repo: repo})

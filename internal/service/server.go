@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -26,7 +25,7 @@ import (
 	"github.com/realxen/cartograph/internal/storage"
 	"github.com/realxen/cartograph/internal/storage/bbolt"
 	"github.com/realxen/cartograph/internal/version"
-	pluginsdk "github.com/realxen/cartograph/plugin"
+	"github.com/realxen/cartograph/plugin"
 )
 
 // DefaultIdleTimeout is the default duration after which the server
@@ -521,6 +520,21 @@ func (s *Server) GetContentResolver(repo string) *storage.ContentResolver {
 	return cr
 }
 
+func (s *Server) GetPluginEntities(repo string) []plugin.Entity {
+	if s.dataDir == "" {
+		return nil
+	}
+	registry, err := storage.NewRegistry(s.dataDir)
+	if err != nil {
+		return nil
+	}
+	entry, ok := registry.Get(repo)
+	if !ok || entry.Meta.PluginName == "" {
+		return nil
+	}
+	return installedPluginEntities(s.dataDir, entry.Meta.PluginName)
+}
+
 // lazyInitResolver builds a ContentResolver from the registry entry
 // if available. This handles the common case where the service starts
 // and a source command arrives before anyone explicitly registers a resolver.
@@ -568,26 +582,28 @@ func installedPluginVersion(dataDir, pluginName string) string {
 	if dataDir == "" || pluginName == "" {
 		return ""
 	}
-	path := filepath.Join(dataDir, "plugins", "plugins.json")
-	data, err := os.ReadFile(path)
+	reg, err := loadInstalledPluginRegistry(dataDir)
 	if err != nil {
 		return ""
 	}
-	var reg struct {
-		Plugins []struct {
-			Name    string `json:"name"`
-			Version string `json:"version"`
-		} `json:"plugins"`
+	return internalplugin.InstalledPluginVersion(reg, pluginName)
+}
+
+func installedPluginEntities(dataDir, pluginName string) []plugin.Entity {
+	reg, err := loadInstalledPluginRegistry(dataDir)
+	if err != nil {
+		return nil
 	}
-	if err := json.Unmarshal(data, &reg); err != nil {
-		return ""
+	return internalplugin.InstalledPluginEntities(reg, pluginName)
+}
+
+func loadInstalledPluginRegistry(dataDir string) (*internalplugin.InstalledRegistry, error) {
+	path := filepath.Join(dataDir, "plugins", "plugins.json")
+	reg, err := internalplugin.LoadInstalledRegistry(path)
+	if err != nil {
+		return nil, fmt.Errorf("load installed plugin registry: %w", err)
 	}
-	for _, p := range reg.Plugins {
-		if p.Name == pluginName {
-			return p.Version
-		}
-	}
-	return ""
+	return reg, nil
 }
 
 // BuildStatus returns a StatusResult snapshot of the server's current state.
@@ -820,7 +836,7 @@ func (s *Server) runPluginIngestJob(ctx context.Context, job *pluginIngestJob, r
 		PluginConfig:   pc,
 		ConnectionName: connection,
 	}
-	if err := ds.Ingest(ctx, builder, pluginsdk.IngestOptions{
+	if err := ds.Ingest(ctx, builder, plugin.IngestOptions{
 		ResourceTypes: req.ResourceTypes,
 		Concurrency:   req.Concurrency,
 	}); err != nil {

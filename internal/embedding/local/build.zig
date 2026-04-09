@@ -311,6 +311,7 @@ pub fn build(b: *std.Build) void {
         );
 
         native_step.dependOn(&install_lib.step);
+        native_step.dependOn(&install_header.step);
         b.getInstallStep().dependOn(&install_header.step);
 
         // ── macOS TBD stubs ──────────────────────────────────────────

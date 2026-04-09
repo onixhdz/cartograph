@@ -155,6 +155,7 @@ const (
 // QueryRequest is the JSON body for POST /api/query.
 type QueryRequest struct {
 	Repo         string `json:"repo"`
+	Plugin       bool   `json:"plugin,omitempty"`
 	Text         string `json:"text"`
 	Limit        int    `json:"limit"`
 	Content      bool   `json:"content,omitempty"`
@@ -164,11 +165,24 @@ type QueryRequest struct {
 
 // QueryResult is the result payload for a query response.
 type QueryResult struct {
-	Processes      []ProcessMatch `json:"processes"`
-	ProcessSymbols []SymbolMatch  `json:"process_symbols"`
-	Definitions    []SymbolMatch  `json:"definitions"`
-	UsageExamples  []SymbolMatch  `json:"usageExamples,omitempty"`
-	TestFlows      []ProcessMatch `json:"testFlows,omitempty"`
+	Processes      []ProcessMatch     `json:"processes"`
+	ProcessSymbols []SymbolMatch      `json:"process_symbols"`
+	Definitions    []SymbolMatch      `json:"definitions"`
+	UsageExamples  []SymbolMatch      `json:"usageExamples,omitempty"`
+	TestFlows      []ProcessMatch     `json:"testFlows,omitempty"`
+	PluginResults  []PluginQueryMatch `json:"pluginResults,omitempty"`
+}
+
+type PluginQueryMatch struct {
+	EntityLabel string               `json:"entityLabel"`
+	NodeID      string               `json:"nodeId"`
+	Score       float64              `json:"score"`
+	Fields      []PluginDisplayField `json:"fields"`
+}
+
+type PluginDisplayField struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
 }
 
 // ProcessMatch represents a matched process in query results.

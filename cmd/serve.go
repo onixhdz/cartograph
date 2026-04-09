@@ -498,6 +498,7 @@ func newServerBackendFactory(s *service.Server) service.BackendFactory {
 			Index:    idx,
 			EmbedDir: s.GetRepoDir(repo),
 			EmbedFn:  s.QueryEmbed,
+			Entities: s.GetPluginEntities(repo),
 		}
 	}
 }

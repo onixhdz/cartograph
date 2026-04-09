@@ -10,15 +10,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/cloudprivacylabs/lpg/v2"
 
-	"github.com/realxen/cartograph/internal/plugin"
+	internalplugin "github.com/realxen/cartograph/internal/plugin"
 	"github.com/realxen/cartograph/internal/service"
-	pluginsdk "github.com/realxen/cartograph/plugin"
+	"github.com/realxen/cartograph/plugin"
 )
 
 // PluginCmd is the top-level "plugin" command group.
@@ -39,22 +38,6 @@ type PluginInstallCmd struct {
 	Ingest   string `help:"Plugin ingest mode: off, async, or sync." default:"sync" enum:"off,async,sync"`
 }
 
-type installedPluginRegistry struct {
-	Plugins []installedPluginEntry `json:"plugins"`
-}
-
-type installedPluginEntry struct {
-	Name        string                    `json:"name"`
-	Description string                    `json:"description,omitempty"`
-	Version     string                    `json:"version"`
-	Resources   []installedPluginResource `json:"resources,omitempty"`
-}
-
-type installedPluginResource struct {
-	Name string `json:"name"`
-	Path string `json:"path"`
-}
-
 func (c *PluginInstallCmd) Run(_ *CLI) error {
 	src, err := filepath.Abs(c.Path)
 	if err != nil {
@@ -69,7 +52,7 @@ func (c *PluginInstallCmd) Run(_ *CLI) error {
 	}
 
 	if c.Checksum != "" {
-		if err := plugin.VerifyChecksum(src, c.Checksum); err != nil {
+		if err := internalplugin.VerifyChecksum(src, c.Checksum); err != nil {
 			return fmt.Errorf("plugin install: %w", err)
 		}
 	}
@@ -107,14 +90,14 @@ func (c *PluginInstallCmd) Run(_ *CLI) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	meta, err := plugin.InspectInstallMetadata(ctx, dst, nil)
+	meta, err := internalplugin.InspectInstallMetadata(ctx, dst, nil)
 	if err != nil {
 		sp.StopWithFailure("Install failed")
 		return fmt.Errorf("plugin install: inspect metadata: %w", err)
 	}
 	if err := storeInstalledPluginMetadata(name, meta); err != nil {
 		sp.StopWithFailure("Install failed")
-		return fmt.Errorf("plugin install: store resources: %w", err)
+		return fmt.Errorf("plugin install: store metadata: %w", err)
 	}
 	if err := syncInstalledPluginRegistryToSkills(); err != nil {
 		fmt.Printf("  Warning: failed to sync plugin references to installed cartograph skills: %v\n", err)
@@ -169,16 +152,16 @@ func (c *PluginListCmd) Run(_ *CLI) error {
 	}
 
 	// Probe each plugin briefly to get info.
-	headers := []string{"Name", "Version", "Resource Types", "Path"}
+	headers := []string{"Name", "Version", "Entities", "Path"}
 	rows := make([][]string, 0, len(plugins))
 
 	for _, e := range plugins {
 		binPath := filepath.Join(binDir, e.Name())
-		name, version, resources := probePluginInfo(binPath)
+		name, version, entityNames := probePluginInfo(binPath)
 
 		resStr := "-"
-		if len(resources) > 0 {
-			resStr = strings.Join(resources, ", ")
+		if len(entityNames) > 0 {
+			resStr = strings.Join(entityNames, ", ")
 		}
 
 		rows = append(rows, []string{name, version, resStr, binPath})
@@ -216,7 +199,7 @@ func (c *PluginRmCmd) Run(_ *CLI) error {
 	if err := os.RemoveAll(dataDir); err != nil {
 		fmt.Printf("  Warning: failed to remove data directory %s: %v\n", dataDir, err)
 	}
-	if err := plugin.RemovePluginDatasets(DefaultDataDir(), c.Name); err != nil {
+	if err := internalplugin.RemovePluginDatasets(DefaultDataDir(), c.Name); err != nil {
 		fmt.Printf("  Warning: failed to remove plugin dataset: %v\n", err)
 	}
 	if err := removeInstalledPluginMetadata(c.Name); err != nil {
@@ -286,20 +269,21 @@ func resolvePluginBinary(name string) string {
 // resolvePluginConfig loads config.toml and looks up the plugin. If the
 // config file doesn't exist or the plugin isn't in it, returns an empty
 // PluginConfig (the plugin runs with its own defaults).
-func resolvePluginConfig(name string) plugin.PluginConfig {
+
+func resolvePluginConfig(name string) internalplugin.PluginConfig {
 	configPath := filepath.Join(DefaultDataDir(), "config.toml")
-	cfg, err := plugin.LoadConfig(configPath)
+	cfg, err := internalplugin.LoadConfig(configPath)
 	if err == nil {
 		if pc, ok := cfg.Plugins[name]; ok {
 			return pc
 		}
 	}
-	return plugin.PluginConfig{}
+	return internalplugin.PluginConfig{}
 }
 
 // runIngest runs the full ingestion lifecycle for an installed plugin.
 // pluginName is the binary name; connectionName is the config key (often the same).
-func runIngest(pluginName, connectionName string, pc plugin.PluginConfig) error {
+func runIngest(pluginName, connectionName string, pc internalplugin.PluginConfig) error {
 	// Resolve binary name: Bin override or use plugin name.
 	binName := pc.Bin
 	if binName == "" {
@@ -313,7 +297,7 @@ func runIngest(pluginName, connectionName string, pc plugin.PluginConfig) error 
 	fmt.Printf("Ingesting %q (plugin: %s)\n", connectionName, binName)
 
 	g := lpg.NewGraph()
-	builder := plugin.NewLPGGraphBuilder(g, plugin.LPGGraphBuilderOptions{
+	builder := internalplugin.NewLPGGraphBuilder(g, internalplugin.LPGGraphBuilderOptions{
 		Transactional: true,
 	})
 
@@ -324,7 +308,7 @@ func runIngest(pluginName, connectionName string, pc plugin.PluginConfig) error 
 		fmt.Fprintf(os.Stderr, "  [%s/stderr] %s\n", name, line)
 	}
 
-	ds := &plugin.PluginDataSource{
+	ds := &internalplugin.PluginDataSource{
 		BinaryPath:     binPath,
 		PluginConfig:   pc,
 		ConnectionName: connectionName,
@@ -332,7 +316,7 @@ func runIngest(pluginName, connectionName string, pc plugin.PluginConfig) error 
 		Stderr:         stderrFn,
 	}
 
-	opts := pluginsdk.IngestOptions{}
+	opts := plugin.IngestOptions{}
 	if pc.Concurrency > 0 {
 		opts.Concurrency = pc.Concurrency
 	}
@@ -349,7 +333,7 @@ func runIngest(pluginName, connectionName string, pc plugin.PluginConfig) error 
 
 	nodes, edges := builder.Commit()
 	duration := time.Since(start)
-	if err := plugin.PersistPluginDataset(plugin.PluginDataset{
+	if err := internalplugin.PersistPluginDataset(internalplugin.PluginDataset{
 		PluginName:     pluginName,
 		PluginVersion:  installedPluginVersion(pluginName),
 		ConnectionName: connectionName,
@@ -505,12 +489,12 @@ func hashPluginFile(path string) (string, error) {
 }
 
 // probePluginInfo launches a plugin briefly to get its info.
-// Returns name, version, and resource type names. On error, returns
+// Returns name, version, and entity type names. On error, returns
 // the binary filename and "error" for version.
-func probePluginInfo(binPath string) (name, version string, resources []string) {
-	ds := &plugin.PluginDataSource{
+func probePluginInfo(binPath string) (name, version string, entityNames []string) {
+	ds := &internalplugin.PluginDataSource{
 		BinaryPath: binPath,
-		PluginConfig: plugin.PluginConfig{
+		PluginConfig: internalplugin.PluginConfig{
 			Bin: filepath.Base(binPath),
 		},
 	}
@@ -525,32 +509,33 @@ func probePluginInfo(binPath string) (name, version string, resources []string) 
 		version = "-"
 	}
 
-	for _, t := range info.Resources {
-		resources = append(resources, t.Name)
+	for _, t := range info.Entities {
+		entityNames = append(entityNames, t.Name)
 	}
-	return name, version, resources
+	return name, version, entityNames
 }
 
-func storeInstalledPluginMetadata(pluginName string, meta *plugin.InstallMetadata) error {
+func storeInstalledPluginMetadata(pluginName string, meta *internalplugin.InstallMetadata) error {
 	pluginDir := PluginDataDir(pluginName)
 	resourcesDir := filepath.Join(pluginDir, "resources")
 	if err := os.MkdirAll(resourcesDir, 0o750); err != nil {
 		return fmt.Errorf("mkdir %s: %w", resourcesDir, err)
 	}
 
-	entry := installedPluginEntry{
+	entry := internalplugin.InstalledPlugin{
 		Name: pluginName,
 	}
 	if meta != nil {
 		entry.Description = meta.Description
 		entry.Version = meta.Version
+		entry.Entities = meta.Entities
 		for _, r := range meta.Resources {
 			fileName := sanitizePluginResourceName(r.Name) + ".md"
 			path := filepath.Join(resourcesDir, fileName)
 			if err := os.WriteFile(path, []byte(r.Content), 0o600); err != nil {
 				return fmt.Errorf("write resource %s: %w", path, err)
 			}
-			entry.Resources = append(entry.Resources, installedPluginResource{
+			entry.Resources = append(entry.Resources, internalplugin.InstalledPluginResource{
 				Name: r.Name,
 				Path: path,
 			})
@@ -590,39 +575,17 @@ func removeInstalledPluginMetadata(pluginName string) error {
 	return saveInstalledPluginRegistry(reg)
 }
 
-func loadInstalledPluginRegistry() (*installedPluginRegistry, error) {
-	path := PluginRegistryPath()
-	data, err := os.ReadFile(path)
+func loadInstalledPluginRegistry() (*internalplugin.InstalledRegistry, error) {
+	reg, err := internalplugin.LoadInstalledRegistry(PluginRegistryPath())
 	if err != nil {
-		if os.IsNotExist(err) {
-			return &installedPluginRegistry{}, nil
-		}
-		return nil, fmt.Errorf("read installed plugin registry %s: %w", path, err)
+		return nil, fmt.Errorf("load installed plugin registry: %w", err)
 	}
-	if len(strings.TrimSpace(string(data))) == 0 {
-		return &installedPluginRegistry{}, nil
-	}
-	var reg installedPluginRegistry
-	if err := json.Unmarshal(data, &reg); err != nil {
-		return nil, fmt.Errorf("unmarshal installed plugin registry %s: %w", path, err)
-	}
-	return &reg, nil
+	return reg, nil
 }
 
-func saveInstalledPluginRegistry(reg *installedPluginRegistry) error {
-	path := PluginRegistryPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return fmt.Errorf("mkdir %s: %w", filepath.Dir(path), err)
-	}
-	sort.Slice(reg.Plugins, func(i, j int) bool {
-		return reg.Plugins[i].Name < reg.Plugins[j].Name
-	})
-	data, err := json.MarshalIndent(reg, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal installed plugin registry: %w", err)
-	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return fmt.Errorf("write installed plugin registry %s: %w", path, err)
+func saveInstalledPluginRegistry(reg *internalplugin.InstalledRegistry) error {
+	if err := internalplugin.SaveInstalledRegistry(PluginRegistryPath(), reg); err != nil {
+		return fmt.Errorf("save installed plugin registry: %w", err)
 	}
 	return nil
 }
@@ -632,22 +595,18 @@ func installedPluginVersion(pluginName string) string {
 	if err != nil {
 		return ""
 	}
-	for _, p := range reg.Plugins {
-		if p.Name == pluginName {
-			return p.Version
-		}
-	}
-	return ""
+	return internalplugin.InstalledPluginVersion(reg, pluginName)
 }
 
 func syncInstalledPluginRegistryToSkills() error {
 	regPath := PluginRegistryPath()
-	data, err := os.ReadFile(regPath)
+	reg, err := internalplugin.LoadInstalledRegistry(regPath)
 	if err != nil {
-		if !os.IsNotExist(err) {
-			return fmt.Errorf("read installed plugin registry %s: %w", regPath, err)
-		}
-		data = []byte("{\n  \"plugins\": []\n}\n")
+		return fmt.Errorf("load installed plugin registry %s: %w", regPath, err)
+	}
+	data, err := json.MarshalIndent(reg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal installed plugin registry for skills sync: %w", err)
 	}
 
 	for _, target := range discoverInstalled(true) {
@@ -656,7 +615,7 @@ func syncInstalledPluginRegistryToSkills() error {
 			return fmt.Errorf("mkdir %s: %w", dir, err)
 		}
 		pluginsPath := filepath.Join(dir, "plugins.json")
-		if err := os.WriteFile(pluginsPath, data, 0o600); err != nil { //nolint:gosec // path is constructed from trusted install locations
+		if err := os.WriteFile(pluginsPath, data, 0o600); err != nil {
 			return fmt.Errorf("write mirrored plugin registry %s: %w", pluginsPath, err)
 		}
 	}
@@ -667,7 +626,7 @@ func syncInstalledPluginRegistryToSkills() error {
 			return fmt.Errorf("mkdir %s: %w", dir, err)
 		}
 		pluginsPath := filepath.Join(dir, "plugins.json")
-		if err := os.WriteFile(pluginsPath, data, 0o600); err != nil { //nolint:gosec // path is constructed from trusted install locations
+		if err := os.WriteFile(pluginsPath, data, 0o600); err != nil {
 			return fmt.Errorf("write mirrored plugin registry %s: %w", pluginsPath, err)
 		}
 	}
@@ -694,7 +653,7 @@ func sanitizePluginResourceName(name string) string {
 // config.toml and prints a warning if so.
 func warnIfReferenced(pluginName string) {
 	configPath := filepath.Join(DefaultDataDir(), "config.toml")
-	cfg, err := plugin.LoadConfig(configPath)
+	cfg, err := internalplugin.LoadConfig(configPath)
 	if err != nil {
 		return // No config or can't read — skip warning.
 	}

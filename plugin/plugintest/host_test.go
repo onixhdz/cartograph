@@ -147,7 +147,7 @@ func (p *fakePlugin) Info() plugin.Info {
 	return plugin.Info{
 		Name:    "fake",
 		Version: "0.1.0",
-		Resources: []plugin.Resource{
+		Entities: []plugin.Entity{
 			{Name: "Widget", Label: "FakeWidget"},
 			{Name: "Owner", Label: "FakeOwner"},
 		},

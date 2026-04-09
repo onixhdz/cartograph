@@ -13,7 +13,7 @@
 //	    return plugin.Info{
 //	        Name:    "my-source",
 //	        Version: "0.1.0",
-//	        Resources: []plugin.Resource{
+//	        Entities: []plugin.Entity{
 //	            {Name: "Widget", Label: "MyWidget"},
 //	        },
 //	    }
@@ -73,19 +73,34 @@ type Closer interface {
 	Close() error
 }
 
-// Info describes the plugin and the resource types it provides.
+// Info describes the plugin and the graph entities it provides.
 type Info struct {
 	Name        string
 	Version     string
 	Description string
-	Resources   []Resource
+	Entities    []Entity
 }
 
-// Resource declares a type of resource the plugin can emit.
-type Resource struct {
-	// Name is a human-readable resource type name (e.g., "Repository").
+// Entity declares a graph entity type the plugin can emit.
+type Entity struct {
+	// Name is a human-readable entity type name (e.g., "Repository").
 	Name string
 	// Label is the vendor-specific graph node label (e.g., "GitHubRepo").
+	Label string
+	// Query configures host-side search/query behavior for this entity type.
+	// Nil means this entity is not queryable via `cartograph query -p`.
+	Query *EntityQuery
+}
+
+// EntityQuery configures how the host searches and displays a queryable entity.
+type EntityQuery struct {
+	SearchProps []string
+	Display     []DisplayField
+}
+
+// DisplayField projects a node property into plugin query result output.
+type DisplayField struct {
+	Prop  string
 	Label string
 }
 
@@ -209,18 +224,32 @@ func dispatch(ctx context.Context, p Plugin, host *hostBridge, req *jsonrpc2.Req
 	switch req.Method {
 	case "info":
 		info := p.Info()
-		resources := make([]map[string]string, len(info.Resources))
-		for i, r := range info.Resources {
-			resources[i] = map[string]string{
-				"name":  r.Name,
-				"label": r.Label,
+		entities := make([]map[string]any, len(info.Entities))
+		for i, e := range info.Entities {
+			entity := map[string]any{
+				"name":  e.Name,
+				"label": e.Label,
 			}
+			if e.Query != nil {
+				display := make([]map[string]string, len(e.Query.Display))
+				for j, field := range e.Query.Display {
+					display[j] = map[string]string{
+						"prop":  field.Prop,
+						"label": field.Label,
+					}
+				}
+				entity["query"] = map[string]any{
+					"searchProps": e.Query.SearchProps,
+					"display":     display,
+				}
+			}
+			entities[i] = entity
 		}
 		return map[string]any{
 			"name":        info.Name,
 			"version":     info.Version,
 			"description": info.Description,
-			"resources":   resources,
+			"entities":    entities,
 		}, nil
 
 	case "resources":

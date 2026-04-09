@@ -30,8 +30,22 @@ func (p *capecPlugin) Info() plugin.Info {
 		Name:        "mitre-capec", //nolint:misspell // MITRE is the organization name
 		Version:     "0.1.0",
 		Description: "CAPEC security knowledge graph and investigation guidance",
-		Resources: []plugin.Resource{
-			{Name: resourcePattern, Label: labelPattern},
+		Entities: []plugin.Entity{
+			{
+				Name:  resourcePattern,
+				Label: labelPattern,
+				Query: &plugin.EntityQuery{
+					SearchProps: []string{"name", "description", "related_cwes_text"},
+					Display: []plugin.DisplayField{
+						{Prop: "name", Label: "Name"},
+						{Prop: "description", Label: "Description"},
+						{Prop: "capec_id", Label: "CAPEC"},
+						{Prop: "severity", Label: "Severity"},
+						{Prop: "related_cwes", Label: "CWEs"},
+						{Prop: "domains", Label: "Domains"},
+					},
+				},
+			},
 			{Name: resourceMitigation, Label: labelMitigation},
 			{Name: resourceCategory, Label: labelCategory},
 		},
