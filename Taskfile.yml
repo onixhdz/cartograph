@@ -56,6 +56,12 @@ tasks:
       - rm -rf '{{joinPath .ROOT_DIR "plugins/bin"}}'
       - rm -f '{{joinPath .ROOT_DIR "cartograph"}}' '{{joinPath .ROOT_DIR "cartograph-darwin-amd64"}}' '{{joinPath .ROOT_DIR "cartograph-darwin-arm64"}}' '{{joinPath .ROOT_DIR "cartograph-linux-amd64"}}' '{{joinPath .ROOT_DIR "cartograph-linux-arm64"}}' '{{joinPath .ROOT_DIR "cartograph-windows-amd64.exe"}}'
 
+  clean:artifacts:
+    desc: Remove generated build artifacts but keep caches
+    cmds:
+      - rm -rf '{{joinPath .ROOT_DIR "plugins/bin"}}'
+      - rm -f '{{joinPath .ROOT_DIR "cartograph"}}' '{{joinPath .ROOT_DIR "cartograph-darwin-amd64"}}' '{{joinPath .ROOT_DIR "cartograph-darwin-arm64"}}' '{{joinPath .ROOT_DIR "cartograph-linux-amd64"}}' '{{joinPath .ROOT_DIR "cartograph-linux-arm64"}}' '{{joinPath .ROOT_DIR "cartograph-windows-amd64.exe"}}'
+
   clean:zig:
     desc: Remove Zig build artifacts and caches
     dir: "{{.EMBEDDING_LIB_DIR}}"
