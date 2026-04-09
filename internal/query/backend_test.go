@@ -2312,3 +2312,49 @@ func TestQuery_ProcessResultsCapped(t *testing.T) {
 		}
 	}
 }
+
+func TestCypher_CAPECLowercaseSearchProperties(t *testing.T) {
+	g := lpg.NewGraph()
+	pattern := g.NewNode([]string{"CAPECPattern"}, map[string]any{
+		"capec_id":       "CAPEC-66",
+		"name":           "SQL Injection",
+		"name_lc":        "sql injection",
+		"description":    "Use crafted SQL input to alter query behavior",
+		"description_lc": "use crafted sql input to alter query behavior",
+	})
+	_ = pattern
+
+	b := &Backend{Graph: g}
+	result, err := b.Cypher(service.CypherRequest{
+		Repo:  "test",
+		Query: `MATCH (p:CAPECPattern) WHERE p.name_lc CONTAINS 'sql injection' RETURN p.capec_id, p.name`,
+	})
+	if err != nil {
+		t.Fatalf("Cypher: %v", err)
+	}
+	if len(result.Rows) == 0 {
+		t.Fatal("expected CAPEC pattern result")
+	}
+}
+
+func TestCypher_CAPECCWETxtPivot(t *testing.T) {
+	g := lpg.NewGraph()
+	g.NewNode([]string{"CAPECPattern"}, map[string]any{
+		"capec_id":          "CAPEC-126",
+		"name":              "Path Traversal",
+		"related_cwes":      "CWE-22, CWE-23",
+		"related_cwes_text": "cwe-22, cwe-23",
+	})
+
+	b := &Backend{Graph: g}
+	result, err := b.Cypher(service.CypherRequest{
+		Repo:  "test",
+		Query: `MATCH (p:CAPECPattern) WHERE p.related_cwes_text CONTAINS 'cwe-22' RETURN p.capec_id, p.name`,
+	})
+	if err != nil {
+		t.Fatalf("Cypher: %v", err)
+	}
+	if len(result.Rows) == 0 {
+		t.Fatal("expected CAPEC CWE pivot result")
+	}
+}

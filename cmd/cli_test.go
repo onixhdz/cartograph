@@ -123,6 +123,15 @@ func (m *mockClient) PluginIngestStatus(_ service.PluginIngestStatusRequest) (*s
 }
 
 func (m *mockClient) Schema(req service.SchemaRequest) (*service.SchemaResult, error) {
+	if req.Repo == "plugin-dataset" {
+		return &service.SchemaResult{
+			NodeLabels: []service.NodeLabelSummary{{Label: "FooPattern", Count: 10}},
+			RelTypes:   []service.RelTypeSummary{{Type: "MITIGATES", Count: 5}},
+			Properties: []string{"name_lc", "description_lc", "related_cwes_text"},
+			TotalNodes: 10,
+			TotalEdges: 5,
+		}, nil
+	}
 	return &service.SchemaResult{
 		NodeLabels: []service.NodeLabelSummary{
 			{Label: "Function", Count: 50},
@@ -315,6 +324,25 @@ func TestCypherCmd(t *testing.T) {
 			t.Error("expected output to contain 'Foo'")
 		}
 	})
+}
+
+func TestSchemaCmd_PluginGuidance(t *testing.T) {
+	mc := &mockClient{}
+	cli := &CLI{Client: mc}
+	cmd := &SchemaCmd{TargetSelector: TargetSelector{Plugin: "plugin-dataset"}}
+
+	out := captureStdout(t, func() {
+		if err := cmd.Run(cli); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "Use plugin-provided references") {
+		t.Fatalf("expected plugin guidance in schema output, got: %s", out)
+	}
+	if !strings.Contains(out, "cypher -p <plugin-dataset>") {
+		t.Fatalf("expected generic cypher guidance in schema output, got: %s", out)
+	}
 }
 
 func TestListCmd(t *testing.T) {

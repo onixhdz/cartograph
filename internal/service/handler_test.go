@@ -170,7 +170,7 @@ func TestHandleQueryMethodNotAllowed(t *testing.T) {
 }
 
 func TestHandleQueryBlocksPluginDataset(t *testing.T) {
-	const pluginDatasetName = "plugin-capec"
+	const pluginDatasetName = "plugin-dataset"
 	tmpDir := t.TempDir()
 	reg, err := storage.NewRegistry(tmpDir)
 	if err != nil {
@@ -203,6 +203,12 @@ func TestHandleQueryBlocksPluginDataset(t *testing.T) {
 	}
 	if !strings.Contains(resp.Error.Message, "use cypher instead") {
 		t.Fatalf("unexpected error message: %s", resp.Error.Message)
+	}
+	if !strings.Contains(resp.Error.Message, "use plugin references") {
+		t.Fatalf("expected plugin reference guidance, got: %s", resp.Error.Message)
+	}
+	if !strings.Contains(resp.Error.Message, "cypher -p <plugin-dataset>") {
+		t.Fatalf("expected generic cypher guidance, got: %s", resp.Error.Message)
 	}
 }
 

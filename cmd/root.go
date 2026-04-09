@@ -2143,6 +2143,11 @@ func (c *SchemaCmd) Run(cli *CLI) error {
 	}
 
 	fmt.Println("Example Cypher queries:")
+	if c.Plugin != "" {
+		fmt.Println("  Use plugin-provided references for dataset-specific examples.")
+		fmt.Println("  Use: cartograph cypher -p <plugin-dataset> \"MATCH (n) RETURN n LIMIT 10\"")
+		return nil
+	}
 	fmt.Println("  MATCH (n:Function) RETURN n.name, n.filePath LIMIT 10")
 	fmt.Println("  MATCH (a)-[r:CodeRelation {type:'CALLS'}]->(b) RETURN a.name, b.name LIMIT 10")
 	fmt.Println("  MATCH (c:Community) RETURN c.name, c.communitySize ORDER BY c.communitySize DESC LIMIT 5")

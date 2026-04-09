@@ -98,7 +98,8 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	registry, err := storage.NewRegistry(s.dataDir)
 	if err == nil {
 		if entry, ok := registry.Get(req.Repo); ok && entry.Meta.PluginName != "" {
-			writeError(w, ErrCodeQueryBlocked, ErrPluginQueryBlocked.Error())
+			msg := ErrPluginQueryBlocked.Error() + "; use plugin references and cartograph cypher -p <plugin-dataset>"
+			writeError(w, ErrCodeQueryBlocked, msg)
 			return
 		}
 	}
