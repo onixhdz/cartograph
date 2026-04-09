@@ -25,6 +25,7 @@ type Pipeline struct {
 // PipelineOptions configures the pipeline.
 type PipelineOptions struct {
 	Force          bool
+	Timing         bool
 	MaxFileSize    int64
 	Workers        int
 	OnStep         func(step string, current, total int) // Optional progress callback fired before each pipeline stage.
@@ -48,7 +49,7 @@ const PipelineStepCount = 13
 
 // Run orchestrates the full ingestion pipeline.
 func (p *Pipeline) Run() error {
-	timing := os.Getenv("CARTOGRAPH_TIMING") != ""
+	timing := p.Options.Timing
 	mark := func(label string, start time.Time) {
 		if timing {
 			fmt.Printf("    [timing] %-30s %s\n", label, time.Since(start).Round(time.Millisecond))

@@ -191,6 +191,7 @@ type AnalyzeCmd struct {
 	Targets       []string `arg:"" optional:"" help:"Local paths or Git URLs to analyze (defaults to current directory)."`
 	Force         bool     `help:"Force full re-analysis, ignoring cache."`
 	Clone         bool     `help:"Clone URL to disk (keeps source + git history)."`
+	Timing        bool     `name:"timing" help:"Print detailed stage timing information." env:"CARTOGRAPH_TIMING"`
 	Branch        string   `help:"Branch or tag to analyze."`
 	Depth         int      `help:"Clone depth (0 = full history)." default:"1"`
 	AuthToken     string   `help:"Auth token for private repos." env:"GITHUB_TOKEN"`
@@ -439,7 +440,8 @@ func (c *AnalyzeCmd) runLocal(cli *CLI, target string) error {
 	spPipeline := newSpinner("Walking repository...")
 	spPipeline.Start()
 	pipeline := ingestion.NewPipeline(abs, ingestion.PipelineOptions{
-		Force: c.Force,
+		Force:  c.Force,
+		Timing: c.Timing,
 		OnStep: func(step string, current, total int) {
 			spPipeline.Update(fmt.Sprintf("[%d/%d] %s", current, total, step))
 		},
@@ -697,7 +699,8 @@ func (c *AnalyzeCmd) runCloneToMemory(
 		Root:  "/",
 		Graph: lpg.NewGraph(),
 		Options: ingestion.PipelineOptions{
-			Force: c.Force,
+			Force:  c.Force,
+			Timing: c.Timing,
 			OnStep: func(step string, current, total int) {
 				spPipeline.Update(fmt.Sprintf("[%d/%d] %s", current, total, step))
 			},
@@ -862,7 +865,8 @@ func (c *AnalyzeCmd) runCloneToDisk(
 	spPipeline := newSpinner("Walking repository...")
 	spPipeline.Start()
 	pipeline := ingestion.NewPipeline(srcDir, ingestion.PipelineOptions{
-		Force: c.Force,
+		Force:  c.Force,
+		Timing: c.Timing,
 		OnStep: func(step string, current, total int) {
 			spPipeline.Update(fmt.Sprintf("[%d/%d] %s", current, total, step))
 		},
