@@ -454,7 +454,6 @@ func (p *Pipeline) parseFiles(walkResults []WalkResult) *extractors.ParseResult 
 // them to their parent File node via CONTAINS edges.
 func (p *Pipeline) addSymbolsToGraph(pr *extractors.ParseResult, absToRel map[string]string) {
 	fileNodesByPath := make(map[string]*lpg.Node)
-	ownerIndex := graph.BuildGraphIndex(p.Graph)
 	for nodes := p.Graph.GetNodes(); nodes.Next(); {
 		node := nodes.Node()
 		if !node.HasLabel(string(graph.LabelFile)) {
@@ -464,6 +463,12 @@ func (p *Pipeline) addSymbolsToGraph(pr *extractors.ParseResult, absToRel map[st
 			fileNodesByPath[fp] = node
 		}
 	}
+
+	type symbolNodeRef struct {
+		sym  extractors.ExtractedSymbol
+		node *lpg.Node
+	}
+	refs := make([]symbolNodeRef, 0, len(pr.Symbols))
 
 	for _, sym := range pr.Symbols {
 		relPath := absToRel[sym.FilePath]
@@ -515,19 +520,27 @@ func (p *Pipeline) addSymbolsToGraph(pr *extractors.ParseResult, absToRel map[st
 			graph.AddEdge(p.Graph, fileNode, node, graph.RelDefines, nil)
 		}
 
-		if sym.OwnerName != "" {
-			ownerNodes := ownerIndex.FindNodesByName(sym.OwnerName)
-			if len(ownerNodes) > 0 {
-				var relType graph.RelType
-				switch sym.Label {
-				case graph.LabelProperty:
-					relType = graph.RelHasProperty
-				default:
-					relType = graph.RelHasMethod
-				}
-				graph.AddEdge(p.Graph, ownerNodes[0], node, relType, nil)
-			}
+		refs = append(refs, symbolNodeRef{sym: sym, node: node})
+	}
+
+	ownerIndex := graph.BuildGraphIndex(p.Graph)
+	for _, ref := range refs {
+		sym := ref.sym
+		if sym.OwnerName == "" {
+			continue
 		}
+		ownerNodes := ownerIndex.FindNodesByName(sym.OwnerName)
+		if len(ownerNodes) == 0 {
+			continue
+		}
+		var relType graph.RelType
+		switch sym.Label {
+		case graph.LabelProperty:
+			relType = graph.RelHasProperty
+		default:
+			relType = graph.RelHasMethod
+		}
+		graph.AddEdge(p.Graph, ownerNodes[0], ref.node, relType, nil)
 	}
 }
 
