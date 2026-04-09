@@ -12,7 +12,11 @@ import (
 	"github.com/realxen/cartograph/plugin/plugintest"
 )
 
-const testCapecSQLInjection = "CAPEC-66"
+const (
+	testCapecBlindSQL     = "CAPEC-7"
+	testCapecSQLInjection = "CAPEC-66"
+	testCapecCategoryMeta = "CAPEC-152"
+)
 
 // loadFixture reads and parses the mini STIX test fixture.
 func loadFixture(t *testing.T) *stixBundle {
@@ -141,7 +145,7 @@ func TestParseBundle_HTMLStripping(t *testing.T) {
 	parsed := parseBundle(bundle, false)
 
 	// Check the meta pattern description (has XHTML tags).
-	meta := findPattern(parsed.patterns, "CAPEC-152")
+	meta := findPattern(parsed.patterns, testCapecCategoryMeta)
 	if meta == nil {
 		t.Fatal("CAPEC-152 not found")
 	}
@@ -198,7 +202,7 @@ func TestParseBundle_StixIDLookup(t *testing.T) {
 	if cid, ok := parsed.patternByStixID["attack-pattern--std-002"]; !ok || cid != testCapecSQLInjection {
 		t.Errorf("patternByStixID[std-002]: got %q %v, want CAPEC-66 true", cid, ok)
 	}
-	if cid, ok := parsed.patternByStixID["attack-pattern--meta-001"]; !ok || cid != "CAPEC-152" {
+	if cid, ok := parsed.patternByStixID["attack-pattern--meta-001"]; !ok || cid != testCapecCategoryMeta {
 		t.Errorf("patternByStixID[meta-001]: got %q %v, want CAPEC-152 true", cid, ok)
 	}
 
@@ -232,21 +236,21 @@ func TestEmitAll_FullFixture(t *testing.T) {
 	}
 
 	// Specific nodes.
-	host.AssertNodeExists(t, "capec:pattern:CAPEC-66", "CAPECPattern")
-	host.AssertNodeExists(t, "capec:pattern:CAPEC-152", "CAPECPattern")
-	host.AssertNodeExists(t, "capec:pattern:CAPEC-7", "CAPECPattern")
-	host.AssertNodeExists(t, "capec:mitigation:COA-mit-001", "CAPECMitigation")
-	host.AssertNodeExists(t, "capec:mitigation:COA-mit-002", "CAPECMitigation")
-	host.AssertNodeExists(t, "capec:category:CAPEC-152", "CAPECCategory")
+	host.AssertNodeExists(t, patternNodeID(testCapecSQLInjection), labelPattern)
+	host.AssertNodeExists(t, patternNodeID(testCapecCategoryMeta), labelPattern)
+	host.AssertNodeExists(t, patternNodeID(testCapecBlindSQL), labelPattern)
+	host.AssertNodeExists(t, mitigationNodeID("COA-mit-001"), labelMitigation)
+	host.AssertNodeExists(t, mitigationNodeID("COA-mit-002"), labelMitigation)
+	host.AssertNodeExists(t, categoryNodeID(testCapecCategoryMeta), labelCategory)
 
 	// Specific edges.
-	host.AssertEdgeExists(t, "capec:pattern:CAPEC-66", "capec:pattern:CAPEC-152", "CHILD_OF")
-	host.AssertEdgeExists(t, "capec:pattern:CAPEC-7", "capec:pattern:CAPEC-66", "CHILD_OF")
-	host.AssertEdgeExists(t, "capec:pattern:CAPEC-66", "capec:pattern:CAPEC-7", "CAN_PRECEDE")
-	host.AssertEdgeExists(t, "capec:pattern:CAPEC-66", "capec:pattern:CAPEC-152", "PEER_OF")
-	host.AssertEdgeExists(t, "capec:mitigation:COA-mit-001", "capec:pattern:CAPEC-66", "MITIGATES")
-	host.AssertEdgeExists(t, "capec:mitigation:COA-mit-002", "capec:pattern:CAPEC-66", "MITIGATES")
-	host.AssertEdgeExists(t, "capec:mitigation:COA-mit-001", "capec:pattern:CAPEC-7", "MITIGATES")
+	host.AssertEdgeExists(t, patternNodeID(testCapecSQLInjection), patternNodeID(testCapecCategoryMeta), edgeChildOf)
+	host.AssertEdgeExists(t, patternNodeID(testCapecBlindSQL), patternNodeID(testCapecSQLInjection), edgeChildOf)
+	host.AssertEdgeExists(t, patternNodeID(testCapecSQLInjection), patternNodeID(testCapecBlindSQL), edgeCanPrecede)
+	host.AssertEdgeExists(t, patternNodeID(testCapecSQLInjection), patternNodeID(testCapecCategoryMeta), edgePeerOf)
+	host.AssertEdgeExists(t, mitigationNodeID("COA-mit-001"), patternNodeID(testCapecSQLInjection), edgeMitigates)
+	host.AssertEdgeExists(t, mitigationNodeID("COA-mit-002"), patternNodeID(testCapecSQLInjection), edgeMitigates)
+	host.AssertEdgeExists(t, mitigationNodeID("COA-mit-001"), patternNodeID(testCapecBlindSQL), edgeMitigates)
 }
 
 func TestEmitAll_NodeProperties(t *testing.T) {
@@ -262,7 +266,7 @@ func TestEmitAll_NodeProperties(t *testing.T) {
 	// Find CAPEC-66 node and check properties.
 	var sqlNode *plugintest.Node
 	for _, n := range host.Nodes() {
-		if n.ID == "capec:pattern:CAPEC-66" {
+		if n.ID == patternNodeID(testCapecSQLInjection) {
 			sqlNode = &n
 			break
 		}
@@ -370,13 +374,19 @@ func TestPluginResources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resources: %v", err)
 	}
-	if len(resources) != 1 {
-		t.Fatalf("resources: got %d, want 1", len(resources))
+	if len(resources) != 2 {
+		t.Fatalf("resources: got %d, want 2", len(resources))
 	}
 	if resources[0].Name != "security-research" {
 		t.Errorf("resource name: got %q, want %q", resources[0].Name, "security-research")
 	}
 	if resources[0].Content == "" {
+		t.Error("resource content: got empty, want non-empty")
+	}
+	if resources[1].Name != "query-examples" {
+		t.Errorf("resource name: got %q, want %q", resources[1].Name, "query-examples")
+	}
+	if resources[1].Content == "" {
 		t.Error("resource content: got empty, want non-empty")
 	}
 }

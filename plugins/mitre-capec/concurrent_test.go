@@ -70,8 +70,8 @@ func TestConcurrent_MultiplePluginBinaries(t *testing.T) {
 		r := results[i]
 		r.AssertNodeCount(t, 6)
 		r.AssertEdgeCount(t, 7)
-		r.AssertNodeExists(t, "capec:pattern:CAPEC-66", "CAPECPattern")
-		r.AssertEdgeExists(t, "capec:pattern:CAPEC-66", "capec:pattern:CAPEC-152", "CHILD_OF")
+		r.AssertNodeExists(t, patternNodeID(testCapecSQLInjection), labelPattern)
+		r.AssertEdgeExists(t, patternNodeID(testCapecSQLInjection), patternNodeID(testCapecCategoryMeta), edgeChildOf)
 	}
 }
 

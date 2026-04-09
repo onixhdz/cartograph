@@ -17,6 +17,9 @@ const defaultSTIXURL = "https://raw.githubusercontent.com/mitre/cti/master/capec
 //go:embed security-research.md
 var securityResearchSkill string
 
+//go:embed query-examples.md
+var queryExamplesResource string
+
 type capecPlugin struct {
 	stixURL           string
 	includeDeprecated bool
@@ -28,9 +31,9 @@ func (p *capecPlugin) Info() plugin.Info {
 		Version:     "0.1.0",
 		Description: "CAPEC security knowledge graph and investigation guidance",
 		Resources: []plugin.Resource{
-			{Name: "Pattern", Label: "CAPECPattern"},
-			{Name: "Mitigation", Label: "CAPECMitigation"},
-			{Name: "Category", Label: "CAPECCategory"},
+			{Name: resourcePattern, Label: labelPattern},
+			{Name: resourceMitigation, Label: labelMitigation},
+			{Name: resourceCategory, Label: labelCategory},
 		},
 	}
 }
@@ -40,6 +43,10 @@ func (p *capecPlugin) Resources(_ context.Context) ([]plugin.PluginResource, err
 		{
 			Name:    "security-research",
 			Content: securityResearchSkill,
+		},
+		{
+			Name:    "query-examples",
+			Content: queryExamplesResource,
 		},
 	}, nil
 }

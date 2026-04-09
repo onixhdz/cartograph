@@ -51,19 +51,19 @@ func TestIntegration_RunBinary(t *testing.T) {
 	result.AssertEdgeCount(t, 7)
 
 	// Spot-check specific nodes.
-	result.AssertNodeExists(t, "capec:pattern:CAPEC-66", "CAPECPattern")
-	result.AssertNodeExists(t, "capec:pattern:CAPEC-152", "CAPECPattern")
-	result.AssertNodeExists(t, "capec:pattern:CAPEC-7", "CAPECPattern")
-	result.AssertNodeExists(t, "capec:mitigation:COA-mit-001", "CAPECMitigation")
-	result.AssertNodeExists(t, "capec:mitigation:COA-mit-002", "CAPECMitigation")
-	result.AssertNodeExists(t, "capec:category:CAPEC-152", "CAPECCategory")
+	result.AssertNodeExists(t, patternNodeID(testCapecSQLInjection), labelPattern)
+	result.AssertNodeExists(t, patternNodeID(testCapecCategoryMeta), labelPattern)
+	result.AssertNodeExists(t, patternNodeID(testCapecBlindSQL), labelPattern)
+	result.AssertNodeExists(t, mitigationNodeID("COA-mit-001"), labelMitigation)
+	result.AssertNodeExists(t, mitigationNodeID("COA-mit-002"), labelMitigation)
+	result.AssertNodeExists(t, categoryNodeID(testCapecCategoryMeta), labelCategory)
 
 	// Spot-check specific edges.
-	result.AssertEdgeExists(t, "capec:pattern:CAPEC-66", "capec:pattern:CAPEC-152", "CHILD_OF")
-	result.AssertEdgeExists(t, "capec:pattern:CAPEC-7", "capec:pattern:CAPEC-66", "CHILD_OF")
-	result.AssertEdgeExists(t, "capec:pattern:CAPEC-66", "capec:pattern:CAPEC-7", "CAN_PRECEDE")
-	result.AssertEdgeExists(t, "capec:pattern:CAPEC-66", "capec:pattern:CAPEC-152", "PEER_OF")
-	result.AssertEdgeExists(t, "capec:mitigation:COA-mit-001", "capec:pattern:CAPEC-66", "MITIGATES")
+	result.AssertEdgeExists(t, patternNodeID(testCapecSQLInjection), patternNodeID(testCapecCategoryMeta), edgeChildOf)
+	result.AssertEdgeExists(t, patternNodeID(testCapecBlindSQL), patternNodeID(testCapecSQLInjection), edgeChildOf)
+	result.AssertEdgeExists(t, patternNodeID(testCapecSQLInjection), patternNodeID(testCapecBlindSQL), edgeCanPrecede)
+	result.AssertEdgeExists(t, patternNodeID(testCapecSQLInjection), patternNodeID(testCapecCategoryMeta), edgePeerOf)
+	result.AssertEdgeExists(t, mitigationNodeID("COA-mit-001"), patternNodeID(testCapecSQLInjection), edgeMitigates)
 
 	// Verify plugin metadata.
 	if result.Info.Name != "mitre-capec" { //nolint:misspell // MITRE is the organization name
@@ -85,7 +85,7 @@ func TestIntegration_RunBinary(t *testing.T) {
 
 	// Verify node properties survive JSON-RPC round-trip.
 	for _, n := range result.Nodes() {
-		if n.ID == "capec:pattern:CAPEC-66" {
+		if n.ID == patternNodeID(testCapecSQLInjection) {
 			if name, ok := n.Props["name"].(string); !ok || name != "SQL Injection" {
 				t.Errorf("CAPEC-66 name: got %v, want %q", n.Props["name"], "SQL Injection")
 			}

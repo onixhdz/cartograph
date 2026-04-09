@@ -86,7 +86,7 @@ func parseBundle(bundle *stixBundle, includeDeprecated bool) *parseResult {
 	for i := range bundle.Objects {
 		obj := &bundle.Objects[i]
 		switch obj.Type {
-		case "attack-pattern":
+		case stixTypeAttackPattern:
 			p, err := parsePattern(obj)
 			if err != nil {
 				continue // skip unparseable patterns
@@ -97,19 +97,19 @@ func parseBundle(bundle *stixBundle, includeDeprecated bool) *parseResult {
 			result.patternByStixID[p.stixID] = p.capecID
 			result.patterns = append(result.patterns, *p)
 
-		case "course-of-action":
+		case stixTypeCourseOfAction:
 			m := parseMitigation(obj)
 			result.mitigationByStixID[m.stixID] = m.id
 			result.mitigations = append(result.mitigations, *m)
 
-		case "x-capec-category":
+		case stixTypeCategory:
 			c := parseCategory(obj)
 			if c != nil {
 				result.categories = append(result.categories, *c)
 			}
 
-		case "relationship":
-			if obj.RelationshipType == "mitigates" {
+		case stixTypeRelationship:
+			if obj.RelationshipType == relTypeMitigates {
 				result.mitigatesRels = append(result.mitigatesRels, mitigatesRel{
 					sourceRef: obj.SourceRef,
 					targetRef: obj.TargetRef,
@@ -186,8 +186,8 @@ func parseMitigation(obj *stixObject) *mitigation {
 	// STIX ID: "course-of-action--0d8de0b8-e9fd-44b2-8f1f-f8aae79949be"
 	// Graph ID: "COA-0d8de0b8-e9fd-44b2-8f1f-f8aae79949be"
 	id := obj.ID
-	if after, ok := strings.CutPrefix(id, "course-of-action--"); ok {
-		id = "COA-" + after
+	if after, ok := strings.CutPrefix(id, courseOfActionPrefix); ok {
+		id = mitigationIDPrefix + after
 	}
 
 	return &mitigation{
@@ -216,7 +216,7 @@ func parseCategory(obj *stixObject) *category {
 // capecID extracts the CAPEC ID (e.g., "CAPEC-66") from external references.
 func capecID(refs []externalRef) string {
 	for _, ref := range refs {
-		if ref.SourceName == "capec" {
+		if ref.SourceName == refSourceCAPEC {
 			return ref.ExternalID
 		}
 	}
@@ -226,7 +226,7 @@ func capecID(refs []externalRef) string {
 // capecURL extracts the CAPEC URL from external references.
 func capecURL(refs []externalRef) string {
 	for _, ref := range refs {
-		if ref.SourceName == "capec" {
+		if ref.SourceName == refSourceCAPEC {
 			return ref.URL
 		}
 	}
@@ -237,9 +237,9 @@ func capecURL(refs []externalRef) string {
 func extractCrossRefs(refs []externalRef) (cwes, techniques []string) {
 	for _, ref := range refs {
 		switch ref.SourceName {
-		case "cwe":
+		case refSourceCWE:
 			cwes = append(cwes, ref.ExternalID)
-		case "ATTACK":
+		case refSourceATTACK:
 			techniques = append(techniques, ref.ExternalID)
 		}
 	}

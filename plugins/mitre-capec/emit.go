@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/realxen/cartograph/plugin"
 )
@@ -20,7 +21,7 @@ func emitAll(ctx context.Context, host plugin.Host, parsed *parseResult, resourc
 	filter := buildFilter(resourceTypes)
 
 	// Emit nodes.
-	if filter.include("Category") {
+	if filter.include(resourceCategory) {
 		n, err := emitCategories(ctx, host, parsed.categories)
 		if err != nil {
 			return nil, err
@@ -28,7 +29,7 @@ func emitAll(ctx context.Context, host plugin.Host, parsed *parseResult, resourc
 		result.nodes += n
 	}
 
-	if filter.include("Pattern") {
+	if filter.include(resourcePattern) {
 		n, err := emitPatterns(ctx, host, parsed.patterns)
 		if err != nil {
 			return nil, err
@@ -36,7 +37,7 @@ func emitAll(ctx context.Context, host plugin.Host, parsed *parseResult, resourc
 		result.nodes += n
 	}
 
-	if filter.include("Mitigation") {
+	if filter.include(resourceMitigation) {
 		n, err := emitMitigations(ctx, host, parsed.mitigations)
 		if err != nil {
 			return nil, err
@@ -45,7 +46,7 @@ func emitAll(ctx context.Context, host plugin.Host, parsed *parseResult, resourc
 	}
 
 	// Emit edges (only if both endpoints' resource types are included).
-	if filter.include("Pattern") {
+	if filter.include(resourcePattern) {
 		n, err := emitHierarchyEdges(ctx, host, parsed)
 		if err != nil {
 			return nil, err
@@ -53,7 +54,7 @@ func emitAll(ctx context.Context, host plugin.Host, parsed *parseResult, resourc
 		result.edges += n
 	}
 
-	if filter.include("Pattern") && filter.include("Mitigation") {
+	if filter.include(resourcePattern) && filter.include(resourceMitigation) {
 		n, err := emitMitigatesEdges(ctx, host, parsed)
 		if err != nil {
 			return nil, err
@@ -70,8 +71,10 @@ func emitPatterns(ctx context.Context, host plugin.Host, patterns []pattern) (in
 		props := map[string]any{
 			"capec_id": p.capecID,
 			"name":     p.name,
+			"name_lc":  strings.ToLower(p.name),
 		}
 		setNonEmpty(props, "description", p.description)
+		setNonEmpty(props, "description_lc", strings.ToLower(p.description))
 		setNonEmpty(props, "abstraction", p.abstraction)
 		setNonEmpty(props, "status", p.status)
 		setNonEmpty(props, "attack_likelihood", p.likelihood)
@@ -83,13 +86,14 @@ func emitPatterns(ctx context.Context, host plugin.Host, patterns []pattern) (in
 		setNonEmpty(props, "examples", p.examples)
 		setNonEmpty(props, "domains", p.domains)
 		setNonEmpty(props, "related_cwes", p.relatedCWEs)
+		setNonEmpty(props, "related_cwes_text", strings.ToLower(p.relatedCWEs))
 		setNonEmpty(props, "related_techniques", p.relatedTechniques)
 		setNonEmpty(props, "url", p.url)
 		setNonEmpty(props, "created", p.created)
 		setNonEmpty(props, "modified", p.modified)
 
-		nodeID := "capec:pattern:" + p.capecID
-		if err := host.EmitNode(ctx, plugin.Node{ID: nodeID, Label: "CAPECPattern", Properties: props}); err != nil {
+		nodeID := patternNodeID(p.capecID)
+		if err := host.EmitNode(ctx, plugin.Node{ID: nodeID, Label: labelPattern, Properties: props}); err != nil {
 			return 0, fmt.Errorf("emit pattern %s: %w", p.capecID, err)
 		}
 	}
@@ -100,13 +104,15 @@ func emitMitigations(ctx context.Context, host plugin.Host, mitigations []mitiga
 	for i := range mitigations {
 		m := &mitigations[i]
 		props := map[string]any{
-			"name": m.name,
+			"name":    m.name,
+			"name_lc": strings.ToLower(m.name),
 		}
 		setNonEmpty(props, "description", m.description)
+		setNonEmpty(props, "description_lc", strings.ToLower(m.description))
 		setNonEmpty(props, "url", m.url)
 
-		nodeID := "capec:mitigation:" + m.id
-		if err := host.EmitNode(ctx, plugin.Node{ID: nodeID, Label: "CAPECMitigation", Properties: props}); err != nil {
+		nodeID := mitigationNodeID(m.id)
+		if err := host.EmitNode(ctx, plugin.Node{ID: nodeID, Label: labelMitigation, Properties: props}); err != nil {
 			return 0, fmt.Errorf("emit mitigation %s: %w", m.id, err)
 		}
 	}
@@ -119,11 +125,13 @@ func emitCategories(ctx context.Context, host plugin.Host, categories []category
 		props := map[string]any{
 			"capec_id": c.capecID,
 			"name":     c.name,
+			"name_lc":  strings.ToLower(c.name),
 		}
 		setNonEmpty(props, "summary", c.summary)
+		setNonEmpty(props, "summary_lc", strings.ToLower(c.summary))
 
-		nodeID := "capec:category:" + c.capecID
-		if err := host.EmitNode(ctx, plugin.Node{ID: nodeID, Label: "CAPECCategory", Properties: props}); err != nil {
+		nodeID := categoryNodeID(c.capecID)
+		if err := host.EmitNode(ctx, plugin.Node{ID: nodeID, Label: labelCategory, Properties: props}); err != nil {
 			return 0, fmt.Errorf("emit category %s: %w", c.capecID, err)
 		}
 	}
@@ -136,7 +144,7 @@ func emitHierarchyEdges(ctx context.Context, host plugin.Host, parsed *parseResu
 	count := 0
 	for i := range parsed.patterns {
 		p := &parsed.patterns[i]
-		fromID := "capec:pattern:" + p.capecID
+		fromID := patternNodeID(p.capecID)
 
 		// CHILD_OF: this pattern is a child of the referenced pattern.
 		for _, ref := range p.childOfRefs {
@@ -144,9 +152,9 @@ func emitHierarchyEdges(ctx context.Context, host plugin.Host, parsed *parseResu
 			if !ok {
 				continue // target not in dataset (filtered or missing)
 			}
-			toID := "capec:pattern:" + targetCAPEC
-			if err := host.EmitEdge(ctx, plugin.Edge{From: fromID, To: toID, Type: "CHILD_OF"}); err != nil {
-				return 0, fmt.Errorf("emit CHILD_OF %s -> %s: %w", p.capecID, targetCAPEC, err)
+			toID := patternNodeID(targetCAPEC)
+			if err := host.EmitEdge(ctx, plugin.Edge{From: fromID, To: toID, Type: edgeChildOf}); err != nil {
+				return 0, fmt.Errorf("emit %s %s -> %s: %w", edgeChildOf, p.capecID, targetCAPEC, err)
 			}
 			count++
 		}
@@ -157,9 +165,9 @@ func emitHierarchyEdges(ctx context.Context, host plugin.Host, parsed *parseResu
 			if !ok {
 				continue
 			}
-			toID := "capec:pattern:" + targetCAPEC
-			if err := host.EmitEdge(ctx, plugin.Edge{From: fromID, To: toID, Type: "CAN_PRECEDE"}); err != nil {
-				return 0, fmt.Errorf("emit CAN_PRECEDE %s -> %s: %w", p.capecID, targetCAPEC, err)
+			toID := patternNodeID(targetCAPEC)
+			if err := host.EmitEdge(ctx, plugin.Edge{From: fromID, To: toID, Type: edgeCanPrecede}); err != nil {
+				return 0, fmt.Errorf("emit %s %s -> %s: %w", edgeCanPrecede, p.capecID, targetCAPEC, err)
 			}
 			count++
 		}
@@ -170,9 +178,9 @@ func emitHierarchyEdges(ctx context.Context, host plugin.Host, parsed *parseResu
 			if !ok {
 				continue
 			}
-			toID := "capec:pattern:" + targetCAPEC
-			if err := host.EmitEdge(ctx, plugin.Edge{From: fromID, To: toID, Type: "PEER_OF"}); err != nil {
-				return 0, fmt.Errorf("emit PEER_OF %s -> %s: %w", p.capecID, targetCAPEC, err)
+			toID := patternNodeID(targetCAPEC)
+			if err := host.EmitEdge(ctx, plugin.Edge{From: fromID, To: toID, Type: edgePeerOf}); err != nil {
+				return 0, fmt.Errorf("emit %s %s -> %s: %w", edgePeerOf, p.capecID, targetCAPEC, err)
 			}
 			count++
 		}
@@ -193,10 +201,10 @@ func emitMitigatesEdges(ctx context.Context, host plugin.Host, parsed *parseResu
 		if !ok {
 			continue
 		}
-		fromID := "capec:mitigation:" + mitigationID
-		toID := "capec:pattern:" + patternCAPEC
-		if err := host.EmitEdge(ctx, plugin.Edge{From: fromID, To: toID, Type: "MITIGATES"}); err != nil {
-			return 0, fmt.Errorf("emit MITIGATES %s -> %s: %w", mitigationID, patternCAPEC, err)
+		fromID := mitigationNodeID(mitigationID)
+		toID := patternNodeID(patternCAPEC)
+		if err := host.EmitEdge(ctx, plugin.Edge{From: fromID, To: toID, Type: edgeMitigates}); err != nil {
+			return 0, fmt.Errorf("emit %s %s -> %s: %w", edgeMitigates, mitigationID, patternCAPEC, err)
 		}
 		count++
 	}
