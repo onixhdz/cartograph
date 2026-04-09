@@ -137,19 +137,38 @@ func (h *Host) HTTPRequest(ctx context.Context, req plugin.HTTPRequest) (*plugin
 	return fn(ctx, req)
 }
 
+// Emit records one or more graph element emissions.
+func (h *Host) Emit(ctx context.Context, elems ...plugin.Element) error {
+	for _, elem := range elems {
+		switch e := elem.(type) {
+		case plugin.Node:
+			if err := h.EmitNode(ctx, e); err != nil {
+				return err
+			}
+		case plugin.Edge:
+			if err := h.EmitEdge(ctx, e); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("plugintest: unsupported element type %T", elem)
+		}
+	}
+	return nil
+}
+
 // EmitNode records a node emission.
-func (h *Host) EmitNode(_ context.Context, label, id string, props map[string]any) error {
+func (h *Host) EmitNode(_ context.Context, node plugin.Node) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.nodes = append(h.nodes, Node{Label: label, ID: id, Props: props})
+	h.nodes = append(h.nodes, Node{Label: node.Label, ID: node.ID, Props: node.Properties})
 	return nil
 }
 
 // EmitEdge records an edge emission.
-func (h *Host) EmitEdge(_ context.Context, fromID, toID, relType string, props map[string]any) error {
+func (h *Host) EmitEdge(_ context.Context, edge plugin.Edge) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.edges = append(h.edges, Edge{FromID: fromID, ToID: toID, RelType: relType, Props: props})
+	h.edges = append(h.edges, Edge{FromID: edge.From, ToID: edge.To, RelType: edge.Type, Props: edge.Properties})
 	return nil
 }
 

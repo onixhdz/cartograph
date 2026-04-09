@@ -60,14 +60,31 @@ func (p *myPlugin) Configure(ctx context.Context, host plugin.Host, connection s
 func (p *myPlugin) Ingest(ctx context.Context, host plugin.Host, opts plugin.IngestOptions) (plugin.IngestResult, error) {
 	// Fetch your data here (net/http, goroutines, anything goes).
 
-	host.EmitNode(ctx, "MyWidget", "my:widget:1", map[string]any{
-		"name":   "Sprocket",
-		"status": "active",
-	})
-	host.EmitNode(ctx, "MyOwner", "my:owner:alice", map[string]any{
-		"login": "alice",
-	})
-	host.EmitEdge(ctx, "my:owner:alice", "my:widget:1", "OWNS", nil)
+	err := host.Emit(ctx,
+		plugin.Node{
+			ID:    "my:widget:1",
+			Label: "MyWidget",
+			Properties: map[string]any{
+				"name":   "Sprocket",
+				"status": "active",
+			},
+		},
+		plugin.Node{
+			ID:    "my:owner:alice",
+			Label: "MyOwner",
+			Properties: map[string]any{
+				"login": "alice",
+			},
+		},
+		plugin.Edge{
+			From: "my:owner:alice",
+			To:   "my:widget:1",
+			Type: "OWNS",
+		},
+	)
+	if err != nil {
+		return plugin.IngestResult{}, err
+	}
 
 	host.Log(ctx, "info", "Emitted 2 nodes, 1 edge")
 	return plugin.IngestResult{Nodes: 2, Edges: 1}, nil

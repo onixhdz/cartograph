@@ -65,13 +65,11 @@ func TestHost_Emissions(t *testing.T) {
 	h := NewHost(nil)
 	ctx := context.Background()
 
-	if err := h.EmitNode(ctx, "MyWidget", "w:1", map[string]any{"name": "Sprocket"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := h.EmitNode(ctx, "MyOwner", "o:alice", map[string]any{"login": "alice"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := h.EmitEdge(ctx, "o:alice", "w:1", "OWNS", nil); err != nil {
+	if err := h.Emit(ctx,
+		plugin.Node{ID: "w:1", Label: "MyWidget", Properties: map[string]any{"name": "Sprocket"}},
+		plugin.Node{ID: "o:alice", Label: "MyOwner", Properties: map[string]any{"login": "alice"}},
+		plugin.Edge{From: "o:alice", To: "w:1", Type: "OWNS"},
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -87,6 +85,16 @@ func TestHost_Emissions(t *testing.T) {
 	}
 	if nodes[0].Props["name"] != "Sprocket" {
 		t.Errorf("first node name: got %v, want Sprocket", nodes[0].Props["name"])
+	}
+}
+
+func TestHost_Emit_UnsupportedElement(t *testing.T) {
+	h := NewHost(nil)
+	ctx := context.Background()
+
+	err := h.Emit(ctx, nil)
+	if err == nil {
+		t.Fatal("expected error for unsupported element")
 	}
 }
 
@@ -192,13 +200,11 @@ func (p *fakePlugin) Configure(ctx context.Context, host plugin.Host, _ string) 
 }
 
 func (p *fakePlugin) Ingest(ctx context.Context, host plugin.Host, _ plugin.IngestOptions) (plugin.IngestResult, error) {
-	if err := host.EmitNode(ctx, "FakeWidget", "fake:widget:1", map[string]any{"name": "Sprocket"}); err != nil {
-		return plugin.IngestResult{}, fmt.Errorf("emit: %w", err)
-	}
-	if err := host.EmitNode(ctx, "FakeOwner", "fake:owner:alice", map[string]any{"login": "alice"}); err != nil {
-		return plugin.IngestResult{}, fmt.Errorf("emit: %w", err)
-	}
-	if err := host.EmitEdge(ctx, "fake:owner:alice", "fake:widget:1", "OWNS", nil); err != nil {
+	if err := host.Emit(ctx,
+		plugin.Node{ID: "fake:widget:1", Label: "FakeWidget", Properties: map[string]any{"name": "Sprocket"}},
+		plugin.Node{ID: "fake:owner:alice", Label: "FakeOwner", Properties: map[string]any{"login": "alice"}},
+		plugin.Edge{From: "fake:owner:alice", To: "fake:widget:1", Type: "OWNS"},
+	); err != nil {
 		return plugin.IngestResult{}, fmt.Errorf("emit: %w", err)
 	}
 	_ = host.Log(ctx, "info", "done")

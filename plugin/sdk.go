@@ -27,7 +27,10 @@
 //	}
 //
 //	func (p *myPlugin) Ingest(ctx context.Context, host plugin.Host, opts plugin.IngestOptions) (plugin.IngestResult, error) {
-//	    host.EmitNode(ctx, "MyWidget", "my:widget:1", map[string]any{"name": "Sprocket"})
+//	    err := host.Emit(ctx,
+//	        plugin.Node{ID: "my:widget:1", Label: "MyWidget", Properties: map[string]any{"name": "Sprocket"}},
+//	    )
+//	    if err != nil { return plugin.IngestResult{}, err }
 //	    return plugin.IngestResult{Nodes: 1}, nil
 //	}
 //
@@ -103,10 +106,39 @@ type IngestResult struct {
 	Edges int
 }
 
+// Element is a graph element emitted by a plugin during ingestion.
+// The concrete types are [Node] and [Edge].
+type Element interface {
+	isElement()
+}
+
+// Node is a graph node emitted by a plugin.
+type Node struct {
+	ID         string         `json:"id"`
+	Label      string         `json:"label"`
+	Properties map[string]any `json:"properties,omitempty"`
+}
+
+// Edge is a graph edge emitted by a plugin.
+type Edge struct {
+	From       string         `json:"from"`
+	To         string         `json:"to"`
+	Type       string         `json:"type"`
+	Properties map[string]any `json:"properties,omitempty"`
+}
+
+func (Node) isElement() {}
+
+func (Edge) isElement() {}
+
 // Host provides services to the plugin. It is passed to Configure and
 // Ingest so the plugin can retrieve config, cache data, emit graph
 // elements, and log messages.
 type Host interface {
+	// Emit emits one or more graph elements to the host.
+	// The elements may be [Node] or [Edge].
+	Emit(ctx context.Context, elems ...Element) error
+
 	// ConfigGet retrieves a config value from the connection's config.toml
 	// section. Environment variable resolution (_env suffix) has already
 	// been applied — you get the resolved value.
@@ -125,15 +157,10 @@ type Host interface {
 	HTTPRequest(ctx context.Context, req HTTPRequest) (*HTTPResponse, error)
 
 	// EmitNode emits a node into the knowledge graph.
-	//  - label: vendor-specific label (e.g., "GitHubRepo")
-	//  - id:    globally unique ID (e.g., "github:repo:acme/api")
-	//  - props: arbitrary properties
-	EmitNode(ctx context.Context, label, id string, props map[string]any) error
+	EmitNode(ctx context.Context, node Node) error
 
 	// EmitEdge emits a directed edge between two nodes.
-	//  - fromID, toID: node IDs (must have been emitted already or concurrently)
-	//  - relType: relationship type (e.g., "OWNS", "CONTAINS", "DEPENDS_ON")
-	EmitEdge(ctx context.Context, fromID, toID, relType string, props map[string]any) error
+	EmitEdge(ctx context.Context, edge Edge) error
 
 	// Log sends a log message to the host. Levels: "debug", "info", "warn", "error".
 	Log(ctx context.Context, level, msg string) error
@@ -309,20 +336,38 @@ func (h *hostBridge) HTTPRequest(ctx context.Context, req HTTPRequest) (*HTTPRes
 	return &resp, nil
 }
 
-func (h *hostBridge) EmitNode(ctx context.Context, label, id string, props map[string]any) error {
+func (h *hostBridge) Emit(ctx context.Context, elems ...Element) error {
+	for _, elem := range elems {
+		switch e := elem.(type) {
+		case Node:
+			if err := h.EmitNode(ctx, e); err != nil {
+				return err
+			}
+		case Edge:
+			if err := h.EmitEdge(ctx, e); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("emit: unsupported element type %T", elem)
+		}
+	}
+	return nil
+}
+
+func (h *hostBridge) EmitNode(ctx context.Context, node Node) error {
 	return h.conn.Notify(ctx, "emit_node", map[string]any{ //nolint:wrapcheck
-		"label": label,
-		"id":    id,
-		"props": props,
+		"label": node.Label,
+		"id":    node.ID,
+		"props": node.Properties,
 	})
 }
 
-func (h *hostBridge) EmitEdge(ctx context.Context, fromID, toID, relType string, props map[string]any) error {
+func (h *hostBridge) EmitEdge(ctx context.Context, edge Edge) error {
 	return h.conn.Notify(ctx, "emit_edge", map[string]any{ //nolint:wrapcheck
-		"from":  fromID,
-		"to":    toID,
-		"rel":   relType,
-		"props": props,
+		"from":  edge.From,
+		"to":    edge.To,
+		"rel":   edge.Type,
+		"props": edge.Properties,
 	})
 }
 

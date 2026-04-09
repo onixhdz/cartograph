@@ -38,23 +38,29 @@ func (p *sdkPlugin) Configure(ctx context.Context, host plugin.Host, connection 
 }
 
 func (p *sdkPlugin) Ingest(ctx context.Context, host plugin.Host, opts plugin.IngestOptions) (plugin.IngestResult, error) {
-	// Emit nodes.
-	if err := host.EmitNode(ctx, "SDKTestRepo", "sdk:repo:api", map[string]any{
-		"name":  "api",
-		"stars": 100,
-	}); err != nil {
-		return plugin.IngestResult{}, fmt.Errorf("emit repo: %w", err)
-	}
-
-	if err := host.EmitNode(ctx, "SDKTestUser", "sdk:user:bob", map[string]any{
-		"login": "bob",
-	}); err != nil {
-		return plugin.IngestResult{}, fmt.Errorf("emit user: %w", err)
-	}
-
-	// Emit an edge.
-	if err := host.EmitEdge(ctx, "sdk:user:bob", "sdk:repo:api", "OWNS", nil); err != nil {
-		return plugin.IngestResult{}, fmt.Errorf("emit edge: %w", err)
+	if err := host.Emit(ctx,
+		plugin.Node{
+			ID:    "sdk:repo:api",
+			Label: "SDKTestRepo",
+			Properties: map[string]any{
+				"name":  "api",
+				"stars": 100,
+			},
+		},
+		plugin.Node{
+			ID:    "sdk:user:bob",
+			Label: "SDKTestUser",
+			Properties: map[string]any{
+				"login": "bob",
+			},
+		},
+		plugin.Edge{
+			From: "sdk:user:bob",
+			To:   "sdk:repo:api",
+			Type: "OWNS",
+		},
+	); err != nil {
+		return plugin.IngestResult{}, fmt.Errorf("emit: %w", err)
 	}
 
 	// Log.

@@ -95,8 +95,12 @@ func TestConcurrent_SharedHostEmission(t *testing.T) {
 			defer wg.Done()
 			for i := range nodesPerWorker {
 				id := fmt.Sprintf("node:%d:%d", workerID, i)
-				err := host.EmitNode(ctx, "TestNode", id, map[string]any{
-					"name": fmt.Sprintf("node-%d-%d", workerID, i),
+				err := host.EmitNode(ctx, plugin.Node{
+					ID:    id,
+					Label: "TestNode",
+					Properties: map[string]any{
+						"name": fmt.Sprintf("node-%d-%d", workerID, i),
+					},
 				})
 				if err != nil {
 					t.Errorf("worker %d: EmitNode: %v", workerID, err)
@@ -114,7 +118,7 @@ func TestConcurrent_SharedHostEmission(t *testing.T) {
 			for i := range edgesPerWorker {
 				fromID := fmt.Sprintf("node:%d:%d", workerID, i)
 				toID := fmt.Sprintf("node:%d:%d", workerID, i+1)
-				err := host.EmitEdge(ctx, fromID, toID, "LINKS_TO", nil)
+				err := host.EmitEdge(ctx, plugin.Edge{From: fromID, To: toID, Type: "LINKS_TO"})
 				if err != nil {
 					t.Errorf("worker %d: EmitEdge: %v", workerID, err)
 					return

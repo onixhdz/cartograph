@@ -89,7 +89,7 @@ func emitPatterns(ctx context.Context, host plugin.Host, patterns []pattern) (in
 		setNonEmpty(props, "modified", p.modified)
 
 		nodeID := "capec:pattern:" + p.capecID
-		if err := host.EmitNode(ctx, "CAPECPattern", nodeID, props); err != nil {
+		if err := host.EmitNode(ctx, plugin.Node{ID: nodeID, Label: "CAPECPattern", Properties: props}); err != nil {
 			return 0, fmt.Errorf("emit pattern %s: %w", p.capecID, err)
 		}
 	}
@@ -106,7 +106,7 @@ func emitMitigations(ctx context.Context, host plugin.Host, mitigations []mitiga
 		setNonEmpty(props, "url", m.url)
 
 		nodeID := "capec:mitigation:" + m.id
-		if err := host.EmitNode(ctx, "CAPECMitigation", nodeID, props); err != nil {
+		if err := host.EmitNode(ctx, plugin.Node{ID: nodeID, Label: "CAPECMitigation", Properties: props}); err != nil {
 			return 0, fmt.Errorf("emit mitigation %s: %w", m.id, err)
 		}
 	}
@@ -123,7 +123,7 @@ func emitCategories(ctx context.Context, host plugin.Host, categories []category
 		setNonEmpty(props, "summary", c.summary)
 
 		nodeID := "capec:category:" + c.capecID
-		if err := host.EmitNode(ctx, "CAPECCategory", nodeID, props); err != nil {
+		if err := host.EmitNode(ctx, plugin.Node{ID: nodeID, Label: "CAPECCategory", Properties: props}); err != nil {
 			return 0, fmt.Errorf("emit category %s: %w", c.capecID, err)
 		}
 	}
@@ -145,7 +145,7 @@ func emitHierarchyEdges(ctx context.Context, host plugin.Host, parsed *parseResu
 				continue // target not in dataset (filtered or missing)
 			}
 			toID := "capec:pattern:" + targetCAPEC
-			if err := host.EmitEdge(ctx, fromID, toID, "CHILD_OF", nil); err != nil {
+			if err := host.EmitEdge(ctx, plugin.Edge{From: fromID, To: toID, Type: "CHILD_OF"}); err != nil {
 				return 0, fmt.Errorf("emit CHILD_OF %s -> %s: %w", p.capecID, targetCAPEC, err)
 			}
 			count++
@@ -158,7 +158,7 @@ func emitHierarchyEdges(ctx context.Context, host plugin.Host, parsed *parseResu
 				continue
 			}
 			toID := "capec:pattern:" + targetCAPEC
-			if err := host.EmitEdge(ctx, fromID, toID, "CAN_PRECEDE", nil); err != nil {
+			if err := host.EmitEdge(ctx, plugin.Edge{From: fromID, To: toID, Type: "CAN_PRECEDE"}); err != nil {
 				return 0, fmt.Errorf("emit CAN_PRECEDE %s -> %s: %w", p.capecID, targetCAPEC, err)
 			}
 			count++
@@ -171,7 +171,7 @@ func emitHierarchyEdges(ctx context.Context, host plugin.Host, parsed *parseResu
 				continue
 			}
 			toID := "capec:pattern:" + targetCAPEC
-			if err := host.EmitEdge(ctx, fromID, toID, "PEER_OF", nil); err != nil {
+			if err := host.EmitEdge(ctx, plugin.Edge{From: fromID, To: toID, Type: "PEER_OF"}); err != nil {
 				return 0, fmt.Errorf("emit PEER_OF %s -> %s: %w", p.capecID, targetCAPEC, err)
 			}
 			count++
@@ -195,7 +195,7 @@ func emitMitigatesEdges(ctx context.Context, host plugin.Host, parsed *parseResu
 		}
 		fromID := "capec:mitigation:" + mitigationID
 		toID := "capec:pattern:" + patternCAPEC
-		if err := host.EmitEdge(ctx, fromID, toID, "MITIGATES", nil); err != nil {
+		if err := host.EmitEdge(ctx, plugin.Edge{From: fromID, To: toID, Type: "MITIGATES"}); err != nil {
 			return 0, fmt.Errorf("emit MITIGATES %s -> %s: %w", mitigationID, patternCAPEC, err)
 		}
 		count++
