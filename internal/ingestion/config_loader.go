@@ -114,6 +114,25 @@ type BuildProcessInfo struct {
 	EntryPoint string
 }
 
+type packageJSONManifestFile struct {
+	Name        string          `json:"name"`
+	Version     string          `json:"version"`
+	Workspaces  any             `json:"workspaces"`
+	Engines     map[string]any  `json:"engines"`
+	Contributes json.RawMessage `json:"contributes"`
+	Unity       string          `json:"unity"`
+}
+
+func shouldSkipPackageJSON(engines map[string]any, contributes json.RawMessage, unity string) bool {
+	if _, ok := engines["vscode"]; ok {
+		return true
+	}
+	if len(contributes) > 0 && string(contributes) != "null" {
+		return true
+	}
+	return unity != ""
+}
+
 func addManifest(cfg *ProjectConfig, manifest ManifestInfo) {
 	if manifest.Name == "" || manifest.Source == "" {
 		return
@@ -424,15 +443,7 @@ func loadPackageJSONAt(root, relPath string, readFile func(string) ([]byte, erro
 		return
 	}
 
-	// Skip VSCode extension manifests (has engines.vscode or contributes field).
-	if _, ok := pkg.Engines["vscode"]; ok {
-		return
-	}
-	if len(pkg.Contributes) > 0 && string(pkg.Contributes) != "null" {
-		return
-	}
-	// Skip Unity packages (has "unity" field).
-	if pkg.Unity != "" {
+	if shouldSkipPackageJSON(pkg.Engines, pkg.Contributes, pkg.Unity) {
 		return
 	}
 

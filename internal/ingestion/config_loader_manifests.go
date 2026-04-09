@@ -40,24 +40,11 @@ func loadPackageJSONManifestAt(root, relPath string, readFile func(string) ([]by
 	if err != nil {
 		return
 	}
-	var pkg struct {
-		Name        string          `json:"name"`
-		Version     string          `json:"version"`
-		Workspaces  any             `json:"workspaces"`
-		Engines     map[string]any  `json:"engines"`
-		Contributes json.RawMessage `json:"contributes"`
-		Unity       string          `json:"unity"`
-	}
+	var pkg packageJSONManifestFile
 	if err := json.Unmarshal(data, &pkg); err != nil {
 		return
 	}
-	if _, ok := pkg.Engines["vscode"]; ok {
-		return
-	}
-	if len(pkg.Contributes) > 0 && string(pkg.Contributes) != "null" {
-		return
-	}
-	if pkg.Unity != "" {
+	if shouldSkipPackageJSON(pkg.Engines, pkg.Contributes, pkg.Unity) {
 		return
 	}
 	manifest := ManifestInfo{Name: pkg.Name, Version: pkg.Version, Source: relPath, Language: "javascript"}

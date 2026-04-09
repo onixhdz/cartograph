@@ -2,62 +2,120 @@ package ingestion
 
 import (
 	"path/filepath"
-	"slices"
 	"strings"
 
 	ts "github.com/realxen/cartograph/internal/treesitter"
 )
 
-func loadGradleBuildDependencies(root string, readFile func(string) ([]byte, error), cfg *ProjectConfig, files []string) {
-	for _, rel := range append(relPathsByBase(files, "build.gradle"), relPathsByBase(files, "build.gradle.kts")...) {
-		lang := ts.DetectFallbackLanguageByName("groovy")
-		if lang == nil {
-			continue
-		}
-		data, err := readFile(filepath.Join(root, filepath.FromSlash(rel)))
-		if err != nil {
-			continue
-		}
-		parser := ts.NewParser(lang)
-		tree, err := parser.Parse(data)
-		parser.Close()
-		if err != nil {
-			continue
-		}
-		extractGradleDependencies(tree.RootNode(), lang, data, rel, cfg)
-		tree.Close()
+type buildFileExtractor func(root *ts.Node, lang *ts.Language, source []byte, rel string, cfg *ProjectConfig)
+
+// loadParsedBuildFiles centralizes the parser lifecycle for build-file extractors.
+// Callers provide the candidate filenames, language detector, and extraction logic.
+func loadParsedBuildFiles(root string, files []string, baseNames []string, detectLang func() *ts.Language, readFile func(string) ([]byte, error), cfg *ProjectConfig, extract buildFileExtractor) {
+	lang := detectLang()
+	if lang == nil {
+		return
+	}
+	for _, rel := range relPathsForBases(files, baseNames...) {
+		parseBuildFileAt(root, rel, lang, readFile, cfg, extract)
 	}
 }
 
-func extractGradleDependencies(root *ts.Node, lang *ts.Language, source []byte, rel string, cfg *ProjectConfig) {
-	var visit func(*ts.Node, bool)
-	visit = func(n *ts.Node, inDependencies bool) {
-		if n == nil {
-			return
-		}
-		kind := n.Type(lang)
-		nowInDependencies := inDependencies
-		if kind == "source_file" && n.ChildCount() >= 2 {
-			for i := 0; i+1 < n.ChildCount(); i++ {
-				cur := n.Child(i)
-				next := n.Child(i + 1)
-				if cur != nil && next != nil && cur.Type(lang) == tsKindIdentifier && cur.Text(source) == "dependencies" && next.Type(lang) == "closure" {
-					for j := range next.ChildCount() {
-						addGradleDependencyStatement(next.Child(j), lang, source, rel, cfg)
-					}
-				}
+// parseBuildFileAt parses one repo-relative build file and passes the root node
+// into a caller-provided extractor.
+func parseBuildFileAt(root, rel string, lang *ts.Language, readFile func(string) ([]byte, error), cfg *ProjectConfig, extract buildFileExtractor) {
+	if lang == nil {
+		return
+	}
+
+	data, err := readFile(filepath.Join(root, filepath.FromSlash(rel)))
+	if err != nil {
+		return
+	}
+	parser := ts.NewParser(lang)
+	tree, err := parser.Parse(data)
+	parser.Close()
+	if err != nil {
+		return
+	}
+	extract(tree.RootNode(), lang, data, rel, cfg)
+	tree.Close()
+}
+
+// relPathsForBases preserves input order while deduplicating matches across
+// multiple build filenames.
+func relPathsForBases(files []string, baseNames ...string) []string {
+	var out []string
+	seen := make(map[string]bool)
+	for _, base := range baseNames {
+		for _, rel := range relPathsByBase(files, base) {
+			if seen[rel] {
+				continue
 			}
-		}
-		if nowInDependencies && kind == "closure" {
-			for i := range n.ChildCount() {
-				addGradleDependencyStatement(n.Child(i), lang, source, rel, cfg)
-			}
-		}
-		for i := range n.ChildCount() {
-			visit(n.Child(i), nowInDependencies)
+			seen[rel] = true
+			out = append(out, rel)
 		}
 	}
-	visit(root, false)
+	return out
+}
+
+// walkTree performs a simple pre-order traversal over a tree-sitter subtree.
+func walkTree(root *ts.Node, visit func(*ts.Node)) {
+	if root == nil {
+		return
+	}
+	visit(root)
+	forEachChild(root, func(child *ts.Node) {
+		walkTree(child, visit)
+	})
+}
+
+// forEachChild visits direct children only.
+func forEachChild(n *ts.Node, visit func(*ts.Node)) {
+	if n == nil {
+		return
+	}
+	for i := range n.ChildCount() {
+		visit(n.Child(i))
+	}
+}
+
+// forEachAdjacentChildPair is useful for grammars where a block is represented
+// as adjacent sibling nodes, e.g. `dependencies` followed by a closure.
+func forEachAdjacentChildPair(n *ts.Node, visit func(*ts.Node, *ts.Node)) {
+	if n == nil || n.ChildCount() < 2 {
+		return
+	}
+	for i := 0; i+1 < n.ChildCount(); i++ {
+		visit(n.Child(i), n.Child(i+1))
+	}
+}
+
+func loadGradleBuildDependencies(root string, readFile func(string) ([]byte, error), cfg *ProjectConfig, files []string) {
+	loadParsedBuildFiles(root, files, []string{"build.gradle", "build.gradle.kts"}, func() *ts.Language {
+		return ts.DetectFallbackLanguageByName("groovy")
+	}, readFile, cfg, extractGradleDependencies)
+}
+
+func extractGradleDependencies(root *ts.Node, lang *ts.Language, source []byte, rel string, cfg *ProjectConfig) {
+	walkTree(root, func(n *ts.Node) {
+		forEachAdjacentChildPair(n, func(cur *ts.Node, next *ts.Node) {
+			if !isGradleDependenciesBlock(cur, next, lang, source) {
+				return
+			}
+			forEachChild(next, func(child *ts.Node) {
+				addGradleDependencyStatement(child, lang, source, rel, cfg)
+			})
+		})
+	})
+}
+
+func isGradleDependenciesBlock(cur, next *ts.Node, lang *ts.Language, source []byte) bool {
+	return cur != nil &&
+		next != nil &&
+		cur.Type(lang) == tsKindIdentifier &&
+		cur.Text(source) == "dependencies" &&
+		next.Type(lang) == "closure"
 }
 
 func addGradleDependencyStatement(n *ts.Node, lang *ts.Language, source []byte, rel string, cfg *ProjectConfig) {
@@ -129,48 +187,38 @@ func firstQuotedString(n *ts.Node, lang *ts.Language, source []byte) string {
 }
 
 func loadSBTDependencies(root string, readFile func(string) ([]byte, error), cfg *ProjectConfig, files []string) {
-	for _, rel := range relPathsByBase(files, "build.sbt") {
-		lang := ts.DetectLanguageByName("scala")
-		if lang == nil {
-			continue
-		}
-		data, err := readFile(filepath.Join(root, filepath.FromSlash(rel)))
-		if err != nil {
-			continue
-		}
-		parser := ts.NewParser(lang)
-		tree, err := parser.Parse(data)
-		parser.Close()
-		if err != nil {
-			continue
-		}
-		extractSBTDependencies(tree.RootNode(), lang, data, rel, cfg)
-		tree.Close()
-	}
+	loadParsedBuildFiles(root, files, []string{"build.sbt"}, func() *ts.Language {
+		return ts.DetectLanguageByName("scala")
+	}, readFile, cfg, extractSBTDependencies)
 }
 
 func extractSBTDependencies(root *ts.Node, lang *ts.Language, source []byte, rel string, cfg *ProjectConfig) {
-	var visit func(*ts.Node)
-	visit = func(n *ts.Node) {
-		if n == nil {
+	walkTree(root, func(n *ts.Node) {
+		args := sbtDependencyArgs(n, lang, source)
+		if args == nil {
 			return
 		}
-		if n.Type(lang) == "call_expression" && n.ChildCount() >= 2 {
-			callee := n.Child(0)
-			args := n.Child(1)
-			if callee != nil && callee.Type(lang) == tsKindIdentifier && callee.Text(source) == "Seq" && args != nil && args.Type(lang) == "arguments" {
-				for i := range args.ChildCount() {
-					if dep, ok := parseSBTDependency(args.Child(i), lang, source); ok {
-						addDependency(cfg, DependencyInfo{Name: dep.name, Version: dep.version, Source: rel, Dev: dep.dev, Scope: dep.scope})
-					}
-				}
+		forEachChild(args, func(child *ts.Node) {
+			if dep, ok := parseSBTDependency(child, lang, source); ok {
+				addDependency(cfg, DependencyInfo{Name: dep.name, Version: dep.version, Source: rel, Dev: dep.dev, Scope: dep.scope})
 			}
-		}
-		for i := range n.ChildCount() {
-			visit(n.Child(i))
-		}
+		})
+	})
+}
+
+func sbtDependencyArgs(n *ts.Node, lang *ts.Language, source []byte) *ts.Node {
+	if n == nil || n.Type(lang) != "call_expression" || n.ChildCount() < 2 {
+		return nil
 	}
-	visit(root)
+	callee := n.Child(0)
+	args := n.Child(1)
+	if callee == nil || args == nil {
+		return nil
+	}
+	if callee.Type(lang) != tsKindIdentifier || callee.Text(source) != "Seq" || args.Type(lang) != "arguments" {
+		return nil
+	}
+	return args
 }
 
 type sbtDep struct {
@@ -198,87 +246,74 @@ func parseSBTDependency(n *ts.Node, lang *ts.Language, source []byte) (sbtDep, b
 
 func collectStringValues(n *ts.Node, lang *ts.Language, source []byte) []string {
 	var out []string
-	var visit func(*ts.Node)
-	visit = func(cur *ts.Node) {
-		if cur == nil {
-			return
-		}
+	walkTree(n, func(cur *ts.Node) {
 		if cur.Type(lang) == tsKindString {
 			text := strings.Trim(cur.Text(source), `"`)
 			if text != "" {
 				out = append(out, text)
 			}
-			return
 		}
-		for i := range cur.ChildCount() {
-			visit(cur.Child(i))
-		}
-	}
-	visit(n)
+	})
 	return out
 }
 
-var highSignalMakeTargets = []string{"build", "test", "lint", "format", "fmt", "check", "clean", "install", "dev", "run", "release"}
+var highSignalMakeTargets = map[string]struct{}{
+	"build":   {},
+	"test":    {},
+	"lint":    {},
+	"format":  {},
+	"fmt":     {},
+	"check":   {},
+	"clean":   {},
+	"install": {},
+	"dev":     {},
+	"run":     {},
+	"release": {},
+}
+
+func isHighSignalMakeTarget(target string) bool {
+	_, ok := highSignalMakeTargets[target]
+	return ok
+}
 
 func loadMakefileProcesses(root string, readFile func(string) ([]byte, error), cfg *ProjectConfig, files []string) {
-	for _, rel := range append(relPathsByBase(files, "Makefile"), relPathsByBase(files, "GNUmakefile")...) {
-		loadMakefileProcessesAt(root, rel, readFile, cfg)
-	}
-	for _, rel := range relPathsByBase(files, "BSDmakefile") {
+	for _, rel := range relPathsForBases(files, "Makefile", "GNUmakefile", "BSDmakefile") {
 		loadMakefileProcessesAt(root, rel, readFile, cfg)
 	}
 }
 
 func loadMakefileProcessesAt(root, rel string, readFile func(string) ([]byte, error), cfg *ProjectConfig) {
 	lang := ts.DetectFallbackLanguageByName("make")
-	if lang == nil {
-		return
-	}
-	data, err := readFile(filepath.Join(root, filepath.FromSlash(rel)))
-	if err != nil {
-		return
-	}
-	parser := ts.NewParser(lang)
-	tree, err := parser.Parse(data)
-	parser.Close()
-	if err != nil {
-		return
-	}
-	defer tree.Close()
-	var visit func(*ts.Node)
-	visit = func(n *ts.Node) {
-		if n == nil {
+	parseBuildFileAt(root, rel, lang, readFile, cfg, extractMakefileProcesses)
+}
+
+func extractMakefileProcesses(root *ts.Node, lang *ts.Language, data []byte, rel string, cfg *ProjectConfig) {
+	walkTree(root, func(n *ts.Node) {
+		if n.Type(lang) != "rule" {
 			return
 		}
-		if n.Type(lang) == "rule" {
-			for i := range n.ChildCount() {
-				child := n.Child(i)
-				if child != nil && child.Type(lang) == "targets" {
-					for _, target := range collectMakeTargets(child, lang, data) {
-						if slices.Contains(highSignalMakeTargets, target) {
-							addBuildProcess(cfg, BuildProcessInfo{Name: target, Source: rel, Language: "make", EntryPoint: "make " + target})
-						}
-					}
+		forEachChild(n, func(child *ts.Node) {
+			if child == nil || child.Type(lang) != "targets" {
+				return
+			}
+			for _, target := range collectMakeTargets(child, lang, data) {
+				if isHighSignalMakeTarget(target) {
+					addBuildProcess(cfg, BuildProcessInfo{Name: target, Source: rel, Language: "make", EntryPoint: "make " + target})
 				}
 			}
-		}
-		for i := range n.ChildCount() {
-			visit(n.Child(i))
-		}
-	}
-	visit(tree.RootNode())
+		})
+	})
 }
 
 func collectMakeTargets(n *ts.Node, lang *ts.Language, source []byte) []string {
 	var out []string
-	for i := range n.ChildCount() {
-		child := n.Child(i)
+	forEachChild(n, func(child *ts.Node) {
 		if child != nil && child.Type(lang) == "word" {
 			text := strings.TrimSpace(child.Text(source))
 			if text != "" {
 				out = append(out, text)
 			}
 		}
-	}
+	})
 	return out
 }
