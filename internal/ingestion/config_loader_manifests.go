@@ -2,7 +2,9 @@ package ingestion
 
 import (
 	"encoding/json"
+	"encoding/xml"
 	"path/filepath"
+	"strings"
 
 	toml "github.com/pelletier/go-toml/v2"
 )
@@ -11,6 +13,7 @@ func loadManifestIdentities(root string, readFile func(string) ([]byte, error), 
 	loadGoModuleManifest(cfg)
 	loadPackageJSONManifest(root, readFile, cfg)
 	loadWorkspacePackageJSONManifests(root, readFile, cfg, files)
+	loadPomXMLManifest(root, readFile, cfg, files)
 	loadCargoTomlManifest(root, readFile, cfg, files)
 	loadPyprojectManifest(root, readFile, cfg, files)
 }
@@ -65,6 +68,28 @@ func loadPackageJSONManifestAt(root, relPath string, readFile func(string) ([]by
 		}
 	}
 	addManifest(cfg, manifest)
+}
+
+func loadPomXMLManifest(root string, readFile func(string) ([]byte, error), cfg *ProjectConfig, files []string) {
+	for _, rel := range relPathsByBase(files, "pom.xml") {
+		data, err := readFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil {
+			continue
+		}
+		var pom pomXMLFile
+		if err := xml.Unmarshal(data, &pom); err != nil {
+			continue
+		}
+		inheritPomProjectFields(&pom)
+		manifest := ManifestInfo{Name: pom.ArtifactID, Version: pom.Version, Source: rel, Language: "java"}
+		for _, module := range pom.Modules {
+			module = strings.TrimSpace(module)
+			if module != "" {
+				manifest.Workspaces = append(manifest.Workspaces, module)
+			}
+		}
+		addManifest(cfg, manifest)
+	}
 }
 
 func loadCargoTomlManifest(root string, readFile func(string) ([]byte, error), cfg *ProjectConfig, files []string) {

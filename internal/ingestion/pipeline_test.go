@@ -146,6 +146,61 @@ func TestPipeline_MakefileBuildProcesses(t *testing.T) {
 	}
 }
 
+func TestPipeline_MavenWorkspacesLinkToRealChildModules(t *testing.T) {
+	dir := testutil.TempDir(t, map[string]string{
+		"pom.xml": `<project>
+  <groupId>com.example</groupId>
+  <artifactId>parent</artifactId>
+  <version>1.0.0</version>
+  <modules>
+    <module>child</module>
+  </modules>
+</project>`,
+		"child/pom.xml": `<project>
+  <parent>
+    <groupId>com.example</groupId>
+    <artifactId>parent</artifactId>
+    <version>1.0.0</version>
+  </parent>
+  <artifactId>child-artifact</artifactId>
+</project>`,
+	})
+
+	p := NewPipeline(dir, PipelineOptions{})
+	if err := p.Run(); err != nil {
+		t.Fatalf("Pipeline.Run: %v", err)
+	}
+
+	g := p.GetGraph()
+	var parentModule, childModule *lpg.Node
+	for _, n := range graph.FindNodesByLabel(g, graph.LabelModule) {
+		source := graph.GetStringProp(n, graph.PropSource)
+		name := graph.GetStringProp(n, graph.PropName)
+		switch {
+		case source == "pom.xml" && name == "parent":
+			parentModule = n
+		case source == "child/pom.xml" && name == "child-artifact":
+			childModule = n
+		case source == "pom.xml" && name == "child":
+			t.Fatal("unexpected synthetic Maven workspace module node")
+		}
+	}
+	if parentModule == nil || childModule == nil {
+		t.Fatalf("expected parent and child module nodes, got parent=%v child=%v", parentModule != nil, childModule != nil)
+	}
+
+	linked := false
+	for _, edge := range graph.GetOutgoingEdges(parentModule, graph.RelMemberOf) {
+		if edge.GetTo() == childModule {
+			linked = true
+			break
+		}
+	}
+	if !linked {
+		t.Fatal("expected parent module to link to real child module node")
+	}
+}
+
 // Integration tests: structure, CONTAINS edges, IMPORTS edges,
 // community detection, and process detection.
 

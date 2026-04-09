@@ -17,6 +17,8 @@ import (
 
 const langPHP = "php"
 
+const langJava = "java"
+
 const langPython = "python"
 
 const (
@@ -1001,6 +1003,7 @@ func parsePomXMLDependencies(data []byte, source string, cfg *ProjectConfig) {
 	if err := xml.Unmarshal(data, &pom); err != nil {
 		return
 	}
+	inheritPomProjectFields(&pom)
 	props := make(map[string]string)
 	for _, p := range pom.Properties.Inner {
 		props[p.XMLName.Local] = strings.TrimSpace(string(p.Content))
@@ -1054,12 +1057,26 @@ func parsePomXMLDependencies(data []byte, source string, cfg *ProjectConfig) {
 	}
 }
 
+func inheritPomProjectFields(pom *pomXMLFile) {
+	if pom == nil {
+		return
+	}
+	if pom.GroupID == "" {
+		pom.GroupID = pom.Parent.GroupID
+	}
+	if pom.Version == "" {
+		pom.Version = pom.Parent.Version
+	}
+}
+
 // pomXMLFile is the subset of pom.xml we parse.
 type pomXMLFile struct {
 	XMLName      xml.Name      `xml:"project"`
 	GroupID      string        `xml:"groupId"`
 	ArtifactID   string        `xml:"artifactId"`
 	Version      string        `xml:"version"`
+	Parent       pomParent     `xml:"parent"`
+	Modules      []string      `xml:"modules>module"`
 	Properties   pomProperties `xml:"properties"`
 	Dependencies struct {
 		Dependency []pomDep `xml:"dependency"`
@@ -1069,6 +1086,12 @@ type pomXMLFile struct {
 			Dependency []pomDep `xml:"dependency"`
 		} `xml:"dependencies"`
 	} `xml:"dependencyManagement"`
+}
+
+type pomParent struct {
+	GroupID    string `xml:"groupId"`
+	ArtifactID string `xml:"artifactId"`
+	Version    string `xml:"version"`
 }
 
 type pomProperties struct {

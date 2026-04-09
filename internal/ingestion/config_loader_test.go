@@ -15,6 +15,7 @@ const (
 	testPackageJSON     = "package.json"
 	testCargoTomlPath   = "/project/Cargo.toml"
 	testCargoToml       = "Cargo.toml"
+	testPomXML          = "pom.xml"
 	testScopeDev        = "dev"
 	testScopeOptional   = "optional"
 	testResolvedReact   = "18.3.1"
@@ -1169,6 +1170,8 @@ func TestManifestIdentities(t *testing.T) {
 		switch path {
 		case testGoModPath:
 			return []byte("module github.com/acme/service\n"), nil
+		case "/project/pom.xml":
+			return []byte(`<project><groupId>com.example</groupId><artifactId>root-app</artifactId><version>1.0.0</version><modules><module>service-a</module><module>service-b</module></modules></project>`), nil
 		case testPackageJSONPath:
 			return []byte(`{"name":"@acme/web","version":"1.2.0","workspaces":["packages/*","apps/*"]}`), nil
 		case testCargoTomlPath:
@@ -1192,6 +1195,15 @@ func TestManifestIdentities(t *testing.T) {
 	}
 	if got := found["package.json"].Version; got != "1.2.0" {
 		t.Errorf("package.json manifest version = %q, want 1.2.0", got)
+	}
+	if got := found["pom.xml"].Name; got != "root-app" {
+		t.Errorf("pom.xml manifest name = %q, want root-app", got)
+	}
+	if got := found["pom.xml"].Version; got != "1.0.0" {
+		t.Errorf("pom.xml manifest version = %q, want 1.0.0", got)
+	}
+	if len(found["pom.xml"].Workspaces) != 2 {
+		t.Errorf("pom.xml modules = %v, want 2 entries", found["pom.xml"].Workspaces)
 	}
 	if len(found["package.json"].Workspaces) != 2 {
 		t.Errorf("package.json workspaces = %v, want 2 entries", found["package.json"].Workspaces)
@@ -1418,7 +1430,7 @@ func TestPomXMLDependencies(t *testing.T) {
 	cfg := LoadProjectConfig("/project", readFile)
 	found := map[string]DependencyInfo{}
 	for _, d := range cfg.Dependencies {
-		if d.Source == "pom.xml" {
+		if d.Source == testPomXML {
 			found[d.Name] = d
 		}
 	}
@@ -1500,7 +1512,7 @@ func TestPomXMLDependencyManagement(t *testing.T) {
 	cfg := LoadProjectConfig("/project", readFile)
 	var names []string
 	for _, d := range cfg.Dependencies {
-		if d.Source == "pom.xml" {
+		if d.Source == testPomXML {
 			names = append(names, d.Name)
 		}
 	}
@@ -1517,6 +1529,40 @@ func TestPomXMLDependencyManagement(t *testing.T) {
 	if !found {
 		t.Error("expected commons-lang3 from dependencyManagement")
 	}
+}
+
+func TestPomXMLParentInheritance(t *testing.T) {
+	readFile := func(path string) ([]byte, error) {
+		if strings.HasSuffix(path, "pom.xml") {
+			return []byte(`<project>
+    <parent>
+        <groupId>com.example</groupId>
+        <artifactId>parent</artifactId>
+        <version>2.5.0</version>
+    </parent>
+    <artifactId>child-module</artifactId>
+    <dependencies>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>shared-lib</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+    </dependencies>
+</project>`), nil
+		}
+		return nil, fmt.Errorf("not found: %s", path)
+	}
+
+	cfg := LoadProjectConfig("/project", readFile)
+	for _, d := range cfg.Dependencies {
+		if d.Name == "com.example:shared-lib" {
+			if d.Version != "2.5.0" {
+				t.Errorf("expected resolved parent-inherited project.version=2.5.0, got %s", d.Version)
+			}
+			return
+		}
+	}
+	t.Error("expected com.example:shared-lib dependency from parent-inherited properties")
 }
 
 // --- Gradle tests ---

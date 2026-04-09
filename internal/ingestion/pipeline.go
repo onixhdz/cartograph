@@ -154,15 +154,10 @@ func (p *Pipeline) Run() error {
 		graph.AddEdge(p.Graph, manifestNode, moduleNode, graph.RelDefines, nil)
 
 		for _, workspace := range manifest.Workspaces {
-			workspaceID := "module-workspace:" + manifest.Source + ":" + workspace
-			workspaceNode := graph.AddNode(p.Graph, graph.LabelModule, map[string]any{
-				graph.PropID:       workspaceID,
-				graph.PropName:     workspace,
-				graph.PropFilePath: manifest.Source,
-				graph.PropLanguage: manifest.Language,
-				graph.PropSource:   manifest.Source,
-			})
-			graph.AddEdge(p.Graph, manifestNode, workspaceNode, graph.RelDefines, nil)
+			workspaceNode, synthetic := resolveWorkspaceModuleNode(p.Graph, manifest, workspace)
+			if synthetic {
+				graph.AddEdge(p.Graph, manifestNode, workspaceNode, graph.RelDefines, nil)
+			}
 			graph.AddEdge(p.Graph, moduleNode, workspaceNode, graph.RelMemberOf, nil)
 		}
 	}
@@ -472,6 +467,50 @@ func (p *Pipeline) Run() error {
 	mark("process detection", t11)
 
 	return nil
+}
+
+func resolveWorkspaceModuleNode(g *lpg.Graph, manifest ManifestInfo, workspace string) (*lpg.Node, bool) {
+	if childManifestPath, ok := workspaceManifestPath(manifest, workspace); ok {
+		if child := graph.FindNodeByFilePath(g, childManifestPath); child != nil {
+			for _, edge := range graph.GetOutgoingEdges(child, graph.RelDefines) {
+				if to := edge.GetTo(); to != nil && to.HasLabel(string(graph.LabelModule)) {
+					return to, false
+				}
+			}
+		}
+	}
+
+	workspaceID := "module-workspace:" + manifest.Source + ":" + workspace
+	workspaceNode := graph.AddNode(g, graph.LabelModule, map[string]any{
+		graph.PropID:       workspaceID,
+		graph.PropName:     workspace,
+		graph.PropFilePath: manifest.Source,
+		graph.PropLanguage: manifest.Language,
+		graph.PropSource:   manifest.Source,
+	})
+	return workspaceNode, true
+}
+
+func workspaceManifestPath(manifest ManifestInfo, workspace string) (string, bool) {
+	workspace = strings.TrimSpace(workspace)
+	if workspace == "" || strings.ContainsAny(workspace, "*?[") {
+		return "", false
+	}
+
+	manifestDir := path.Dir(manifest.Source)
+	if manifestDir == "." {
+		manifestDir = ""
+	}
+
+	var candidate string
+	switch manifest.Language {
+	case "java":
+		candidate = path.Join(manifestDir, workspace, "pom.xml")
+	default:
+		return "", false
+	}
+
+	return path.Clean(candidate), true
 }
 
 // parseFiles runs tree-sitter extraction on all parseable files.
