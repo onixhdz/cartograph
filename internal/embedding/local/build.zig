@@ -325,6 +325,7 @@ pub fn build(b: *std.Build) void {
                 const wf = b.addWriteFiles();
                 const path = wf.add(entry[0], entry[1]);
                 const install_stub = b.addInstallFile(path, entry[0]);
+                native_step.dependOn(&install_stub.step);
                 b.getInstallStep().dependOn(&install_stub.step);
             }
         }
