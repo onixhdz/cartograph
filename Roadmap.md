@@ -30,7 +30,7 @@ Most structural code questions (blast radius, call chains, process ownership, su
 | 6   | Incremental Re-Indexing     | 🔲 Planned | High     | Diff-based re-index; only re-parse changed files (10–100× speedup)                                                                               |
 | 7   | PR Context Generation       | 🔲 Planned | High     | Blast radius + suggested reviewers + risk score from diff                                                                                        |
 | 8   | Git History Intelligence    | 🔲 Planned | High     | Overlay churn, change coupling, and ownership onto graph nodes                                                                                   |
-| 9   | Cross-Repo Analysis         | 🔲 Planned | High     | Federate multiple repo graphs; trace call chains across service boundaries                                                                       |
+| 9   | Cross-Repo Analysis         | 🔲 Planned | Critical | Federate multiple repo graphs; trace call chains across service boundaries; critical for real microservice and multi-repo analysis               |
 | 10  | CloudGraph                  | 🔲 Planned | High     | Plugin-based cloud/infra data sources (AWS, GitHub, k8s, SaaS) ingested into the knowledge graph; query infrastructure alongside code via Cypher |
 | 11  | Schema Versioning           | ✅ Done    | Medium   | Index metadata stores schema/algorithm versions and compatibility checks prompt re-indexing on incompatible upgrades                             |
 | 12  | Trigram Regex Search        | 🔲 Planned | Medium   | `google/codesearch` trigram index; `query --regex`; MCP `regex_search` tool                                                                      |
