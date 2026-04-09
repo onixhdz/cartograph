@@ -529,8 +529,8 @@ func (p *Pipeline) addSymbolsToGraph(pr *extractors.ParseResult, absToRel map[st
 		if sym.OwnerName == "" {
 			continue
 		}
-		ownerNodes := ownerIndex.FindNodesByName(sym.OwnerName)
-		if len(ownerNodes) == 0 {
+		ownerNode := selectOwnerNode(ownerIndex.FindNodesByName(sym.OwnerName), graph.GetStringProp(ref.node, graph.PropFilePath))
+		if ownerNode == nil {
 			continue
 		}
 		var relType graph.RelType
@@ -540,8 +540,22 @@ func (p *Pipeline) addSymbolsToGraph(pr *extractors.ParseResult, absToRel map[st
 		default:
 			relType = graph.RelHasMethod
 		}
-		graph.AddEdge(p.Graph, ownerNodes[0], ref.node, relType, nil)
+		graph.AddEdge(p.Graph, ownerNode, ref.node, relType, nil)
 	}
+}
+
+func selectOwnerNode(candidates []*lpg.Node, memberFilePath string) *lpg.Node {
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	for _, node := range candidates {
+		if graph.GetStringProp(node, graph.PropFilePath) == memberFilePath {
+			return node
+		}
+	}
+
+	return candidates[0]
 }
 
 // symbolRange holds the ID and line span of a symbol node for fast

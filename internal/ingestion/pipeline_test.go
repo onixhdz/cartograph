@@ -580,3 +580,55 @@ func (s *Server) monitor() {}
 	}
 	t.Logf("Found %d SPAWNS edges: %v", spawnCount, spawnTargets)
 }
+
+func TestPipeline_AddSymbolsToGraphPrefersOwnerInSameFile(t *testing.T) {
+	p := NewPipeline("/fake/root", PipelineOptions{})
+
+	graph.AddSymbolNode(p.Graph, graph.LabelClass, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "class:pkg1:service", Name: "Service"},
+		FilePath:      "pkg1/service.go",
+		StartLine:     1,
+		EndLine:       20,
+	})
+	graph.AddSymbolNode(p.Graph, graph.LabelClass, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "class:pkg2:service", Name: "Service"},
+		FilePath:      "pkg2/service.go",
+		StartLine:     1,
+		EndLine:       20,
+	})
+
+	parseResult := &extractors.ParseResult{
+		Symbols: []extractors.ExtractedSymbol{{
+			ID:        "method:pkg2:service:run",
+			Name:      "Run",
+			Label:     graph.LabelMethod,
+			FilePath:  "/fake/root/pkg2/service.go",
+			StartLine: 3,
+			EndLine:   5,
+			OwnerName: "Service",
+		}},
+	}
+
+	p.addSymbolsToGraph(parseResult, map[string]string{
+		"/fake/root/pkg2/service.go": "pkg2/service.go",
+	})
+
+	methodNode := graph.FindNodeByID(p.Graph, "method:pkg2:service:run")
+	if methodNode == nil {
+		t.Fatal("expected method node to be created")
+	}
+
+	var gotOwnerID string
+	graph.ForEachEdge(p.Graph, func(e *lpg.Edge) bool {
+		rt, err := graph.GetEdgeRelType(e)
+		if err != nil || rt != graph.RelHasMethod || e.GetTo() != methodNode {
+			return true
+		}
+		gotOwnerID = graph.GetStringProp(e.GetFrom(), graph.PropID)
+		return false
+	})
+
+	if gotOwnerID != "class:pkg2:service" {
+		t.Fatalf("expected owner class:pkg2:service, got %q", gotOwnerID)
+	}
+}
