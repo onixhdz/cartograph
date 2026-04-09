@@ -13,6 +13,8 @@ var genericFallbackAllowlist = map[string]bool{
 	"protobuf":   true,
 	"dockerfile": true,
 	"bash":       true,
+	"groovy":     true,
+	"make":       true,
 }
 
 // HasNativeSupport reports whether the language is available via the native

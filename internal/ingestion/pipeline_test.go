@@ -119,6 +119,33 @@ func TestPipeline_NewPipeline(t *testing.T) {
 	}
 }
 
+func TestPipeline_MakefileBuildProcesses(t *testing.T) {
+	dir := testutil.TempDir(t, map[string]string{
+		"Makefile": "build:\n\tgo build ./...\n\ntest:\n\tgo test ./...\n\nhelp:\n\t@echo help\n",
+	})
+
+	p := NewPipeline(dir, PipelineOptions{})
+	if err := p.Run(); err != nil {
+		t.Fatalf("Pipeline.Run: %v", err)
+	}
+
+	g := p.GetGraph()
+	processes := graph.FindNodesByLabel(g, graph.LabelProcess)
+	if len(processes) != 2 {
+		t.Fatalf("expected 2 high-signal Makefile process nodes, got %d", len(processes))
+	}
+	names := map[string]bool{}
+	for _, n := range processes {
+		names[graph.GetStringProp(n, graph.PropName)] = true
+		if graph.GetStringProp(n, graph.PropFilePath) != "Makefile" {
+			t.Errorf("expected Makefile-backed process, got filePath=%q", graph.GetStringProp(n, graph.PropFilePath))
+		}
+	}
+	if !names["build"] || !names["test"] {
+		t.Fatalf("expected build and test processes, got %v", names)
+	}
+}
+
 // Integration tests: structure, CONTAINS edges, IMPORTS edges,
 // community detection, and process detection.
 

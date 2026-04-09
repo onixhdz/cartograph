@@ -149,6 +149,7 @@ type DependencyProps struct {
 	Version string `msgpack:"version" json:"version,omitempty"`
 	Source  string `msgpack:"source"  json:"source"` // manifest file, e.g. "go.mod"
 	DevDep  bool   `msgpack:"devDep"  json:"devDep,omitempty"`
+	Scope   string `msgpack:"scope"   json:"scope,omitempty"`
 }
 
 // EdgeProps contains properties for CodeRelation edges.
@@ -192,6 +193,7 @@ const (
 	PropVersion        = "version"
 	PropSource         = "source"
 	PropDevDep         = "devDep"
+	PropScope          = "scope"
 	PropIsTest         = "isTest"
 
 	// PropRepoName identifies which repository a node belongs to.

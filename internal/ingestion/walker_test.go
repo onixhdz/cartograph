@@ -657,6 +657,8 @@ func TestWalk_RubyExtensionlessFiles(t *testing.T) {
 func TestWalk_SupportingLanguageDetection(t *testing.T) {
 	dir := testutil.TempDir(t, map[string]string{
 		"Dockerfile":     "FROM alpine:3.20\n",
+		"build.gradle":   "plugins { id 'java' }\n",
+		"Makefile":       "build:\n\tgo build ./...\n",
 		"config.yaml":    "key: value\n",
 		"settings.json":  "{\"key\":\"value\"}\n",
 		"infra.tf":       "resource \"aws_s3_bucket\" \"x\" {}\n",
@@ -680,6 +682,8 @@ func TestWalk_SupportingLanguageDetection(t *testing.T) {
 
 	for file, want := range map[string]string{
 		"Dockerfile":     "dockerfile",
+		"build.gradle":   "groovy",
+		"Makefile":       "make",
 		"config.yaml":    "yaml",
 		"settings.json":  "json",
 		"infra.tf":       "hcl",

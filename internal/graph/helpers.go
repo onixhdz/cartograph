@@ -82,6 +82,7 @@ func AddDependencyNode(g *lpg.Graph, p DependencyProps) *lpg.Node {
 		PropVersion: p.Version,
 		PropSource:  p.Source,
 		PropDevDep:  p.DevDep,
+		PropScope:   p.Scope,
 	})
 }
 

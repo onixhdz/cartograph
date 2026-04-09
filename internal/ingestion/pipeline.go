@@ -82,7 +82,13 @@ func (p *Pipeline) Run() error {
 	}
 
 	// Step 1b: Load project configuration (go.mod, tsconfig.json, etc.).
-	projectConfig := LoadProjectConfig(p.Root, p.Reader.ReadFile)
+	projectFiles := make([]string, 0, len(walkResults))
+	for _, wr := range walkResults {
+		if !wr.IsDir {
+			projectFiles = append(projectFiles, wr.RelPath)
+		}
+	}
+	projectConfig := LoadProjectConfig(p.Root, p.Reader.ReadFile, ProjectConfigOptions{Files: projectFiles})
 
 	// Step 2: Build file/folder structure.
 	step("Building structure", 2)
@@ -122,11 +128,60 @@ func (p *Pipeline) Run() error {
 			Version:       dep.Version,
 			Source:        dep.Source,
 			DevDep:        dep.Dev,
+			Scope:         dep.Scope,
 		})
 		manifestNode := graph.FindNodeByFilePath(p.Graph, dep.Source)
 		if manifestNode != nil {
 			graph.AddEdge(p.Graph, manifestNode, depNode, graph.RelDependsOn, nil)
 		}
+	}
+
+	// Step 2d: Create package/module identity nodes from manifest files.
+	for _, manifest := range projectConfig.Manifests {
+		manifestNode := graph.FindNodeByFilePath(p.Graph, manifest.Source)
+		if manifestNode == nil {
+			continue
+		}
+		moduleID := "module:" + manifest.Source + ":" + manifest.Name
+		moduleNode := graph.AddNode(p.Graph, graph.LabelModule, map[string]any{
+			graph.PropID:       moduleID,
+			graph.PropName:     manifest.Name,
+			graph.PropVersion:  manifest.Version,
+			graph.PropFilePath: manifest.Source,
+			graph.PropLanguage: manifest.Language,
+			graph.PropSource:   manifest.Source,
+		})
+		graph.AddEdge(p.Graph, manifestNode, moduleNode, graph.RelDefines, nil)
+
+		for _, workspace := range manifest.Workspaces {
+			workspaceID := "module-workspace:" + manifest.Source + ":" + workspace
+			workspaceNode := graph.AddNode(p.Graph, graph.LabelModule, map[string]any{
+				graph.PropID:       workspaceID,
+				graph.PropName:     workspace,
+				graph.PropFilePath: manifest.Source,
+				graph.PropLanguage: manifest.Language,
+				graph.PropSource:   manifest.Source,
+			})
+			graph.AddEdge(p.Graph, manifestNode, workspaceNode, graph.RelDefines, nil)
+			graph.AddEdge(p.Graph, moduleNode, workspaceNode, graph.RelMemberOf, nil)
+		}
+	}
+
+	// Step 2e: Create high-signal build process nodes from parsed build files.
+	for _, proc := range projectConfig.BuildProcesses {
+		fileNode := graph.FindNodeByFilePath(p.Graph, proc.Source)
+		if fileNode == nil {
+			continue
+		}
+		procID := "proc:" + proc.Source + ":" + proc.Name
+		procNode := graph.AddProcessNode(p.Graph, graph.ProcessProps{
+			BaseNodeProps: graph.BaseNodeProps{ID: procID, Name: proc.Name},
+			EntryPoint:    proc.EntryPoint,
+		})
+		procNode.SetProperty(graph.PropFilePath, proc.Source)
+		procNode.SetProperty(graph.PropLanguage, proc.Language)
+		procNode.SetProperty(graph.PropSource, proc.Source)
+		graph.AddEdge(p.Graph, fileNode, procNode, graph.RelDefines, nil)
 	}
 
 	// Step 3: Tree-sitter parsing — extract symbols, imports, calls, heritage.

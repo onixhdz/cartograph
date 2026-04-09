@@ -184,7 +184,12 @@ func readIgnoreLines(path string) []string {
 }
 
 var supportingLanguageNamesByFilename = map[string]string{
-	"dockerfile": "dockerfile",
+	"dockerfile":   "dockerfile",
+	"build.sbt":    "scala",
+	"build.gradle": "groovy",
+	"makefile":     "make",
+	"gnumakefile":  "make",
+	"bsdmakefile":  "make",
 }
 
 var supportingLanguageNamesBySuffix = map[string]string{

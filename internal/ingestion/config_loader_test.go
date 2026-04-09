@@ -3,6 +3,7 @@ package ingestion
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -14,8 +15,14 @@ const (
 	testPackageJSON     = "package.json"
 	testCargoTomlPath   = "/project/Cargo.toml"
 	testCargoToml       = "Cargo.toml"
+	testScopeDev        = "dev"
+	testScopeOptional   = "optional"
+	testResolvedReact   = "18.3.1"
+	testVersion1_2      = "1.2.0"
 	testVersion1_0      = "1.0"
 	testVersion0_5      = "0.5"
+	testVersion5_10_0   = "5.10.0"
+	testGuavaVersion    = "33.0.0-jre"
 	testReqTxtPath      = "/project/requirements.txt"
 	testReqTxt          = "requirements.txt"
 )
@@ -215,6 +222,314 @@ func TestLoadPackageJSONDependencies(t *testing.T) {
 	}
 	if devCount != 1 {
 		t.Errorf("expected 1 dev dependency, got %d", devCount)
+	}
+}
+
+func TestLoadPackageJSONDependencyScopes(t *testing.T) {
+	readFile := func(path string) ([]byte, error) {
+		if path == testPackageJSONPath {
+			return []byte(`{
+				"dependencies": {"react": "^18.0.0"},
+				"devDependencies": {"jest": "^29.0.0"},
+				"peerDependencies": {"typescript": "^5.0.0"},
+				"optionalDependencies": {"fsevents": "^2.3.0"}
+			}`), nil
+		}
+		return nil, fmt.Errorf("not found: %s", path)
+	}
+
+	cfg := LoadProjectConfig("/project", readFile)
+	found := map[string]DependencyInfo{}
+	for _, d := range cfg.Dependencies {
+		if d.Source == testPackageJSON {
+			found[d.Name] = d
+		}
+	}
+	if dep := found["react"]; dep.Scope != "" || dep.Dev {
+		t.Errorf("expected react as production dependency, got %+v", dep)
+	}
+	if dep := found["jest"]; dep.Scope != testScopeDev || !dep.Dev {
+		t.Errorf("expected jest as dev dependency, got %+v", dep)
+	}
+	if dep := found["typescript"]; dep.Scope != "peer" || !dep.Dev {
+		t.Errorf("expected typescript as peer dependency, got %+v", dep)
+	}
+	if dep := found["fsevents"]; dep.Scope != testScopeOptional || !dep.Dev {
+		t.Errorf("expected fsevents as optional dependency, got %+v", dep)
+	}
+	if len(found) != 4 {
+		t.Fatalf("expected 4 package.json deps, got %d: %v", len(found), found)
+	}
+}
+
+func TestPackageLockJSONEnrichesDeclaredVersions(t *testing.T) {
+	readFile := func(path string) ([]byte, error) {
+		switch path {
+		case testPackageJSONPath:
+			return []byte(`{
+				"dependencies": {"react": "^18.0.0"},
+				"devDependencies": {"jest": "^29.0.0"}
+			}`), nil
+		case "/project/package-lock.json":
+			return []byte(`{
+				"lockfileVersion": 3,
+				"packages": {
+					"": {},
+					"node_modules/react": {"version": "18.3.1"},
+					"node_modules/jest": {"version": "29.7.0", "dev": true},
+					"node_modules/lodash": {"version": "4.17.21"}
+				}
+			}`), nil
+		}
+		return nil, fmt.Errorf("not found: %s", path)
+	}
+
+	cfg := LoadProjectConfig("/project", readFile)
+	found := map[string]DependencyInfo{}
+	for _, d := range cfg.Dependencies {
+		if d.Source == testPackageJSON {
+			found[d.Name] = d
+		}
+	}
+	if dep := found["react"]; dep.Version != testResolvedReact {
+		t.Errorf("expected react version enriched from package-lock.json, got %+v", dep)
+	}
+	if dep := found["jest"]; dep.Version != "29.7.0" || dep.Scope != testScopeDev || !dep.Dev {
+		t.Errorf("expected jest version enriched from package-lock.json, got %+v", dep)
+	}
+	if _, ok := found["lodash"]; ok {
+		t.Error("lockfile-only transitive deps should not be added to cfg.Dependencies")
+	}
+}
+
+func TestYarnLockEnrichesDeclaredVersions(t *testing.T) {
+	readFile := func(path string) ([]byte, error) {
+		switch path {
+		case testPackageJSONPath:
+			return []byte(`{"dependencies": {"react": "^18.0.0", "@types/node": "^20.0.0"}}`), nil
+		case "/project/yarn.lock":
+			return []byte(`react@^18.0.0:
+	version "18.3.1"
+
+"@types/node@^20.0.0":
+	version "20.12.7"
+`), nil
+		}
+		return nil, fmt.Errorf("not found: %s", path)
+	}
+
+	cfg := LoadProjectConfig("/project", readFile)
+	found := map[string]DependencyInfo{}
+	for _, d := range cfg.Dependencies {
+		if d.Source == testPackageJSON {
+			found[d.Name] = d
+		}
+	}
+	if dep := found["react"]; dep.Version != testResolvedReact {
+		t.Errorf("expected react version enriched from yarn.lock, got %+v", dep)
+	}
+	if dep := found["@types/node"]; dep.Version != "20.12.7" {
+		t.Errorf("expected @types/node version enriched from yarn.lock, got %+v", dep)
+	}
+}
+
+func TestPnpmLockEnrichesDeclaredVersions(t *testing.T) {
+	readFile := func(path string) ([]byte, error) {
+		switch path {
+		case testPackageJSONPath:
+			return []byte(`{"dependencies": {"react": "^18.0.0", "@types/node": "^20.0.0"}}`), nil
+		case "/project/pnpm-lock.yaml":
+			return []byte(`lockfileVersion: '9.0'
+packages:
+  /react@18.3.1:
+    resolution: {integrity: sha512-abc}
+  /@types/node@20.12.7:
+    resolution: {integrity: sha512-def}
+`), nil
+		}
+		return nil, fmt.Errorf("not found: %s", path)
+	}
+
+	cfg := LoadProjectConfig("/project", readFile)
+	found := map[string]DependencyInfo{}
+	for _, d := range cfg.Dependencies {
+		if d.Source == testPackageJSON {
+			found[d.Name] = d
+		}
+	}
+	if dep := found["react"]; dep.Version != testResolvedReact {
+		t.Errorf("expected react version enriched from pnpm-lock.yaml, got %+v", dep)
+	}
+	if dep := found["@types/node"]; dep.Version != "20.12.7" {
+		t.Errorf("expected @types/node version enriched from pnpm-lock.yaml, got %+v", dep)
+	}
+}
+
+func TestWorkspacePackageJSONDependenciesAndManifestIdentity(t *testing.T) {
+	readFile := func(path string) ([]byte, error) {
+		switch path {
+		case testPackageJSONPath:
+			return []byte(`{"name":"root-app","workspaces":["packages/*"]}`), nil
+		case "/project/packages/web/package.json":
+			return []byte(`{
+				"name":"@acme/web",
+				"version":"1.2.0",
+				"dependencies":{"react":"^18.0.0"},
+				"devDependencies":{"vitest":"^2.0.0"}
+			}`), nil
+		case "/project/packages/web/package-lock.json":
+			return []byte(`{
+				"lockfileVersion": 3,
+				"packages": {
+					"": {},
+					"node_modules/react": {"version": "18.3.1"},
+					"node_modules/vitest": {"version": "2.1.0", "dev": true}
+				}
+			}`), nil
+		}
+		return nil, fmt.Errorf("not found: %s", path)
+	}
+
+	cfg := LoadProjectConfig("/project", readFile, ProjectConfigOptions{Files: []string{
+		"package.json",
+		"packages/web/package.json",
+		"packages/web/package-lock.json",
+	}})
+
+	foundDeps := map[string]DependencyInfo{}
+	for _, d := range cfg.Dependencies {
+		if d.Source == "packages/web/package.json" {
+			foundDeps[d.Name] = d
+		}
+	}
+	if dep := foundDeps["react"]; dep.Version != testResolvedReact {
+		t.Errorf("expected workspace react version enriched from nested package-lock.json, got %+v", dep)
+	}
+	if dep := foundDeps["vitest"]; dep.Version != "2.1.0" || dep.Scope != testScopeDev || !dep.Dev {
+		t.Errorf("expected workspace vitest dev dep enriched from nested package-lock.json, got %+v", dep)
+	}
+
+	foundManifest := false
+	for _, m := range cfg.Manifests {
+		if m.Source == "packages/web/package.json" && m.Name == "@acme/web" && m.Version == testVersion1_2 {
+			foundManifest = true
+		}
+	}
+	if !foundManifest {
+		t.Error("expected nested workspace package.json manifest identity to be recorded")
+	}
+}
+
+func TestMonorepoGoModDependencies(t *testing.T) {
+	readFile := func(path string) ([]byte, error) {
+		switch filepath.ToSlash(path) {
+		case "/project/go.mod":
+			return []byte("module github.com/acme/root\n\ngo 1.25\n\nrequire (\n\tgithub.com/root/dep v1.0.0\n)\n"), nil
+		case "/project/services/api/go.mod":
+			return []byte("module github.com/acme/api\n\ngo 1.25\n\nrequire (\n\tgithub.com/api/dep/v2 v2.0.0\n)\n"), nil
+		}
+		return nil, fmt.Errorf("not found: %s", path)
+	}
+
+	cfg := LoadProjectConfig("/project", readFile, ProjectConfigOptions{Files: []string{"go.mod", "services/api/go.mod"}})
+	found := map[string]string{}
+	for _, d := range cfg.Dependencies {
+		found[d.Source+":"+d.Name] = d.Version
+	}
+	if found["go.mod:github.com/root/dep"] != "v1.0.0" {
+		t.Fatalf("expected root go.mod dependency, got %v", found)
+	}
+	if found["services/api/go.mod:github.com/api/dep/v2"] != "v2.0.0" {
+		t.Fatalf("expected nested go.mod dependency, got %v", found)
+	}
+}
+
+func TestMonorepoPyprojectDependenciesAndManifest(t *testing.T) {
+	readFile := func(path string) ([]byte, error) {
+		switch filepath.ToSlash(path) {
+		case "/project/pyproject.toml":
+			return []byte("[project]\nname='root'\ndependencies=['requests>=2.0']\n"), nil
+		case "/project/packages/api/pyproject.toml":
+			return []byte("[project]\nname='api'\nversion='0.2.0'\ndependencies=['fastapi>=0.100']\n"), nil
+		}
+		return nil, fmt.Errorf("not found: %s", path)
+	}
+
+	cfg := LoadProjectConfig("/project", readFile, ProjectConfigOptions{Files: []string{"pyproject.toml", "packages/api/pyproject.toml"}})
+	foundDeps := map[string]string{}
+	for _, d := range cfg.Dependencies {
+		foundDeps[d.Source+":"+d.Name] = d.Version
+	}
+	if foundDeps["packages/api/pyproject.toml:fastapi"] != ">=0.100" {
+		t.Fatalf("expected nested pyproject dependency, got %v", foundDeps)
+	}
+	foundManifest := false
+	for _, m := range cfg.Manifests {
+		if m.Source == "packages/api/pyproject.toml" && m.Name == "api" && m.Version == "0.2.0" {
+			foundManifest = true
+		}
+	}
+	if !foundManifest {
+		t.Fatal("expected nested pyproject manifest")
+	}
+}
+
+func TestMonorepoCargoDependenciesAndManifest(t *testing.T) {
+	readFile := func(path string) ([]byte, error) {
+		switch filepath.ToSlash(path) {
+		case "/project/Cargo.toml":
+			return []byte("[package]\nname='root'\nversion='0.1.0'\n[dependencies]\nserde='1.0'\n"), nil
+		case "/project/crates/lib/Cargo.toml":
+			return []byte("[package]\nname='lib'\nversion='0.2.0'\n[dependencies]\nanyhow='1.0'\n"), nil
+		}
+		return nil, fmt.Errorf("not found: %s", path)
+	}
+
+	cfg := LoadProjectConfig("/project", readFile, ProjectConfigOptions{Files: []string{"Cargo.toml", "crates/lib/Cargo.toml"}})
+	foundDeps := map[string]string{}
+	for _, d := range cfg.Dependencies {
+		foundDeps[d.Source+":"+d.Name] = d.Version
+	}
+	if foundDeps["crates/lib/Cargo.toml:anyhow"] != "1.0" {
+		t.Fatalf("expected nested Cargo dependency, got %v", foundDeps)
+	}
+	foundManifest := false
+	for _, m := range cfg.Manifests {
+		if m.Source == "crates/lib/Cargo.toml" && m.Name == "lib" && m.Version == "0.2.0" {
+			foundManifest = true
+		}
+	}
+	if !foundManifest {
+		t.Fatal("expected nested Cargo manifest")
+	}
+}
+
+func TestMonorepoPomGradleAndCsprojDependencies(t *testing.T) {
+	readFile := func(path string) ([]byte, error) {
+		switch filepath.ToSlash(path) {
+		case "/project/services/java/pom.xml":
+			return []byte("<project><dependencies><dependency><groupId>org.slf4j</groupId><artifactId>slf4j-api</artifactId><version>2.0.9</version></dependency></dependencies></project>"), nil
+		case "/project/services/java/gradle.lockfile":
+			return []byte("org.junit.jupiter:junit-jupiter:5.10.0=testCompileClasspath\n"), nil
+		case "/project/services/dotnet/App.csproj":
+			return []byte("<Project><ItemGroup><PackageReference Include=\"Newtonsoft.Json\" Version=\"13.0.3\" /></ItemGroup></Project>"), nil
+		}
+		return nil, fmt.Errorf("not found: %s", path)
+	}
+
+	cfg := LoadProjectConfig("/project", readFile, ProjectConfigOptions{Files: []string{"services/java/pom.xml", "services/java/gradle.lockfile", "services/dotnet/App.csproj"}})
+	found := map[string]DependencyInfo{}
+	for _, d := range cfg.Dependencies {
+		found[d.Source+":"+d.Name] = d
+	}
+	if dep := found["services/java/pom.xml:org.slf4j:slf4j-api"]; dep.Version != "2.0.9" {
+		t.Fatalf("expected nested pom dependency, got %+v", dep)
+	}
+	if dep := found["services/java/gradle.lockfile:org.junit.jupiter:junit-jupiter"]; dep.Version != testVersion5_10_0 || !dep.Dev {
+		t.Fatalf("expected nested gradle lockfile dependency, got %+v", dep)
+	}
+	if dep := found["services/dotnet/App.csproj:Newtonsoft.Json"]; dep.Version != "13.0.3" {
+		t.Fatalf("expected nested csproj dependency, got %+v", dep)
 	}
 }
 
@@ -849,6 +1164,46 @@ func TestPackageJSONNormalProject(t *testing.T) {
 	}
 }
 
+func TestManifestIdentities(t *testing.T) {
+	readFile := func(path string) ([]byte, error) {
+		switch path {
+		case testGoModPath:
+			return []byte("module github.com/acme/service\n"), nil
+		case testPackageJSONPath:
+			return []byte(`{"name":"@acme/web","version":"1.2.0","workspaces":["packages/*","apps/*"]}`), nil
+		case testCargoTomlPath:
+			return []byte("[package]\nname = \"carto\"\nversion = \"0.1.0\"\n"), nil
+		case "/project/pyproject.toml":
+			return []byte("[project]\nname='pyapp'\nversion='0.5.0'\n"), nil
+		}
+		return nil, fmt.Errorf("not found: %s", path)
+	}
+
+	cfg := LoadProjectConfig("/project", readFile)
+	found := map[string]ManifestInfo{}
+	for _, m := range cfg.Manifests {
+		found[m.Source] = m
+	}
+	if got := found["go.mod"].Name; got != "github.com/acme/service" {
+		t.Errorf("go.mod manifest name = %q, want github.com/acme/service", got)
+	}
+	if got := found["package.json"].Name; got != "@acme/web" {
+		t.Errorf("package.json manifest name = %q, want @acme/web", got)
+	}
+	if got := found["package.json"].Version; got != "1.2.0" {
+		t.Errorf("package.json manifest version = %q, want 1.2.0", got)
+	}
+	if len(found["package.json"].Workspaces) != 2 {
+		t.Errorf("package.json workspaces = %v, want 2 entries", found["package.json"].Workspaces)
+	}
+	if got := found["Cargo.toml"].Name; got != "carto" {
+		t.Errorf("Cargo.toml manifest name = %q, want carto", got)
+	}
+	if got := found["pyproject.toml"].Name; got != "pyapp" {
+		t.Errorf("pyproject.toml manifest name = %q, want pyapp", got)
+	}
+}
+
 func TestRequirementsTxtTripleEquals(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
 		if path == testReqTxtPath {
@@ -1073,7 +1428,7 @@ func TestPomXMLDependencies(t *testing.T) {
 		t.Errorf("expected spring-core 6.1.0, got %v", found["org.springframework:spring-core"])
 	}
 	// guava
-	if dep, ok := found["com.google.guava:guava"]; !ok || dep.Version != "33.0.0-jre" {
+	if dep, ok := found["com.google.guava:guava"]; !ok || dep.Version != testGuavaVersion {
 		t.Errorf("expected guava 33.0.0-jre, got %v", found["com.google.guava:guava"])
 	}
 	// junit should be dev
@@ -1200,35 +1555,59 @@ empty=
 	}
 }
 
-func TestGradleBuildFile(t *testing.T) {
+func TestGradleBuildFileParserBackedDependencies(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
 		if strings.HasSuffix(path, "build.gradle") {
-			return []byte(`plugins {
-    id 'java'
-}
-dependencies {
+			return []byte(`dependencies {
     implementation 'com.google.guava:guava:33.0.0-jre'
-    testImplementation "org.junit.jupiter:junit-jupiter:5.10.0"
-    api 'io.netty:netty-all:4.1.100.Final'
-    implementation "some.lib:with-var:$someVersion"
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.0'
+    classpath 'org.springframework.boot:spring-boot-gradle-plugin:3.3.0'
 }`), nil
 		}
 		return nil, fmt.Errorf("not found: %s", path)
 	}
 
-	cfg := LoadProjectConfig("/project", readFile)
+	cfg := LoadProjectConfig("/project", readFile, ProjectConfigOptions{Files: []string{"build.gradle"}})
 	found := map[string]DependencyInfo{}
 	for _, d := range cfg.Dependencies {
 		if d.Source == "build.gradle" {
 			found[d.Name] = d
 		}
 	}
-	// $someVersion should be skipped
-	if len(found) != 3 {
-		t.Fatalf("expected 3 build.gradle deps, got %d: %v", len(found), found)
+	if dep := found["com.google.guava:guava"]; dep.Version != testGuavaVersion || dep.Dev {
+		t.Fatalf("expected guava prod dependency, got %+v", dep)
 	}
-	if dep := found["org.junit.jupiter:junit-jupiter"]; !dep.Dev {
-		t.Errorf("expected testImplementation as dev")
+	if dep := found["org.junit.jupiter:junit-jupiter"]; dep.Version != testVersion5_10_0 || !dep.Dev || dep.Scope != depScopeTest {
+		t.Fatalf("expected junit test dependency, got %+v", dep)
+	}
+	if dep := found["org.springframework.boot:spring-boot-gradle-plugin"]; dep.Version != "3.3.0" || !dep.Dev || dep.Scope != "build" {
+		t.Fatalf("expected classpath build dependency, got %+v", dep)
+	}
+}
+
+func TestSBTParserBackedDependencies(t *testing.T) {
+	readFile := func(path string) ([]byte, error) {
+		if strings.HasSuffix(path, "build.sbt") {
+			return []byte(`libraryDependencies ++= Seq(
+  "org.typelevel" %% "cats-core" % "2.12.0",
+  "org.scalatest" %% "scalatest" % "3.2.19" % "test"
+)`), nil
+		}
+		return nil, fmt.Errorf("not found: %s", path)
+	}
+
+	cfg := LoadProjectConfig("/project", readFile, ProjectConfigOptions{Files: []string{"build.sbt"}})
+	found := map[string]DependencyInfo{}
+	for _, d := range cfg.Dependencies {
+		if d.Source == "build.sbt" {
+			found[d.Name] = d
+		}
+	}
+	if dep := found["org.typelevel:cats-core"]; dep.Version != "2.12.0" || dep.Dev {
+		t.Fatalf("expected cats-core prod dependency, got %+v", dep)
+	}
+	if dep := found["org.scalatest:scalatest"]; dep.Version != "3.2.19" || !dep.Dev || dep.Scope != depScopeTest {
+		t.Fatalf("expected scalatest test dependency, got %+v", dep)
 	}
 }
 
