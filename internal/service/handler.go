@@ -95,6 +95,13 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Repo = repo
+	registry, err := storage.NewRegistry(s.dataDir)
+	if err == nil {
+		if entry, ok := registry.Get(req.Repo); ok && entry.Meta.PluginName != "" {
+			writeError(w, ErrCodeQueryBlocked, ErrPluginQueryBlocked.Error())
+			return
+		}
+	}
 
 	backend, err := s.GetBackend(req.Repo)
 	if err != nil {

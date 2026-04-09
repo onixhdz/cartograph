@@ -11,6 +11,10 @@ import (
 // ErrWriteQuery is returned when a Cypher query contains write keywords.
 var ErrWriteQuery = errors.New("write queries are not allowed")
 
+// ErrPluginQueryBlocked is returned when hybrid query is used against a
+// plugin-backed dataset that should only be accessed via Cypher.
+var ErrPluginQueryBlocked = errors.New("query is not supported for plugin datasets; use cypher instead")
+
 // cypherWriteRE matches Cypher write keywords that must be blocked.
 var cypherWriteRE = regexp.MustCompile(`(?i)\b(CREATE|DELETE|SET|MERGE|REMOVE|DROP|ALTER|COPY|DETACH)\b`)
 

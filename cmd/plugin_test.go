@@ -6,8 +6,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/cloudprivacylabs/lpg/v2"
+
+	"github.com/realxen/cartograph/internal/graph"
 	internalplugin "github.com/realxen/cartograph/internal/plugin"
+	"github.com/realxen/cartograph/internal/storage"
+	"github.com/realxen/cartograph/internal/storage/bbolt"
 )
 
 const testPluginName = "mitre-capec" //nolint:misspell // MITRE is the organization name
@@ -116,5 +122,126 @@ func TestSyncInstalledPluginRegistryToSkillBase(t *testing.T) {
 	}
 	if !strings.Contains(string(data), testPluginName) {
 		t.Fatalf("mirrored plugins.json missing plugin metadata: %s", string(data))
+	}
+}
+
+func TestPersistPluginDataset(t *testing.T) {
+	oldHome := os.Getenv("HOME")
+	t.Cleanup(func() {
+		_ = os.Setenv("HOME", oldHome)
+	})
+	tmp := t.TempDir()
+	if err := os.Setenv("HOME", tmp); err != nil {
+		t.Fatalf("set HOME: %v", err)
+	}
+
+	g := lpg.NewGraph()
+	file := graph.AddFileNode(g, graph.FileProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "file:capec.md", Name: "capec.md"},
+		FilePath:      "capec.md",
+		Language:      "markdown",
+	})
+	dep := graph.AddDependencyNode(g, graph.DependencyProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "dep:capec", Name: "capec"},
+		Source:        "capec.md",
+	})
+	graph.AddEdge(g, file, dep, graph.RelDefines, nil)
+
+	if err := internalplugin.PersistPluginDataset(internalplugin.PluginDataset{
+		PluginName:     testPluginName,
+		ConnectionName: testPluginName,
+		DataDir:        DefaultDataDir(),
+		PluginDataDir:  PluginDataDir(testPluginName),
+		Graph:          g,
+		NodeCount:      2,
+		EdgeCount:      1,
+		StartedAt:      time.Now(),
+	}); err != nil {
+		t.Fatalf("PersistPluginDataset: %v", err)
+	}
+
+	repoHash := internalplugin.PluginDatasetHash(testPluginName, testPluginName)
+	repoDir := filepath.Join(DefaultDataDir(), testPluginName, repoHash)
+	if _, err := os.Stat(filepath.Join(repoDir, "graph.db")); err != nil {
+		t.Fatalf("graph.db missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repoDir, "search.bleve")); err != nil {
+		t.Fatalf("search.bleve missing: %v", err)
+	}
+
+	reg, err := storage.NewRegistry(DefaultDataDir())
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	entry, err := reg.Resolve(testPluginName)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if entry.Meta.PluginName != testPluginName {
+		t.Fatalf("PluginName = %q, want %q", entry.Meta.PluginName, testPluginName)
+	}
+
+	store, err := bbolt.New(filepath.Join(repoDir, "graph.db"))
+	if err != nil {
+		t.Fatalf("open graph store: %v", err)
+	}
+	defer store.Close()
+	loaded, err := store.LoadGraph()
+	if err != nil {
+		t.Fatalf("LoadGraph: %v", err)
+	}
+	if graph.NodeCount(loaded) != 2 {
+		t.Fatalf("node count = %d, want 2", graph.NodeCount(loaded))
+	}
+	if graph.EdgeCount(loaded) != 1 {
+		t.Fatalf("edge count = %d, want 1", graph.EdgeCount(loaded))
+	}
+}
+
+func TestRemovePluginDataset(t *testing.T) {
+	oldHome := os.Getenv("HOME")
+	t.Cleanup(func() {
+		_ = os.Setenv("HOME", oldHome)
+	})
+	tmp := t.TempDir()
+	if err := os.Setenv("HOME", tmp); err != nil {
+		t.Fatalf("set HOME: %v", err)
+	}
+
+	g := lpg.NewGraph()
+	graph.AddFileNode(g, graph.FileProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "file:test.md", Name: "test.md"},
+		FilePath:      "test.md",
+		Language:      "markdown",
+	})
+	if err := internalplugin.PersistPluginDataset(internalplugin.PluginDataset{
+		PluginName:     testPluginName,
+		ConnectionName: testPluginName,
+		DataDir:        DefaultDataDir(),
+		PluginDataDir:  PluginDataDir(testPluginName),
+		Graph:          g,
+		NodeCount:      1,
+		EdgeCount:      0,
+		StartedAt:      time.Now(),
+	}); err != nil {
+		t.Fatalf("PersistPluginDataset: %v", err)
+	}
+
+	if err := internalplugin.RemovePluginDatasets(DefaultDataDir(), testPluginName); err != nil {
+		t.Fatalf("RemovePluginDatasets: %v", err)
+	}
+
+	repoHash := internalplugin.PluginDatasetHash(testPluginName, testPluginName)
+	repoDir := filepath.Join(DefaultDataDir(), testPluginName, repoHash)
+	if _, err := os.Stat(repoDir); !os.IsNotExist(err) {
+		t.Fatalf("repo dir still exists: %v", err)
+	}
+
+	reg, err := storage.NewRegistry(DefaultDataDir())
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	if _, ok := reg.Get(testPluginName); ok {
+		t.Fatalf("plugin dataset registry entry still exists")
 	}
 }

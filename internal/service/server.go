@@ -737,14 +737,18 @@ func (s *Server) StartPluginIngestJob(ctx context.Context, req PluginIngestReque
 }
 
 func (s *Server) runPluginIngestJob(ctx context.Context, job *pluginIngestJob, req PluginIngestRequest) {
+	setFailed := func(msg string) {
+		s.pluginIngestMu.Lock()
+		job.Status = statusFailed
+		job.Error = msg
+		s.pluginIngestMu.Unlock()
+	}
+
 	select {
 	case s.pluginIngestSem <- struct{}{}:
 		defer func() { <-s.pluginIngestSem }()
 	case <-ctx.Done():
-		s.pluginIngestMu.Lock()
-		job.Status = statusFailed
-		job.Error = "canceled"
-		s.pluginIngestMu.Unlock()
+		setFailed("canceled")
 		return
 	}
 
@@ -757,6 +761,10 @@ func (s *Server) runPluginIngestJob(ctx context.Context, job *pluginIngestJob, r
 	if connection == "" {
 		connection = req.PluginName
 	}
+	if s.dataDir == "" {
+		setFailed("no data directory configured")
+		return
+	}
 	configPath := filepath.Join(s.dataDir, "config.toml")
 	pc := internalplugin.PluginConfig{}
 	if cfg, err := internalplugin.LoadConfig(configPath); err == nil {
@@ -767,10 +775,7 @@ func (s *Server) runPluginIngestJob(ctx context.Context, job *pluginIngestJob, r
 
 	binPath := filepath.Join(s.dataDir, "plugins", "bin", req.PluginName)
 	if _, err := os.Stat(binPath); err != nil {
-		s.pluginIngestMu.Lock()
-		job.Status = statusFailed
-		job.Error = "plugin binary not found: " + req.PluginName
-		s.pluginIngestMu.Unlock()
+		setFailed("plugin binary not found: " + req.PluginName)
 		return
 	}
 
@@ -785,13 +790,24 @@ func (s *Server) runPluginIngestJob(ctx context.Context, job *pluginIngestJob, r
 		ResourceTypes: req.ResourceTypes,
 		Concurrency:   req.Concurrency,
 	}); err != nil {
-		s.pluginIngestMu.Lock()
-		job.Status = statusFailed
-		job.Error = err.Error()
-		s.pluginIngestMu.Unlock()
+		setFailed(err.Error())
 		return
 	}
 	nodes, edges := builder.Commit()
+	if err := internalplugin.PersistPluginDataset(internalplugin.PluginDataset{
+		PluginName:     req.PluginName,
+		ConnectionName: connection,
+		DataDir:        s.dataDir,
+		PluginDataDir:  filepath.Join(s.dataDir, "plugins", "data", req.PluginName),
+		Graph:          g,
+		NodeCount:      nodes,
+		EdgeCount:      edges,
+		StartedAt:      job.StartedAt,
+	}); err != nil {
+		setFailed(err.Error())
+		return
+	}
+	s.DropGraph(connection)
 	dur := time.Since(job.StartedAt).Round(time.Millisecond)
 	s.pluginIngestMu.Lock()
 	job.Status = statusComplete

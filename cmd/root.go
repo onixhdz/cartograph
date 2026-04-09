@@ -99,6 +99,26 @@ func resolveRepo(explicit string) (string, error) {
 	return resolved, nil
 }
 
+func resolveTarget(repo, plugin, command string) (string, error) {
+	if repo != "" && plugin != "" {
+		return "", fmt.Errorf("%s: specify either -r or -p, not both", command)
+	}
+	target := repo
+	if plugin != "" {
+		target = plugin
+	}
+	return resolveRepo(target)
+}
+
+type TargetSelector struct {
+	Repo   string `help:"Repository name." short:"r"`
+	Plugin string `help:"Plugin dataset name." short:"p"`
+}
+
+func (t TargetSelector) Resolve(command string) (string, error) {
+	return resolveTarget(t.Repo, t.Plugin, command)
+}
+
 // CloneCmd clones a remote Git repository without indexing.
 type CloneCmd struct {
 	URL       string `arg:"" help:"Git URL to clone."`
@@ -2029,7 +2049,7 @@ func (c *ImpactCmd) Run(cli *CLI) error {
 // CypherCmd executes a raw Cypher query.
 type CypherCmd struct {
 	Query string `arg:"" help:"Cypher query to execute."`
-	Repo  string `help:"Repository name." short:"r"`
+	TargetSelector
 }
 
 func (c *CypherCmd) Run(cli *CLI) error {
@@ -2038,7 +2058,7 @@ func (c *CypherCmd) Run(cli *CLI) error {
 		return nil
 	}
 
-	repo, err := resolveRepo(c.Repo)
+	repo, err := c.Resolve("cypher")
 	if err != nil {
 		return err
 	}
@@ -2071,7 +2091,7 @@ func (c *CypherCmd) Run(cli *CLI) error {
 
 // SchemaCmd shows the graph schema (node labels, edge types, properties).
 type SchemaCmd struct {
-	Repo string `arg:"" optional:"" help:"Repository name or hash (defaults to current directory)."`
+	TargetSelector
 }
 
 func (c *SchemaCmd) Run(cli *CLI) error {
@@ -2079,8 +2099,7 @@ func (c *SchemaCmd) Run(cli *CLI) error {
 		fmt.Println(errNoService)
 		return nil
 	}
-
-	repo, err := resolveRepo(c.Repo)
+	repo, err := c.Resolve("schema")
 	if err != nil {
 		return err
 	}

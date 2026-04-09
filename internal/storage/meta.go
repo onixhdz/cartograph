@@ -45,6 +45,9 @@ type Meta struct {
 	// 'cartograph clone' but has not been indexed yet.
 	ClonedOnly bool `json:"clonedOnly,omitempty"`
 
+	// PluginName is the installed plugin binary name for plugin-backed datasets.
+	PluginName string `json:"pluginName,omitempty"`
+
 	// Embedding state (updated atomically by the embed job).
 
 	// EmbeddingStatus: "" (never run), "running", "complete", "failed".

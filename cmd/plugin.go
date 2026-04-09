@@ -216,6 +216,9 @@ func (c *PluginRmCmd) Run(_ *CLI) error {
 	if err := os.RemoveAll(dataDir); err != nil {
 		fmt.Printf("  Warning: failed to remove data directory %s: %v\n", dataDir, err)
 	}
+	if err := plugin.RemovePluginDatasets(DefaultDataDir(), c.Name); err != nil {
+		fmt.Printf("  Warning: failed to remove plugin dataset: %v\n", err)
+	}
 	if err := removeInstalledPluginMetadata(c.Name); err != nil {
 		fmt.Printf("  Warning: failed to update plugin registry: %v\n", err)
 	}
@@ -346,6 +349,19 @@ func runIngest(pluginName, connectionName string, pc plugin.PluginConfig) error 
 
 	nodes, edges := builder.Commit()
 	duration := time.Since(start)
+	if err := plugin.PersistPluginDataset(plugin.PluginDataset{
+		PluginName:     pluginName,
+		ConnectionName: connectionName,
+		DataDir:        DefaultDataDir(),
+		PluginDataDir:  PluginDataDir(pluginName),
+		Graph:          g,
+		NodeCount:      nodes,
+		EdgeCount:      edges,
+		StartedAt:      start,
+	}); err != nil {
+		sp.StopWithFailure("Ingestion failed")
+		return fmt.Errorf("persist plugin dataset: %w", err)
+	}
 
 	sp.StopWithSuccess(fmt.Sprintf("Ingestion complete (%s)", duration.Round(time.Millisecond)))
 	fmt.Printf("  Graph: %d nodes, %d edges\n", nodes, edges)

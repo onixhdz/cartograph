@@ -292,8 +292,8 @@ func TestCypherCmd(t *testing.T) {
 		mc := &mockClient{}
 		cli := &CLI{Client: mc}
 		cmd := &CypherCmd{
-			Query: "MATCH (n) RETURN n",
-			Repo:  testRepo,
+			Query:          "MATCH (n) RETURN n",
+			TargetSelector: TargetSelector{Repo: testRepo},
 		}
 
 		out := captureStdout(t, func() {
@@ -729,7 +729,7 @@ func TestNilClient(t *testing.T) {
 		{"Query", func() error { return (&QueryCmd{SearchQuery: "test", Repo: "r"}).Run(cli) }},
 		{"Context", func() error { return (&ContextCmd{Name: "Foo", Repo: "r"}).Run(cli) }},
 		{"Impact", func() error { return (&ImpactCmd{Target: "Foo", Repo: "r"}).Run(cli) }},
-		{"Cypher", func() error { return (&CypherCmd{Query: "q", Repo: "r"}).Run(cli) }},
+		{"Cypher", func() error { return (&CypherCmd{Query: "q", TargetSelector: TargetSelector{Repo: "r"}}).Run(cli) }},
 	}
 
 	for _, tc := range cmds {

@@ -169,6 +169,43 @@ func TestHandleQueryMethodNotAllowed(t *testing.T) {
 	}
 }
 
+func TestHandleQueryBlocksPluginDataset(t *testing.T) {
+	const pluginDatasetName = "plugin-capec"
+	tmpDir := t.TempDir()
+	reg, err := storage.NewRegistry(tmpDir)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	if err := reg.Add(storage.RegistryEntry{
+		Name: pluginDatasetName,
+		Hash: "pluginhash",
+		Meta: storage.Meta{PluginName: pluginDatasetName},
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	s := newTestServer()
+	s.dataDir = tmpDir
+	body := jsonBody(t, QueryRequest{Repo: pluginDatasetName, Text: "sql injection", Limit: 10})
+	req := httptest.NewRequestWithContext(context.Background(), "POST", RouteQuery, body)
+	rec := httptest.NewRecorder()
+	s.handleQuery(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+	resp := decodeResponse(t, rec)
+	if resp.Error == nil {
+		t.Fatal("expected blocked query error")
+	}
+	if resp.Error.Code != ErrCodeQueryBlocked {
+		t.Fatalf("error code = %d, want %d", resp.Error.Code, ErrCodeQueryBlocked)
+	}
+	if !strings.Contains(resp.Error.Message, "use cypher instead") {
+		t.Fatalf("unexpected error message: %s", resp.Error.Message)
+	}
+}
+
 func TestHandleContext(t *testing.T) {
 	s := newTestServer()
 	body := jsonBody(t, ContextRequest{Repo: "testrepo", Name: "main"})
