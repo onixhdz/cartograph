@@ -35,8 +35,8 @@ go.work.sum
 internal/embedding/local/zig-out/
 internal/embedding/local/.zig-cache/
 internal/embedding/local/.zig-target.stamp
-.zig-cache/
-.zig-cache-global/
+.zig-cache
+.zig-global-cache
 
 # Task runner cache
 .task/
