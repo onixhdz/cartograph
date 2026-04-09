@@ -11,8 +11,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/odvcencio/gotreesitter/grammars"
 	ignore "github.com/sabhiram/go-gitignore"
+
+	ts "github.com/realxen/cartograph/internal/treesitter"
 )
 
 // WalkResult represents a single filesystem entry discovered during walking.
@@ -182,26 +183,65 @@ func readIgnoreLines(path string) []string {
 	return lines
 }
 
-// languageAliases maps gotreesitter grammar names to the canonical language
-// names used elsewhere in cartograph (e.g. LanguageQueries keys).
-var languageAliases = map[string]string{
-	"c_sharp":    "csharp",
-	"typescript": "typescript",
-	"tsx":        "typescript",
-	"jsx":        "javascript",
+var supportingLanguageNamesByFilename = map[string]string{
+	"dockerfile":   "dockerfile",
+	"build.sbt":    "scala",
+	"build.gradle": "groovy",
+	"makefile":     "make",
+	"gnumakefile":  "make",
+	"bsdmakefile":  "make",
 }
 
-// DetectLanguage maps a filename to a language string using grammars.DetectLanguage.
+var supportingLanguageNamesBySuffix = map[string]string{
+	".json":         "json",
+	".yaml":         "yaml",
+	".yml":          "yaml",
+	".toml":         "toml",
+	".hcl":          "hcl",
+	".tf":           "hcl",
+	".tfvars":       "hcl",
+	".sql":          "sql",
+	".proto":        "protobuf",
+	".sh":           "bash",
+	".bash":         "bash",
+	".zsh":          "bash",
+	".bashrc":       "bash",
+	".bash_profile": "bash",
+	".bash_login":   "bash",
+	".profile":      "bash",
+	".zshrc":        "bash",
+	".zprofile":     "bash",
+}
+
+// DetectLanguage maps a filename to a language string using native detection
+// first, then supporting-language basename and suffix rules.
 func DetectLanguage(name string) string {
-	entry := grammars.DetectLanguage(name)
-	if entry == nil {
-		return ""
+	lowerName := strings.ToLower(name)
+	if lowerName == "makefile" || lowerName == "gnumakefile" || lowerName == "bsdmakefile" {
+		return "make"
 	}
-	// Check alias table first.
-	if alias, ok := languageAliases[entry.Name]; ok {
-		return alias
+	if strings.HasSuffix(lowerName, ".inl") || strings.HasSuffix(lowerName, ".ipp") || strings.HasSuffix(lowerName, ".tpp") {
+		return "cpp"
 	}
-	return entry.Name
+	if strings.HasSuffix(lowerName, ".h") {
+		return "cpp"
+	}
+
+	lang := ts.DetectLanguage(name)
+	if lang != nil {
+		return ts.LanguageName(lang)
+	}
+
+	if langName, ok := supportingLanguageNamesByFilename[filepath.Base(lowerName)]; ok {
+		return langName
+	}
+	for suffix, langName := range supportingLanguageNamesBySuffix {
+		if strings.HasSuffix(lowerName, suffix) {
+			return langName
+		}
+	}
+
+	return ""
 }
 
 // binaryExtensions is the set of file extensions considered binary.

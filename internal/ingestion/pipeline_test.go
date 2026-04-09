@@ -119,6 +119,88 @@ func TestPipeline_NewPipeline(t *testing.T) {
 	}
 }
 
+func TestPipeline_MakefileBuildProcesses(t *testing.T) {
+	dir := testutil.TempDir(t, map[string]string{
+		"Makefile": "build:\n\tgo build ./...\n\ntest:\n\tgo test ./...\n\nhelp:\n\t@echo help\n",
+	})
+
+	p := NewPipeline(dir, PipelineOptions{})
+	if err := p.Run(); err != nil {
+		t.Fatalf("Pipeline.Run: %v", err)
+	}
+
+	g := p.GetGraph()
+	processes := graph.FindNodesByLabel(g, graph.LabelProcess)
+	if len(processes) != 2 {
+		t.Fatalf("expected 2 high-signal Makefile process nodes, got %d", len(processes))
+	}
+	names := map[string]bool{}
+	for _, n := range processes {
+		names[graph.GetStringProp(n, graph.PropName)] = true
+		if graph.GetStringProp(n, graph.PropFilePath) != "Makefile" {
+			t.Errorf("expected Makefile-backed process, got filePath=%q", graph.GetStringProp(n, graph.PropFilePath))
+		}
+	}
+	if !names["build"] || !names["test"] {
+		t.Fatalf("expected build and test processes, got %v", names)
+	}
+}
+
+func TestPipeline_MavenWorkspacesLinkToRealChildModules(t *testing.T) {
+	dir := testutil.TempDir(t, map[string]string{
+		"pom.xml": `<project>
+  <groupId>com.example</groupId>
+  <artifactId>parent</artifactId>
+  <version>1.0.0</version>
+  <modules>
+    <module>child</module>
+  </modules>
+</project>`,
+		"child/pom.xml": `<project>
+  <parent>
+    <groupId>com.example</groupId>
+    <artifactId>parent</artifactId>
+    <version>1.0.0</version>
+  </parent>
+  <artifactId>child-artifact</artifactId>
+</project>`,
+	})
+
+	p := NewPipeline(dir, PipelineOptions{})
+	if err := p.Run(); err != nil {
+		t.Fatalf("Pipeline.Run: %v", err)
+	}
+
+	g := p.GetGraph()
+	var parentModule, childModule *lpg.Node
+	for _, n := range graph.FindNodesByLabel(g, graph.LabelModule) {
+		source := graph.GetStringProp(n, graph.PropSource)
+		name := graph.GetStringProp(n, graph.PropName)
+		switch {
+		case source == "pom.xml" && name == "parent":
+			parentModule = n
+		case source == "child/pom.xml" && name == "child-artifact":
+			childModule = n
+		case source == "pom.xml" && name == "child":
+			t.Fatal("unexpected synthetic Maven workspace module node")
+		}
+	}
+	if parentModule == nil || childModule == nil {
+		t.Fatalf("expected parent and child module nodes, got parent=%v child=%v", parentModule != nil, childModule != nil)
+	}
+
+	linked := false
+	for _, edge := range graph.GetOutgoingEdges(parentModule, graph.RelMemberOf) {
+		if edge.GetTo() == childModule {
+			linked = true
+			break
+		}
+	}
+	if !linked {
+		t.Fatal("expected parent module to link to real child module node")
+	}
+}
+
 // Integration tests: structure, CONTAINS edges, IMPORTS edges,
 // community detection, and process detection.
 
@@ -456,6 +538,28 @@ func TestPipeline_SymbolContentPopulated(t *testing.T) {
 	}
 }
 
+func TestPipeline_SymbolAnnotationsPopulated(t *testing.T) {
+	dir := testutil.TempDir(t, map[string]string{
+		"app.py": "class Demo:\n    @staticmethod\n    def helper():\n        pass\n",
+	})
+
+	p := NewPipeline(dir, PipelineOptions{})
+	if err := p.Run(); err != nil {
+		t.Fatalf("Pipeline.Run: %v", err)
+	}
+	g := p.GetGraph()
+
+	for _, n := range graph.FindNodesByLabel(g, graph.LabelMethod) {
+		if graph.GetStringProp(n, graph.PropName) == "helper" {
+			if got := graph.GetStringProp(n, graph.PropAnnotations); got != "staticmethod" {
+				t.Fatalf("helper annotations = %q, want staticmethod", got)
+			}
+			return
+		}
+	}
+	t.Fatal("expected helper method node")
+}
+
 func TestBuildImportAliasMap(t *testing.T) {
 	absToRel := map[string]string{
 		"/project/src/app.ts": "src/app.ts",
@@ -579,4 +683,56 @@ func (s *Server) monitor() {}
 		t.Fatalf("expected SPAWNS edges, got %d. Targets: %v", spawnCount, spawnTargets)
 	}
 	t.Logf("Found %d SPAWNS edges: %v", spawnCount, spawnTargets)
+}
+
+func TestPipeline_AddSymbolsToGraphPrefersOwnerInSameFile(t *testing.T) {
+	p := NewPipeline("/fake/root", PipelineOptions{})
+
+	graph.AddSymbolNode(p.Graph, graph.LabelClass, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "class:pkg1:service", Name: "Service"},
+		FilePath:      "pkg1/service.go",
+		StartLine:     1,
+		EndLine:       20,
+	})
+	graph.AddSymbolNode(p.Graph, graph.LabelClass, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "class:pkg2:service", Name: "Service"},
+		FilePath:      "pkg2/service.go",
+		StartLine:     1,
+		EndLine:       20,
+	})
+
+	parseResult := &extractors.ParseResult{
+		Symbols: []extractors.ExtractedSymbol{{
+			ID:        "method:pkg2:service:run",
+			Name:      "Run",
+			Label:     graph.LabelMethod,
+			FilePath:  "/fake/root/pkg2/service.go",
+			StartLine: 3,
+			EndLine:   5,
+			OwnerName: "Service",
+		}},
+	}
+
+	p.addSymbolsToGraph(parseResult, map[string]string{
+		"/fake/root/pkg2/service.go": "pkg2/service.go",
+	})
+
+	methodNode := graph.FindNodeByID(p.Graph, "method:pkg2:service:run")
+	if methodNode == nil {
+		t.Fatal("expected method node to be created")
+	}
+
+	var gotOwnerID string
+	graph.ForEachEdge(p.Graph, func(e *lpg.Edge) bool {
+		rt, err := graph.GetEdgeRelType(e)
+		if err != nil || rt != graph.RelHasMethod || e.GetTo() != methodNode {
+			return true
+		}
+		gotOwnerID = graph.GetStringProp(e.GetFrom(), graph.PropID)
+		return false
+	})
+
+	if gotOwnerID != "class:pkg2:service" {
+		t.Fatalf("expected owner class:pkg2:service, got %q", gotOwnerID)
+	}
 }

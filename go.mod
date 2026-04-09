@@ -1,6 +1,6 @@
 module github.com/realxen/cartograph
 
-go 1.25.0
+go 1.25.6
 
 require (
 	github.com/alecthomas/kong v1.14.0
@@ -8,15 +8,30 @@ require (
 	github.com/charmbracelet/huh v1.0.0
 	github.com/cloudprivacylabs/lpg/v2 v2.0.2
 	github.com/cloudprivacylabs/opencypher v1.0.0
+	github.com/fwcd/tree-sitter-kotlin v0.0.0-20260411204054-55622a49bd59
 	github.com/go-git/go-billy/v6 v6.0.0-20260226131633-45bd0956d66f
 	github.com/go-git/go-git/v6 v6.0.0-20260323155804-7ae1cb62d6b7
 	github.com/gofrs/flock v0.13.0
+	github.com/gortexhq/tree-sitter-swift v0.1.1-0.20260424235305-8dde3a3327dd
 	github.com/klauspost/compress v1.18.4
 	github.com/modelcontextprotocol/go-sdk v1.5.0
 	github.com/odvcencio/gotreesitter v0.10.0
 	github.com/pelletier/go-toml/v2 v2.3.0
 	github.com/posener/complete v1.2.3
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
+	github.com/tree-sitter/go-tree-sitter v0.25.0
+	github.com/tree-sitter/tree-sitter-c v0.24.2
+	github.com/tree-sitter/tree-sitter-c-sharp v0.23.5
+	github.com/tree-sitter/tree-sitter-cpp v0.23.4
+	github.com/tree-sitter/tree-sitter-go v0.25.0
+	github.com/tree-sitter/tree-sitter-java v0.23.5
+	github.com/tree-sitter/tree-sitter-javascript v0.25.0
+	github.com/tree-sitter/tree-sitter-php v0.24.2
+	github.com/tree-sitter/tree-sitter-python v0.25.0
+	github.com/tree-sitter/tree-sitter-ruby v0.23.1
+	github.com/tree-sitter/tree-sitter-rust v0.24.2
+	github.com/tree-sitter/tree-sitter-scala v0.26.0
+	github.com/tree-sitter/tree-sitter-typescript v0.23.2
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	go.etcd.io/bbolt v1.4.3
 	golang.org/x/mod v0.32.0
@@ -75,6 +90,7 @@ require (
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
+	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/mitchellh/hashstructure/v2 v2.0.2 // indirect
 	github.com/mschoch/smat v0.2.0 // indirect
@@ -104,5 +120,3 @@ replace gopkg.in/yaml.v3 => github.com/go-yaml/yaml/v3 v3.0.1
 replace gopkg.in/yaml.v2 => github.com/go-yaml/yaml/v2 v2.4.0
 
 replace gopkg.in/check.v1 => github.com/go-check/check v0.0.0-20161208181325-20d25e280405
-
-replace github.com/odvcencio/gotreesitter v0.10.0 => github.com/realxen/gotreesitter v0.10.3

@@ -31,16 +31,16 @@ Design documents, implementation plans, and roadmap details live in `.local.plan
 
 ## Build & Test
 
-> **CRITICAL: Always use `task build:dev` to build. NEVER use `go build` directly.**
-> `go build` will fail because it cannot link the native embedding library. The only correct way to build is `task build:dev`. This is non-negotiable.
+> **CRITICAL: Always use Task/Zig workflows for full build and test. NEVER use raw `go build` or blanket `go test ./...` directly.**
+> This is a Zig/CGO project. Raw Go commands may use the wrong external toolchain on macOS and fail to link the native embedding library correctly. The supported full-repo workflows are `task build:dev`, `task test`, and `task test:integration`.
 
 ```bash
 # === BUILD (MANDATORY: use task, never go build) ===
 task build:dev          # Development build — ALWAYS use this
 
-# === TEST ===
-go test -short ./...    # Unit tests (skips network/integration)
-go test -count=1 ./...  # All tests including integration (requires network)
+# === TEST (MANDATORY: use task, never raw go test ./...) ===
+task test               # Unit tests (skips network/integration)
+task test:integration   # All tests including integration (requires network)
 
 # === LINT ===
 golangci-lint run ./...  # Install via: brew install golangci-lint
@@ -53,11 +53,15 @@ task build:target:linux # Linux binary only
 
 `task build:dev` auto-detects your host OS/arch, compiles the native embedding library via Zig, and produces a working binary with CGO. `task build` is for release cross-compilation only.
 
+Do not run `go test ./...` or `go test -short ./...` directly in this repository unless the user explicitly asks for that unsupported path. Use the Task commands so Go runs with the intended Zig `CC`/`CXX` toolchain.
+
+Targeted `go test` is still allowed for specific packages that do not require the CGO-linked embedding library. Use that only when you know the package path is safe. When in doubt, use `task test` instead.
+
 ## Testing Patterns
 
 - **Mock client**: Tests in `cmd/` use a `mockClient` struct implementing `ServiceClient` — see [cmd/cli_test.go](cmd/cli_test.go). No real graphs or servers needed.
 - **TestMain guardrails**: `cmd/testmain_test.go` sets `GOMEMLIMIT=1GiB`, `GOGC=50`, and caps embedding workers to prevent OOM in containers.
-- **E2E tests**: `cmd/e2e_test.go` tests are long-running (clone + analyze real repos) and guarded by `testing.Short()`. They run with `go test -count=1`.
+- **E2E tests**: `cmd/e2e_test.go` tests are long-running (clone + analyze real repos) and guarded by `testing.Short()`. They run via `task test:integration`.
 - **Pipeline tests**: `internal/ingestion/*_test.go` build graphs in-memory via `NewPipeline` and assert node/edge properties directly.
 - **`-short` flag**: Most unit tests run with `-short`. Tests requiring network or heavy computation check `testing.Short()` and skip.
 

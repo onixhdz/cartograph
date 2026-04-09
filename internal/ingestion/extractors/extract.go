@@ -5,16 +5,25 @@ import (
 	"encoding/hex"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
+	"time"
 
-	ts "github.com/odvcencio/gotreesitter"
-	"github.com/odvcencio/gotreesitter/grammars"
+	ts "github.com/realxen/cartograph/internal/treesitter"
 
 	"github.com/realxen/cartograph/internal/graph"
 )
 
 const langPython = "python"
+
+const langCPP = "cpp"
+
+const modifierOverride = "override"
+
+const modifierFinal = "final"
+
+const modifierVirtual = "virtual"
 
 // Visibility modifier keywords used in export detection.
 const (
@@ -38,6 +47,7 @@ type ExtractedSymbol struct {
 	ReturnType     string          // Return type annotation if available
 	OwnerName      string          // Enclosing class/struct name (for methods/properties)
 	DocComment     string          // Doc comment preceding the symbol definition
+	Annotations    string          // Preceding decorators/attributes/annotations
 	Signature      string          // Full function/method signature (without body)
 }
 
@@ -114,7 +124,6 @@ type FileExtractionResult struct {
 
 // langCacheEntry holds pre-compiled resources for one language.
 type langCacheEntry struct {
-	entry          *grammars.LangEntry
 	lang           *ts.Language
 	pool           *ts.ParserPool
 	query          *ts.Query // used only for single-threaded / non-pool path
@@ -127,12 +136,19 @@ type langCacheEntry struct {
 // langCache maps language names to pre-compiled parser pools and queries.
 // Built once before parallel parsing; all entries are read-only after init.
 type langCache struct {
-	mu      sync.Mutex
-	entries map[string]*langCacheEntry
+	mu                 sync.Mutex
+	entries            map[string]*langCacheEntry
+	parseTimeoutMicros uint64
 }
 
-func newLangCache() *langCache {
-	return &langCache{entries: make(map[string]*langCacheEntry)}
+func newLangCache(parseTimeout time.Duration) *langCache {
+	if parseTimeout <= 0 {
+		parseTimeout = 30 * time.Second
+	}
+	return &langCache{
+		entries:            make(map[string]*langCacheEntry),
+		parseTimeoutMicros: uint64(parseTimeout / time.Microsecond),
+	}
 }
 
 // get returns a cached entry for the given language, creating it if needed.
@@ -144,42 +160,31 @@ func (lc *langCache) get(language string) (*langCacheEntry, error) {
 		return entry, nil
 	}
 
-	gEntry := grammars.DetectLanguageByName(language)
-	if gEntry == nil {
+	lang := ts.DetectLanguageByName(language)
+	if lang == nil {
+		lang = ts.DetectFallbackLanguageByName(language)
+	}
+	if lang == nil {
 		return nil, fmt.Errorf("unsupported language: %s", language)
 	}
 
-	lang := gEntry.Language()
-	if lang == nil {
-		return nil, fmt.Errorf("failed to load grammar for %s", language)
-	}
-
-	queryStr, ok := LanguageQueries[gEntry.Name]
+	queryStr, ok := LanguageQueries[ts.LanguageName(lang)]
 	if !ok {
 		queryStr, ok = LanguageQueries[language]
 	}
 	hasCustomQuery := ok
-	if !ok {
-		queryStr = grammars.ResolveTagsQuery(*gEntry)
-		if queryStr == "" {
-			return nil, fmt.Errorf("no extraction queries for language %s", language)
+	var query *ts.Query
+	if ok {
+		var err error
+		query, err = ts.NewQuery(queryStr, lang)
+		if err != nil {
+			return nil, fmt.Errorf("compile query for %s: %w", language, err)
 		}
 	}
 
-	query, err := ts.NewQuery(queryStr, lang)
-	if err != nil {
-		return nil, fmt.Errorf("compile query for %s: %w", language, err)
-	}
-
-	// Set a 30-second parse timeout so pathological files (deeply nested
-	// generated code, minified bundles) cannot stall a worker indefinitely.
-	// The parser checks this cooperatively inside its iteration loop.
-	const parseTimeoutMicros = 30 * 1000 * 1000 // 30 seconds
-
 	ce := &langCacheEntry{
-		entry:          gEntry,
 		lang:           lang,
-		pool:           ts.NewParserPool(lang, ts.WithParserPoolTimeoutMicros(parseTimeoutMicros)),
+		pool:           ts.NewParserPool(lang, ts.WithParserPoolTimeoutMicros(lc.parseTimeoutMicros)),
 		query:          query,
 		queryStr:       queryStr,
 		hasCustomQuery: hasCustomQuery,
@@ -188,12 +193,14 @@ func (lc *langCache) get(language string) (*langCacheEntry, error) {
 	// queryPool provides per-goroutine *ts.Query instances. This avoids
 	// data races when multiple workers call Query.Execute concurrently —
 	// the gotreesitter library's query cursor carries mutable state.
-	ce.queryPool.New = func() any {
-		q, err := ts.NewQuery(queryStr, lang)
-		if err != nil {
-			return nil // will be caught at use site
+	if hasCustomQuery {
+		ce.queryPool.New = func() any {
+			q, err := ts.NewQuery(queryStr, lang)
+			if err != nil {
+				return nil // will be caught at use site
+			}
+			return q
 		}
-		return q
 	}
 	lc.entries[language] = ce
 	return ce, nil
@@ -233,7 +240,6 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 	var query *ts.Query
 	var pool *ts.ParserPool
 	var hasCustomQuery bool
-	var entry *grammars.LangEntry
 	var preProcess func([]byte) []byte
 
 	var queryPoolEntry *langCacheEntry // set when using pooled queries
@@ -246,43 +252,39 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 		lang = ce.lang
 		pool = ce.pool
 		hasCustomQuery = ce.hasCustomQuery
-		entry = ce.entry
 		preProcess = ce.preProcess
 
 		// Borrow a per-goroutine query from the pool to avoid data races
 		// when multiple workers call Query.Execute on the same *ts.Query.
-		pooledQuery, _ := ce.queryPool.Get().(*ts.Query)
-		if pooledQuery == nil {
-			return nil, fmt.Errorf("failed to compile pooled query for %s", language)
+		if ce.hasCustomQuery {
+			pooledQuery, _ := ce.queryPool.Get().(*ts.Query)
+			if pooledQuery == nil {
+				return nil, fmt.Errorf("failed to compile pooled query for %s", language)
+			}
+			query = pooledQuery
 		}
-		query = pooledQuery
 		queryPoolEntry = ce
 	} else {
-		// Fallback: no cache, create everything fresh (backward compat).
-		entry = grammars.DetectLanguageByName(language)
-		if entry == nil {
+		// Fallback: no cache, create everything fresh.
+		lang = ts.DetectLanguageByName(language)
+		if lang == nil {
+			lang = ts.DetectFallbackLanguageByName(language)
+		}
+		if lang == nil {
 			return nil, fmt.Errorf("unsupported language: %s", language)
 		}
-		lang = entry.Language()
-		if lang == nil {
-			return nil, fmt.Errorf("failed to load grammar for %s", language)
-		}
 		preProcess = LanguagePreProcess[language]
-		queryStr, ok := LanguageQueries[entry.Name]
+		queryStr, ok := LanguageQueries[ts.LanguageName(lang)]
 		if !ok {
 			queryStr, ok = LanguageQueries[language]
 		}
 		hasCustomQuery = ok
-		if !ok {
-			queryStr = grammars.ResolveTagsQuery(*entry)
-			if queryStr == "" {
-				return nil, fmt.Errorf("no extraction queries for language %s", language)
+		if ok {
+			var qerr error
+			query, qerr = ts.NewQuery(queryStr, lang)
+			if qerr != nil {
+				return nil, fmt.Errorf("compile query for %s: %w", language, qerr)
 			}
-		}
-		var qerr error
-		query, qerr = ts.NewQuery(queryStr, lang)
-		if qerr != nil {
-			return nil, fmt.Errorf("compile query for %s: %w", language, qerr)
 		}
 	}
 
@@ -308,7 +310,10 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 		}
 	}
 
-	matches := query.Execute(tree)
+	var matches []ts.QueryMatch
+	if query != nil {
+		matches = query.Execute(tree, source)
+	}
 
 	result = &FileExtractionResult{}
 
@@ -546,17 +551,18 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 		}
 
 		sym := ExtractedSymbol{
-			ID:         generateID(string(label), filePath, nameText, ownerName),
-			Name:       nameText,
-			Label:      label,
-			FilePath:   filePath,
-			StartLine:  int(defNode.StartPoint().Row),
-			EndLine:    int(defNode.EndPoint().Row),
-			IsExported: detectExported(defNode, nameText, language, lang, source),
-			Language:   language,
-			Content:    content,
-			OwnerName:  ownerName,
-			DocComment: extractDocComment(defNode, source, lang, language),
+			ID:          generateID(string(label), filePath, nameText, ownerName),
+			Name:        nameText,
+			Label:       label,
+			FilePath:    filePath,
+			StartLine:   int(defNode.StartPoint().Row),
+			EndLine:     int(defNode.EndPoint().Row),
+			IsExported:  detectExported(defNode, nameText, language, lang, source),
+			Language:    language,
+			Content:     content,
+			OwnerName:   ownerName,
+			DocComment:  extractDocComment(defNode, source, lang, language),
+			Annotations: extractAnnotations(defNode, source, lang, language),
 		}
 
 		// Extract method signature (parameter count, return type) for
@@ -576,7 +582,7 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 
 	// For languages without hand-crafted queries, supplement with AST-walk extraction.
 	if !hasCustomQuery {
-		extra := resolveInferredExtra(entry)
+		extra := resolveInferredExtra(lang)
 		rootNode := tree.RootNode()
 		if len(extra.importNodeTypes) > 0 {
 			result.Imports = append(result.Imports, extractImportsFromAST(rootNode, source, filePath, lang, extra)...)
@@ -614,7 +620,7 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 	// propagate assignment chains.
 	result.TypeBindings = extractTypeBindings(tree.RootNode(), source, filePath, lang)
 
-	if queryPoolEntry != nil {
+	if queryPoolEntry != nil && query != nil {
 		queryPoolEntry.queryPool.Put(query)
 	}
 
@@ -882,7 +888,7 @@ func detectExported(defNode *ts.Node, name, language string, lang *ts.Language, 
 	case "rust":
 		// Rust: check for visibility_modifier starting with "pub".
 		return hasSiblingNodeType(defNode, lang, "visibility_modifier")
-	case "c", "cpp":
+	case "c", langCPP:
 		// C/C++: functions without 'static' storage class have external linkage.
 		return !hasSiblingModifierText(defNode, lang, source, "storage_class_specifier", "static")
 	case "php":
@@ -1178,6 +1184,312 @@ func extractDocComment(defNode *ts.Node, source []byte, lang *ts.Language, langu
 	// Join and clean the comment text.
 	raw := strings.Join(commentLines, "\n")
 	return cleanDocComment(raw)
+}
+
+func extractAnnotations(defNode *ts.Node, source []byte, lang *ts.Language, language string) string {
+	if defNode == nil {
+		return ""
+	}
+
+	var annotations []string
+	seen := make(map[string]bool)
+	for _, name := range collectDirectAnnotationNames(defNode, source, lang) {
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		annotations = append(annotations, name)
+	}
+	if language == langCPP {
+		for _, name := range collectAnnotationNames(defNode, source, lang) {
+			if name == "" || seen[name] {
+				continue
+			}
+			seen[name] = true
+			annotations = append(annotations, name)
+		}
+	}
+	for sib := defNode.PrevSibling(); sib != nil; sib = sib.PrevSibling() {
+		nodeType := strings.ToLower(sib.Type(lang))
+		if commentNodeTypes[nodeType] {
+			continue
+		}
+		if !annotationContainerNodeTypes[nodeType] {
+			break
+		}
+		for _, name := range collectAnnotationNames(sib, source, lang) {
+			if name == "" || seen[name] {
+				continue
+			}
+			seen[name] = true
+			annotations = append(annotations, name)
+		}
+	}
+
+	for i, j := 0, len(annotations)-1; i < j; i, j = i+1, j-1 {
+		annotations[i], annotations[j] = annotations[j], annotations[i]
+	}
+	annotations = appendMissingModifierAnnotations(annotations, defNode, source, language)
+
+	return strings.Join(annotations, ",")
+}
+
+func collectDirectAnnotationNames(node *ts.Node, source []byte, lang *ts.Language) []string {
+	if node == nil {
+		return nil
+	}
+	var names []string
+	seen := make(map[string]bool)
+	var collectFrom func(*ts.Node)
+	collectFrom = func(cur *ts.Node) {
+		if cur == nil {
+			return
+		}
+		curType := strings.ToLower(cur.Type(lang))
+		if annotationKeywordNodeTypes[curType] || annotationContainerNodeTypes[curType] {
+			for _, name := range collectAnnotationNames(cur, source, lang) {
+				if name == "" || seen[name] {
+					continue
+				}
+				seen[name] = true
+				names = append(names, name)
+			}
+		}
+		for i := range cur.ChildCount() {
+			child := cur.Child(i)
+			if child == nil || !child.IsNamed() {
+				continue
+			}
+			childType := strings.ToLower(child.Type(lang))
+			if annotationContainerNodeTypes[childType] || annotationKeywordNodeTypes[childType] {
+				collectFrom(child)
+			}
+		}
+	}
+	collectFrom(node)
+	return names
+}
+
+func appendMissingModifierAnnotations(existing []string, defNode *ts.Node, source []byte, language string) []string {
+	if language != langCPP || defNode == nil {
+		return existing
+	}
+
+	text := safeNodeText(defNode, source)
+	if text == "" {
+		return existing
+	}
+	seen := make(map[string]bool, len(existing))
+	for _, name := range existing {
+		seen[name] = true
+	}
+	for _, kw := range []string{modifierVirtual, modifierOverride, modifierFinal} {
+		if seen[kw] {
+			continue
+		}
+		if containsModifierToken(text, kw) {
+			existing = append(existing, kw)
+		}
+	}
+	return existing
+}
+
+func containsModifierToken(text, keyword string) bool {
+	fields := strings.FieldsFunc(text, func(r rune) bool {
+		return r != '_' && (r < 'A' || r > 'Z') && (r < 'a' || r > 'z')
+	})
+	return slices.Contains(fields, keyword)
+}
+
+func collectAnnotationNames(node *ts.Node, source []byte, lang *ts.Language) []string {
+	if node == nil {
+		return nil
+	}
+
+	if name := extractAnnotationCarrierName(node, source, lang); name != "" {
+		return []string{name}
+	}
+
+	var names []string
+	seen := make(map[string]bool)
+	ts.Walk(node, func(cur *ts.Node, depth int) ts.WalkAction {
+		if cur == nil {
+			return ts.WalkContinue
+		}
+		curType := strings.ToLower(cur.Type(lang))
+		if depth > 0 && isDefinitionNodeType(curType) && !annotationKeywordNodeTypes[curType] {
+			return ts.WalkSkipChildren
+		}
+		if !annotationKeywordNodeTypes[curType] {
+			return ts.WalkContinue
+		}
+		name := annotationName(cur, source, lang)
+		if name == "" || seen[name] {
+			return ts.WalkContinue
+		}
+		seen[name] = true
+		names = append(names, name)
+		return ts.WalkContinue
+	})
+	return names
+}
+
+func extractAnnotationCarrierName(node *ts.Node, source []byte, lang *ts.Language) string {
+	if node == nil {
+		return ""
+	}
+	switch strings.ToLower(node.Type(lang)) {
+	case "decorator":
+		for i := range node.ChildCount() {
+			child := node.Child(i)
+			if child == nil || !child.IsNamed() {
+				continue
+			}
+			if name := extractDecoratorTargetName(child, source, lang); name != "" {
+				return name
+			}
+		}
+	case "annotation", "marker_annotation":
+		if nameNode := node.ChildByFieldName("name", lang); nameNode != nil {
+			return annotationName(nameNode, source, lang)
+		}
+		for i := range node.ChildCount() {
+			child := node.Child(i)
+			if child == nil || !child.IsNamed() {
+				continue
+			}
+			if name := annotationName(child, source, lang); name != "" {
+				return name
+			}
+		}
+	case "attribute_item":
+		for i := range node.ChildCount() {
+			child := node.Child(i)
+			if child == nil || !child.IsNamed() {
+				continue
+			}
+			if name := extractAnnotationCarrierName(child, source, lang); name != "" {
+				return name
+			}
+		}
+	case "attribute":
+		for i := range node.ChildCount() {
+			child := node.Child(i)
+			if child == nil || !child.IsNamed() {
+				continue
+			}
+			if name := annotationName(child, source, lang); name != "" {
+				return name
+			}
+		}
+	case "virtual_specifier":
+		return annotationName(node, source, lang)
+	}
+	return ""
+}
+
+func extractDecoratorTargetName(node *ts.Node, source []byte, lang *ts.Language) string {
+	if node == nil {
+		return ""
+	}
+	ctype := strings.ToLower(node.Type(lang))
+	if annotationNameNodeTypes[ctype] {
+		return annotationName(node, source, lang)
+	}
+	if ctype == "call" || ctype == "call_expression" {
+		if fn := node.ChildByFieldName("function", lang); fn != nil {
+			return extractDecoratorTargetName(fn, source, lang)
+		}
+	}
+	if ctype == "attribute" || ctype == "member_expression" || ctype == "field_expression" {
+		if field := node.ChildByFieldName("attribute", lang); field != nil {
+			if name := annotationName(field, source, lang); name != "" {
+				return name
+			}
+		}
+		if field := node.ChildByFieldName("field", lang); field != nil {
+			if name := annotationName(field, source, lang); name != "" {
+				return name
+			}
+		}
+	}
+	for i := range node.ChildCount() {
+		child := node.Child(i)
+		if child == nil || !child.IsNamed() {
+			continue
+		}
+		if name := extractDecoratorTargetName(child, source, lang); name != "" {
+			return name
+		}
+	}
+	return ""
+}
+
+func annotationName(node *ts.Node, source []byte, lang *ts.Language) string {
+	if node == nil {
+		return ""
+	}
+	ctype := strings.ToLower(node.Type(lang))
+	if annotationKeywordNodeTypes[ctype] {
+		text := strings.TrimSpace(safeNodeText(node, source))
+		if text == "" || isKeyword(text) && text != modifierOverride && text != modifierFinal && text != modifierVirtual {
+			return ""
+		}
+		return text
+	}
+	if !annotationNameNodeTypes[ctype] {
+		return ""
+	}
+
+	text := strings.TrimSpace(safeNodeText(node, source))
+	if text == "" {
+		return ""
+	}
+	text = strings.TrimLeft(text, "@#[]")
+	if idx := strings.LastIndexAny(text, ".:\\/"); idx >= 0 && idx+1 < len(text) {
+		text = text[idx+1:]
+	}
+	if idx := strings.IndexAny(text, "([{"); idx >= 0 {
+		text = text[:idx]
+	}
+	text = strings.Trim(text, "`'\"]")
+	text = strings.TrimSpace(text)
+	if text == "" || isKeyword(text) {
+		return ""
+	}
+	return text
+}
+
+var annotationContainerNodeTypes = map[string]bool{
+	"decorator":            true,
+	"decorated_definition": true,
+	"attribute":            true,
+	"attribute_item":       true,
+	"annotation":           true,
+	"marker_annotation":    true,
+	"modifiers":            true,
+}
+
+var annotationNameNodeTypes = map[string]bool{
+	nodeTypeIdentifier:    true,
+	"identifier":          true,
+	nodeConstant:          true,
+	"scoped_identifier":   true,
+	"field_identifier":    true,
+	"property_identifier": true,
+	"name":                true,
+}
+
+func isDefinitionNodeType(nodeType string) bool {
+	return strings.HasPrefix(nodeType, "definition.") ||
+		strings.HasSuffix(nodeType, "_definition") ||
+		strings.HasSuffix(nodeType, "_declaration") ||
+		nodeType == "function_item" ||
+		nodeType == "method_declaration"
+}
+
+var annotationKeywordNodeTypes = map[string]bool{
+	"virtual_specifier": true,
 }
 
 // extractPythonDocstring extracts a docstring from the body of a Python

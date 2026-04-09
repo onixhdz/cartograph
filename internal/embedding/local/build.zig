@@ -312,6 +312,7 @@ pub fn build(b: *std.Build) void {
 
         native_step.dependOn(&install_lib.step);
         native_step.dependOn(&install_header.step);
+        b.getInstallStep().dependOn(&install_header.step);
 
         // ── macOS TBD stubs ──────────────────────────────────────────
         if (native_target.os.tag == .macos) {
@@ -325,6 +326,7 @@ pub fn build(b: *std.Build) void {
                 const path = wf.add(entry[0], entry[1]);
                 const install_stub = b.addInstallFile(path, entry[0]);
                 native_step.dependOn(&install_stub.step);
+                b.getInstallStep().dependOn(&install_stub.step);
             }
         }
     }

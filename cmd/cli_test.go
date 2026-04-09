@@ -13,7 +13,10 @@ import (
 	"github.com/realxen/cartograph/internal/storage"
 )
 
-const testRepo = "myrepo"
+const (
+	testRepo          = "myrepo"
+	testPluginDataset = "capec-plugin"
+)
 
 type mockClient struct {
 	queryCalled    bool
@@ -34,6 +37,14 @@ type mockClient struct {
 func (m *mockClient) Query(req service.QueryRequest) (*service.QueryResult, error) {
 	m.queryCalled = true
 	m.lastQueryReq = req
+	if req.Plugin {
+		return &service.QueryResult{
+			PluginResults: []service.PluginQueryMatch{{
+				NodeID: "capec:66",
+				Fields: []service.PluginDisplayField{{Label: "Name", Value: "SQL Injection"}},
+			}},
+		}, nil
+	}
 	return &service.QueryResult{
 		Processes: []service.ProcessMatch{
 			{Name: "HandleRequest", Relevance: 0.95},
@@ -114,7 +125,24 @@ func (m *mockClient) EmbedStatus(_ service.EmbedStatusRequest) (*service.EmbedSt
 	return &service.EmbedStatusResult{Status: ""}, nil
 }
 
+func (m *mockClient) PluginIngest(_ service.PluginIngestRequest) (*service.PluginIngestStatusResult, error) {
+	return &service.PluginIngestStatusResult{Status: "pending"}, nil
+}
+
+func (m *mockClient) PluginIngestStatus(_ service.PluginIngestStatusRequest) (*service.PluginIngestStatusResult, error) {
+	return &service.PluginIngestStatusResult{Status: ""}, nil
+}
+
 func (m *mockClient) Schema(req service.SchemaRequest) (*service.SchemaResult, error) {
+	if req.Repo == "plugin-dataset" {
+		return &service.SchemaResult{
+			NodeLabels: []service.NodeLabelSummary{{Label: "FooPattern", Count: 10}},
+			RelTypes:   []service.RelTypeSummary{{Type: "MITIGATES", Count: 5}},
+			Properties: []string{"name_lc", "description_lc", "related_cwes_text"},
+			TotalNodes: 10,
+			TotalEdges: 5,
+		}, nil
+	}
 	return &service.SchemaResult{
 		NodeLabels: []service.NodeLabelSummary{
 			{Label: "Function", Count: 50},
@@ -158,10 +186,10 @@ func TestQueryCmd(t *testing.T) {
 		mc := &mockClient{}
 		cli := &CLI{Client: mc}
 		cmd := &QueryCmd{
-			SearchQuery: "handle request",
-			Repo:        testRepo,
-			Limit:       5,
-			Content:     true,
+			SearchQuery:    "handle request",
+			TargetSelector: TargetSelector{Repo: testRepo},
+			Limit:          5,
+			Content:        true,
 		}
 
 		out := captureStdout(t, func() {
@@ -284,8 +312,8 @@ func TestCypherCmd(t *testing.T) {
 		mc := &mockClient{}
 		cli := &CLI{Client: mc}
 		cmd := &CypherCmd{
-			Query: "MATCH (n) RETURN n",
-			Repo:  testRepo,
+			Query:          "MATCH (n) RETURN n",
+			TargetSelector: TargetSelector{Repo: testRepo},
 		}
 
 		out := captureStdout(t, func() {
@@ -307,6 +335,25 @@ func TestCypherCmd(t *testing.T) {
 			t.Error("expected output to contain 'Foo'")
 		}
 	})
+}
+
+func TestSchemaCmd_PluginGuidance(t *testing.T) {
+	mc := &mockClient{}
+	cli := &CLI{Client: mc}
+	cmd := &SchemaCmd{TargetSelector: TargetSelector{Plugin: "plugin-dataset"}}
+
+	out := captureStdout(t, func() {
+		if err := cmd.Run(cli); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "Use plugin-provided references") {
+		t.Fatalf("expected plugin guidance in schema output, got: %s", out)
+	}
+	if !strings.Contains(out, "cypher -p <plugin-dataset>") {
+		t.Fatalf("expected generic cypher guidance in schema output, got: %s", out)
+	}
 }
 
 func TestListCmd(t *testing.T) {
@@ -718,10 +765,12 @@ func TestNilClient(t *testing.T) {
 		name string
 		run  func() error
 	}{
-		{"Query", func() error { return (&QueryCmd{SearchQuery: "test", Repo: "r"}).Run(cli) }},
+		{"Query", func() error {
+			return (&QueryCmd{SearchQuery: "test", TargetSelector: TargetSelector{Repo: "r"}}).Run(cli)
+		}},
 		{"Context", func() error { return (&ContextCmd{Name: "Foo", Repo: "r"}).Run(cli) }},
 		{"Impact", func() error { return (&ImpactCmd{Target: "Foo", Repo: "r"}).Run(cli) }},
-		{"Cypher", func() error { return (&CypherCmd{Query: "q", Repo: "r"}).Run(cli) }},
+		{"Cypher", func() error { return (&CypherCmd{Query: "q", TargetSelector: TargetSelector{Repo: "r"}}).Run(cli) }},
 	}
 
 	for _, tc := range cmds {
@@ -735,5 +784,30 @@ func TestNilClient(t *testing.T) {
 				t.Errorf("expected no-service message, got %q", out)
 			}
 		})
+	}
+}
+
+func TestQueryCmdPluginTarget(t *testing.T) {
+	mc := &mockClient{}
+	cli := &CLI{Client: mc}
+	cmd := &QueryCmd{SearchQuery: "sql injection", TargetSelector: TargetSelector{Plugin: testPluginDataset}}
+
+	out := captureStdout(t, func() {
+		if err := cmd.Run(cli); err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+	})
+
+	if !mc.queryCalled {
+		t.Fatal("expected query to be called")
+	}
+	if !mc.lastQueryReq.Plugin {
+		t.Fatal("expected plugin query flag to be set")
+	}
+	if mc.lastQueryReq.Repo != testPluginDataset {
+		t.Fatalf("repo = %q, want %q", mc.lastQueryReq.Repo, testPluginDataset)
+	}
+	if !strings.Contains(out, "Name: SQL Injection") {
+		t.Fatalf("expected plugin result output, got %q", out)
 	}
 }

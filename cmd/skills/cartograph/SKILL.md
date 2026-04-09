@@ -1,9 +1,9 @@
 ---
 name: cartograph
-description: 'Cartograph: graph-powered code intelligence. Use when the user asks to index, analyze, understand, or explore a repository or codebase. Covers CLI commands, practical workflows, and deep-dive architecture analysis.'
+description: "Cartograph: graph-powered code intelligence. Use when the user asks to index, analyze, understand, or explore a repository or codebase. Covers CLI commands, practical workflows, and deep-dive architecture analysis."
 metadata:
   author: cartograph
-  version: '1.0'
+  version: "1.0"
 ---
 
 # Cartograph Skill Router
@@ -25,6 +25,13 @@ All references are topic files in the `references/` directory relative to this
 file. Read the matching file and follow its instructions. Load only the
 reference(s) needed for the user's request.
 
+**Explicit rule:** Before routing any task, check whether `references/plugins.json` exists. If it
+does, read it first and treat it as the installed plugin-reference index.
+
+If the file lists plugin references relevant to the user's task, load those
+referenced files before answering. Treat plugin references as supplemental
+guidance, not as executable skills.
+
 ## Service Architecture & Execution Modes
 
 Cartograph has three execution modes. **Always prefer the background
@@ -44,6 +51,7 @@ service also exposes a **Streamable HTTP MCP endpoint at `/mcp`**,
 enabled by default (opt-out: `--no-mcp`).
 
 **When to start the service:**
+
 - Before running multiple queries — avoids reloading graphs per command
 - Before or during embedding (`--embed async` auto-starts it)
 - When configuring an AI editor to use the `/mcp` endpoint directly
@@ -58,6 +66,7 @@ commands.
 
 **Agent rule:** If you plan to run 2+ queries or any embedding work,
 start the service first:
+
 ```bash
 cartograph serve start
 ```
@@ -124,11 +133,43 @@ cartograph serve start
 The service auto-shuts down after 30 minutes of inactivity. Check if
 it's already running with `cartograph serve status`.
 
+### Retry Query Timeouts
+
+If a `cartograph query` command fails with `deadline exceeded`, treat that as a
+transient failure and retry the query. This is acceptable, especially when the
+background service is warming caches or loading a graph for the first query.
+
+Do not immediately assume the repo is broken or unindexed just because a single
+query hit `deadline exceeded`.
+
 ### Always Index Before Querying
 
 Cartograph commands that read the knowledge graph (`query`, `context`,
 `impact`, `cypher`, `cat`) require a prior `analyze` run. If no index
 exists for the target repo, run `cartograph analyze` first.
+
+### Prefer `cartograph cat` for Real Code
+
+When inspecting source code in an indexed repository, prefer `cartograph cat`
+over builtin file-reading tools. The normal investigation loop should stay
+inside Cartograph as long as possible:
+
+```bash
+cartograph query "<theme>" -l 8
+cartograph context <symbol> --depth 2 --content
+cartograph impact <symbol> --direction upstream -d 3
+cartograph cat <file> -l <startLine>-<endLine>
+```
+
+Avoid builtin file reads for indexed repositories unless one of these is true:
+
+- The repository was cloned by Cartograph and local filesystem access is
+  explicitly needed for a non-Cartograph workflow.
+- You need a file operation that Cartograph does not provide.
+- The user explicitly asks for direct file reads outside the Cartograph loop.
+
+If the repo was not cloned by Cartograph, do not fall back to builtin file
+reads just to inspect source that `cartograph cat` can show.
 
 ### Re-index After Code Changes
 
@@ -207,6 +248,7 @@ repository or project without explicitly mentioning cartograph.
 **Action:** Confirm the user wants to use cartograph before proceeding.
 
 **Skip confirmation when:**
+
 - The user explicitly mentions "cartograph".
 - The skill was already used in this conversation.
 - The current repo is already indexed (`cartograph list`).

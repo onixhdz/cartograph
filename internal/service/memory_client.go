@@ -363,6 +363,16 @@ func (mc *MemoryClient) EmbedStatus(_ EmbedStatusRequest) (*EmbedStatusResult, e
 	return nil, errors.New("embed status not supported via in-memory client; use the background service")
 }
 
+// PluginIngest is not supported by MemoryClient — plugin background ingestion requires the background service.
+func (mc *MemoryClient) PluginIngest(_ PluginIngestRequest) (*PluginIngestStatusResult, error) {
+	return nil, errors.New("plugin ingest not supported via in-memory client; use the background service")
+}
+
+// PluginIngestStatus is not supported by MemoryClient.
+func (mc *MemoryClient) PluginIngestStatus(_ PluginIngestStatusRequest) (*PluginIngestStatusResult, error) {
+	return nil, errors.New("plugin ingest status not supported via in-memory client; use the background service")
+}
+
 // ReleaseSearchIndex closes and removes a specific repo's Bleve search
 // index, releasing the bbolt file lock so another process (e.g. the
 // background service) can open the same index. The graph remains loaded.

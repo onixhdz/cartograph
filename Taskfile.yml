@@ -1,8 +1,41 @@
-version: '3'
+version: "3"
 dotenv:
   - .local.env
 vars:
   VERSION: '{{default "dev" .VERSION}}'
+  ZIG_CACHE_DIR: '{{joinPath .ROOT_DIR ".zig-cache"}}'
+  ZIG_GLOBAL_CACHE_DIR: '{{joinPath .ROOT_DIR ".zig-global-cache"}}'
+  HOST_ZIG_TARGET:
+    sh: |
+      os=$(go env GOOS); arch=$(go env GOARCH)
+      case "${os}-${arch}" in
+        linux-amd64)  echo "x86_64-linux-gnu"   ;;
+        linux-arm64)  echo "aarch64-linux-gnu"  ;;
+        darwin-amd64) echo "x86_64-macos"       ;;
+        darwin-arm64) echo "aarch64-macos"      ;;
+        *) echo "unsupported: ${os}-${arch}" >&2; exit 1 ;;
+      esac
+  MACOS_SDKROOT:
+    sh: |
+      if [ "{{OS}}" = "darwin" ]; then
+        xcrun --sdk macosx --show-sdk-path
+      fi
+  HOST_CC:
+    sh: |
+      if [ "$(go env GOOS)" = "darwin" ]; then
+        sdk="{{.MACOS_SDKROOT}}"
+        printf "%s" "zig cc -target {{.HOST_ZIG_TARGET}} -isysroot ${sdk} -F${sdk}/System/Library/Frameworks -L${sdk}/usr/lib"
+      else
+        echo "zig cc -target {{.HOST_ZIG_TARGET}}"
+      fi
+  HOST_CXX:
+    sh: |
+      if [ "$(go env GOOS)" = "darwin" ]; then
+        sdk="{{.MACOS_SDKROOT}}"
+        printf "%s" "zig c++ -target {{.HOST_ZIG_TARGET}} -isysroot ${sdk} -F${sdk}/System/Library/Frameworks -L${sdk}/usr/lib"
+      else
+        echo "zig c++ -target {{.HOST_ZIG_TARGET}}"
+      fi
   GIT_COMMIT:
     sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
   BUILD_DATE:
@@ -15,15 +48,59 @@ vars:
     -X github.com/realxen/cartograph/internal/version.BuildDate={{.BUILD_DATE}}
   EMBEDDING_LIB_DIR: internal/embedding/local
 tasks:
+  clean:
+    desc: Remove generated build artifacts, Zig caches, and Task cache
+    cmds:
+      - task: clean:zig
+      - rm -rf '{{joinPath .ROOT_DIR ".task"}}'
+      - rm -rf '{{joinPath .ROOT_DIR "plugins/bin"}}'
+      - rm -f '{{joinPath .ROOT_DIR "cartograph"}}' '{{joinPath .ROOT_DIR "cartograph-darwin-amd64"}}' '{{joinPath .ROOT_DIR "cartograph-darwin-arm64"}}' '{{joinPath .ROOT_DIR "cartograph-linux-amd64"}}' '{{joinPath .ROOT_DIR "cartograph-linux-arm64"}}' '{{joinPath .ROOT_DIR "cartograph-windows-amd64.exe"}}'
+
+  clean:artifacts:
+    desc: Remove generated build artifacts but keep caches
+    cmds:
+      - rm -rf '{{joinPath .ROOT_DIR "plugins/bin"}}'
+      - rm -f '{{joinPath .ROOT_DIR "cartograph"}}' '{{joinPath .ROOT_DIR "cartograph-darwin-amd64"}}' '{{joinPath .ROOT_DIR "cartograph-darwin-arm64"}}' '{{joinPath .ROOT_DIR "cartograph-linux-amd64"}}' '{{joinPath .ROOT_DIR "cartograph-linux-arm64"}}' '{{joinPath .ROOT_DIR "cartograph-windows-amd64.exe"}}'
+
+  clean:zig:
+    desc: Remove Zig build artifacts and caches
+    dir: "{{.EMBEDDING_LIB_DIR}}"
+    cmds:
+      - rm -rf zig-out .zig-cache .zig-target.stamp '{{.ZIG_CACHE_DIR}}' '{{.ZIG_GLOBAL_CACHE_DIR}}'
+
   test:
     desc: Run unit tests (skip network/integration)
+    deps:
+      - task: build:embedding:lib
+        vars: { TARGET: "{{.HOST_ZIG_TARGET}}" }
     cmds:
-      - go test -short ./...
+      - mkdir -p '{{.ZIG_CACHE_DIR}}'
+      - mkdir -p '{{.ZIG_GLOBAL_CACHE_DIR}}'
+      - >
+        ZIG_LOCAL_CACHE_DIR='{{.ZIG_CACHE_DIR}}'
+        ZIG_GLOBAL_CACHE_DIR='{{.ZIG_GLOBAL_CACHE_DIR}}'
+        SDKROOT='{{.MACOS_SDKROOT}}'
+        CGO_ENABLED=1
+        CC='{{.HOST_CC}}'
+        CXX='{{.HOST_CXX}}'
+        go test -short ./...
 
   test:integration:
     desc: Run all tests including network/integration
+    deps:
+      - task: build:embedding:lib
+        vars: { TARGET: "{{.HOST_ZIG_TARGET}}" }
     cmds:
-      - go test -count=1 ./...
+      - mkdir -p '{{.ZIG_CACHE_DIR}}'
+      - mkdir -p '{{.ZIG_GLOBAL_CACHE_DIR}}'
+      - >
+        ZIG_LOCAL_CACHE_DIR='{{.ZIG_CACHE_DIR}}'
+        ZIG_GLOBAL_CACHE_DIR='{{.ZIG_GLOBAL_CACHE_DIR}}'
+        SDKROOT='{{.MACOS_SDKROOT}}'
+        CGO_ENABLED=1
+        CC='{{.HOST_CC}}'
+        CXX='{{.HOST_CXX}}'
+        go test -count=1 ./...
 
   lint:
     desc: Run golangci-lint
@@ -37,6 +114,19 @@ tasks:
       - task: build:target:mac
       - task: build:target:windows
 
+  build:plugins:
+    desc: Build all plugin binaries
+    cmds:
+      - mkdir -p '{{joinPath .ROOT_DIR "plugins/bin"}}'
+      - >
+        for main in plugins/*/main.go; do
+          [ -f "$main" ] || continue
+          dir=$(dirname "$main")
+          name=$(basename "$dir")
+          echo "Building plugin: $name"
+          go build -trimpath -o "{{joinPath .ROOT_DIR "plugins/bin"}}/$name" "./$dir"
+        done
+
   build:target:linux:
     desc: Build cartograph for all Linux targets
     cmds:
@@ -47,7 +137,7 @@ tasks:
 
   build:embedding:lib:
     desc: Build native inference library via Zig (host or cross with TARGET=)
-    dir: '{{.EMBEDDING_LIB_DIR}}'
+    dir: "{{.EMBEDDING_LIB_DIR}}"
     vars:
       EMBEDDING_LIB_FILE:
         sh: |
@@ -57,11 +147,17 @@ tasks:
           esac
     status:
       - test -f zig-out/lib/{{.EMBEDDING_LIB_FILE}}
+      - test -f zig-out/include/inference.h
       - test -f .zig-target.stamp
       - test "$(cat .zig-target.stamp)" = "{{.TARGET}}"
     cmds:
+      - mkdir -p '{{.ZIG_CACHE_DIR}}'
+      - mkdir -p '{{.ZIG_GLOBAL_CACHE_DIR}}'
       - rm -rf zig-out
-      - zig build native -Doptimize=ReleaseFast {{if .TARGET}}-Dtarget={{.TARGET}}{{end}}
+      - >
+        ZIG_LOCAL_CACHE_DIR='{{.ZIG_CACHE_DIR}}'
+        ZIG_GLOBAL_CACHE_DIR='{{.ZIG_GLOBAL_CACHE_DIR}}'
+        zig build native -Doptimize=ReleaseFast {{if .TARGET}}-Dtarget={{.TARGET}}{{end}}
       - echo "{{.TARGET}}" > .zig-target.stamp
       - echo "✓ {{.EMBEDDING_LIB_FILE}} [{{.TARGET}}] ($(du -h zig-out/lib/{{.EMBEDDING_LIB_FILE}} | cut -f1))"
 
@@ -70,18 +166,7 @@ tasks:
   build:dev:
     desc: Build cartograph for the current host OS/arch
     vars:
-      ZIG_TARGET:
-        sh: |
-          os=$(go env GOOS); arch=$(go env GOARCH)
-          case "${os}-${arch}" in
-            linux-amd64)  echo "x86_64-linux-musl"  ;;
-            linux-arm64)  echo "aarch64-linux-musl"  ;;
-            darwin-amd64) echo "x86_64-macos"        ;;
-            darwin-arm64) echo "aarch64-macos"       ;;
-            *) echo "unsupported: ${os}-${arch}" >&2; exit 1 ;;
-          esac
-      BIN_NAME:
-        sh: echo "cartograph-$(go env GOOS)-$(go env GOARCH)"
+      BIN_NAME: "cartograph-{{OS}}-{{ARCH}}"
       EXTRA_LDFLAGS:
         sh: |
           case "$(go env GOOS)" in
@@ -90,18 +175,23 @@ tasks:
           esac
     deps:
       - task: build:embedding:lib
-        vars: { TARGET: '{{.ZIG_TARGET}}' }
+        vars: { TARGET: "{{.HOST_ZIG_TARGET}}" }
     sources:
       - ./**/*.go
       - go.mod
-      - '{{.EMBEDDING_LIB_DIR}}/zig-out/lib/libinference.a'
+      - "{{.EMBEDDING_LIB_DIR}}/zig-out/lib/libinference.a"
     generates:
-      - '{{.BIN_NAME}}'
+      - "{{.BIN_NAME}}"
     cmds:
+      - mkdir -p '{{.ZIG_CACHE_DIR}}'
+      - mkdir -p '{{.ZIG_GLOBAL_CACHE_DIR}}'
       - >
+        ZIG_LOCAL_CACHE_DIR='{{.ZIG_CACHE_DIR}}'
+        ZIG_GLOBAL_CACHE_DIR='{{.ZIG_GLOBAL_CACHE_DIR}}'
+        SDKROOT='{{.MACOS_SDKROOT}}'
         CGO_ENABLED=1
-        CC='zig cc -target {{.ZIG_TARGET}}'
-        CXX='zig c++ -target {{.ZIG_TARGET}}'
+        CC='{{.HOST_CC}}'
+        CXX='{{.HOST_CXX}}'
         go build -trimpath
         -ldflags "{{.GO_LDFLAGS}} {{.EXTRA_LDFLAGS}}"
         -o {{.BIN_NAME}}
@@ -112,8 +202,7 @@ tasks:
   ln:
     desc: Symlink the host-matching binary to ~/.local/bin/cartograph
     vars:
-      BIN:
-        sh: echo "$(pwd)/cartograph-$(go env GOOS)-$(go env GOARCH)"
+      BIN: '{{joinPath .TASK_DIR (printf "cartograph-%s-%s" OS ARCH)}}'
     cmds:
       - mkdir -p ~/.local/bin
       - ln -sf {{.BIN}} ~/.local/bin/cartograph
@@ -125,15 +214,19 @@ tasks:
     desc: Build cartograph for Linux (x86_64) — native CGO, static (musl)
     deps:
       - task: build:embedding:lib
-        vars: { TARGET: 'x86_64-linux-musl' }
+        vars: { TARGET: "x86_64-linux-musl" }
     sources:
       - ./**/*.go
       - go.mod
-      - '{{.EMBEDDING_LIB_DIR}}/zig-out/lib/libinference.a'
+      - "{{.EMBEDDING_LIB_DIR}}/zig-out/lib/libinference.a"
     generates:
       - cartograph-linux-amd64
     cmds:
+      - mkdir -p '{{.ZIG_CACHE_DIR}}'
+      - mkdir -p '{{.ZIG_GLOBAL_CACHE_DIR}}'
       - >
+        ZIG_LOCAL_CACHE_DIR='{{.ZIG_CACHE_DIR}}'
+        ZIG_GLOBAL_CACHE_DIR='{{.ZIG_GLOBAL_CACHE_DIR}}'
         CGO_ENABLED=1
         GOOS=linux
         GOARCH=amd64
@@ -147,15 +240,19 @@ tasks:
     desc: Build cartograph for Linux (aarch64) — native CGO, static (musl)
     deps:
       - task: build:embedding:lib
-        vars: { TARGET: 'aarch64-linux-musl' }
+        vars: { TARGET: "aarch64-linux-musl" }
     sources:
       - ./**/*.go
       - go.mod
-      - '{{.EMBEDDING_LIB_DIR}}/zig-out/lib/libinference.a'
+      - "{{.EMBEDDING_LIB_DIR}}/zig-out/lib/libinference.a"
     generates:
       - cartograph-linux-arm64
     cmds:
+      - mkdir -p '{{.ZIG_CACHE_DIR}}'
+      - mkdir -p '{{.ZIG_GLOBAL_CACHE_DIR}}'
       - >
+        ZIG_LOCAL_CACHE_DIR='{{.ZIG_CACHE_DIR}}'
+        ZIG_GLOBAL_CACHE_DIR='{{.ZIG_GLOBAL_CACHE_DIR}}'
         CGO_ENABLED=1
         GOOS=linux
         GOARCH=arm64
@@ -175,15 +272,19 @@ tasks:
     desc: Build cartograph for macOS (Apple Silicon) — native CGO
     deps:
       - task: build:embedding:lib
-        vars: { TARGET: 'aarch64-macos' }
+        vars: { TARGET: "aarch64-macos" }
     sources:
       - ./**/*.go
       - go.mod
-      - '{{.EMBEDDING_LIB_DIR}}/zig-out/lib/libinference.a'
+      - "{{.EMBEDDING_LIB_DIR}}/zig-out/lib/libinference.a"
     generates:
       - cartograph-darwin-arm64
     cmds:
+      - mkdir -p '{{.ZIG_CACHE_DIR}}'
+      - mkdir -p '{{.ZIG_GLOBAL_CACHE_DIR}}'
       - >
+        ZIG_LOCAL_CACHE_DIR='{{.ZIG_CACHE_DIR}}'
+        ZIG_GLOBAL_CACHE_DIR='{{.ZIG_GLOBAL_CACHE_DIR}}'
         CGO_ENABLED=1
         GOOS=darwin
         GOARCH=arm64
@@ -204,15 +305,19 @@ tasks:
     desc: Build cartograph for macOS (Intel) — native CGO
     deps:
       - task: build:embedding:lib
-        vars: { TARGET: 'x86_64-macos' }
+        vars: { TARGET: "x86_64-macos" }
     sources:
       - ./**/*.go
       - go.mod
-      - '{{.EMBEDDING_LIB_DIR}}/zig-out/lib/libinference.a'
+      - "{{.EMBEDDING_LIB_DIR}}/zig-out/lib/libinference.a"
     generates:
       - cartograph-darwin-amd64
     cmds:
+      - mkdir -p '{{.ZIG_CACHE_DIR}}'
+      - mkdir -p '{{.ZIG_GLOBAL_CACHE_DIR}}'
       - >
+        ZIG_LOCAL_CACHE_DIR='{{.ZIG_CACHE_DIR}}'
+        ZIG_GLOBAL_CACHE_DIR='{{.ZIG_GLOBAL_CACHE_DIR}}'
         CGO_ENABLED=1
         GOOS=darwin
         GOARCH=amd64
@@ -233,15 +338,19 @@ tasks:
     desc: Build cartograph for Windows (x86_64) — native CGO
     deps:
       - task: build:embedding:lib
-        vars: { TARGET: 'x86_64-windows-gnu' }
+        vars: { TARGET: "x86_64-windows-gnu" }
     sources:
       - ./**/*.go
       - go.mod
-      - '{{.EMBEDDING_LIB_DIR}}/zig-out/lib/inference.lib'
+      - "{{.EMBEDDING_LIB_DIR}}/zig-out/lib/inference.lib"
     generates:
       - cartograph-windows-amd64.exe
     cmds:
+      - mkdir -p '{{.ZIG_CACHE_DIR}}'
+      - mkdir -p '{{.ZIG_GLOBAL_CACHE_DIR}}'
       - >
+        ZIG_LOCAL_CACHE_DIR='{{.ZIG_CACHE_DIR}}'
+        ZIG_GLOBAL_CACHE_DIR='{{.ZIG_GLOBAL_CACHE_DIR}}'
         CGO_ENABLED=1
         GOOS=windows
         GOARCH=amd64

@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
@@ -27,9 +27,12 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.15.2
-      - uses: arduino/setup-task@v2
+          use-cache: false
+      - uses: go-task/setup-task@v1
         with:
           version: 3.x
+      - name: Clean generated artifacts
+        run: task clean
       - name: Build native embedding prereqs
         run: task build:embedding:lib
       - uses: golangci/golangci-lint-action@v9
@@ -50,9 +53,12 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.15.2
-      - uses: arduino/setup-task@v2
+          use-cache: false
+      - uses: go-task/setup-task@v1
         with:
           version: 3.x
+      - name: Clean generated artifacts
+        run: task clean
       - name: Build native embedding prereqs
         run: task build:embedding:lib
-      - run: go test -short ./...
+      - run: task test

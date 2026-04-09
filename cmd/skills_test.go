@@ -5,7 +5,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	internalplugin "github.com/realxen/cartograph/internal/plugin"
+	"github.com/realxen/cartograph/plugin"
 )
+
+const testSkillsPluginName = "mitre-capec" //nolint:misspell // MITRE is the organization name
 
 // TestInstallSkillFiles verifies that the embedded skill files are
 // correctly written to a temporary directory.
@@ -42,6 +47,11 @@ func TestInstallSkillFiles(t *testing.T) {
 		if info.Size() == 0 {
 			t.Errorf("reference %s is empty", ref)
 		}
+	}
+
+	pluginsJSON := filepath.Join(dir, "cartograph", "references", "plugins.json")
+	if _, err := os.Stat(pluginsJSON); err == nil {
+		t.Fatal("plugins.json should not exist before explicit sync")
 	}
 }
 
@@ -156,6 +166,32 @@ func TestSkillsListCmd(t *testing.T) {
 
 // TestSkillsInstallCmdToPath verifies installing to a specific path.
 func TestSkillsInstallCmdToPath(t *testing.T) {
+	oldHome := os.Getenv("HOME")
+	t.Cleanup(func() {
+		_ = os.Setenv("HOME", oldHome)
+	})
+	home := t.TempDir()
+	if err := os.Setenv("HOME", home); err != nil {
+		t.Fatalf("set HOME: %v", err)
+	}
+
+	meta := &internalplugin.InstallMetadata{
+		Name:        testSkillsPluginName,
+		Version:     "0.1.0",
+		Description: "CAPEC security guidance",
+		Entities: []plugin.Entity{{
+			Name:  "AttackPattern",
+			Label: "CAPECPattern",
+		}},
+		Resources: []internalplugin.InstallResource{{
+			Name:    "security-research",
+			Content: "# CAPEC",
+		}},
+	}
+	if err := storeInstalledPluginMetadata(testSkillsPluginName, meta); err != nil {
+		t.Fatalf("storeInstalledPluginMetadata: %v", err)
+	}
+
 	dir := t.TempDir()
 	cli := &CLI{}
 	installCmd := &SkillsInstallCmd{Path: dir}
@@ -166,6 +202,15 @@ func TestSkillsInstallCmdToPath(t *testing.T) {
 	skillMD := filepath.Join(dir, "cartograph", "SKILL.md")
 	if _, err := os.Stat(skillMD); err != nil {
 		t.Fatalf("SKILL.md missing: %v", err)
+	}
+
+	pluginsJSON := filepath.Join(dir, "cartograph", "references", "plugins.json")
+	data, err := os.ReadFile(pluginsJSON)
+	if err != nil {
+		t.Fatalf("read plugins.json: %v", err)
+	}
+	if !strings.Contains(string(data), testSkillsPluginName) {
+		t.Fatalf("plugins.json missing plugin metadata: %s", string(data))
 	}
 }
 

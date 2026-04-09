@@ -25,6 +25,7 @@ type Pipeline struct {
 // PipelineOptions configures the pipeline.
 type PipelineOptions struct {
 	Force          bool
+	Timing         bool
 	MaxFileSize    int64
 	Workers        int
 	OnStep         func(step string, current, total int) // Optional progress callback fired before each pipeline stage.
@@ -48,7 +49,7 @@ const PipelineStepCount = 13
 
 // Run orchestrates the full ingestion pipeline.
 func (p *Pipeline) Run() error {
-	timing := os.Getenv("CARTOGRAPH_TIMING") != ""
+	timing := p.Options.Timing
 	mark := func(label string, start time.Time) {
 		if timing {
 			fmt.Printf("    [timing] %-30s %s\n", label, time.Since(start).Round(time.Millisecond))
@@ -81,7 +82,13 @@ func (p *Pipeline) Run() error {
 	}
 
 	// Step 1b: Load project configuration (go.mod, tsconfig.json, etc.).
-	projectConfig := LoadProjectConfig(p.Root, p.Reader.ReadFile)
+	projectFiles := make([]string, 0, len(walkResults))
+	for _, wr := range walkResults {
+		if !wr.IsDir {
+			projectFiles = append(projectFiles, wr.RelPath)
+		}
+	}
+	projectConfig := LoadProjectConfig(p.Root, p.Reader.ReadFile, ProjectConfigOptions{Files: projectFiles})
 
 	// Step 2: Build file/folder structure.
 	step("Building structure", 2)
@@ -121,11 +128,55 @@ func (p *Pipeline) Run() error {
 			Version:       dep.Version,
 			Source:        dep.Source,
 			DevDep:        dep.Dev,
+			Scope:         dep.Scope,
 		})
 		manifestNode := graph.FindNodeByFilePath(p.Graph, dep.Source)
 		if manifestNode != nil {
 			graph.AddEdge(p.Graph, manifestNode, depNode, graph.RelDependsOn, nil)
 		}
+	}
+
+	// Step 2d: Create package/module identity nodes from manifest files.
+	for _, manifest := range projectConfig.Manifests {
+		manifestNode := graph.FindNodeByFilePath(p.Graph, manifest.Source)
+		if manifestNode == nil {
+			continue
+		}
+		moduleID := "module:" + manifest.Source + ":" + manifest.Name
+		moduleNode := graph.AddNode(p.Graph, graph.LabelModule, map[string]any{
+			graph.PropID:       moduleID,
+			graph.PropName:     manifest.Name,
+			graph.PropVersion:  manifest.Version,
+			graph.PropFilePath: manifest.Source,
+			graph.PropLanguage: manifest.Language,
+			graph.PropSource:   manifest.Source,
+		})
+		graph.AddEdge(p.Graph, manifestNode, moduleNode, graph.RelDefines, nil)
+
+		for _, workspace := range manifest.Workspaces {
+			workspaceNode, synthetic := resolveWorkspaceModuleNode(p.Graph, manifest, workspace)
+			if synthetic {
+				graph.AddEdge(p.Graph, manifestNode, workspaceNode, graph.RelDefines, nil)
+			}
+			graph.AddEdge(p.Graph, moduleNode, workspaceNode, graph.RelMemberOf, nil)
+		}
+	}
+
+	// Step 2e: Create high-signal build process nodes from parsed build files.
+	for _, proc := range projectConfig.BuildProcesses {
+		fileNode := graph.FindNodeByFilePath(p.Graph, proc.Source)
+		if fileNode == nil {
+			continue
+		}
+		procID := "proc:" + proc.Source + ":" + proc.Name
+		procNode := graph.AddProcessNode(p.Graph, graph.ProcessProps{
+			BaseNodeProps: graph.BaseNodeProps{ID: procID, Name: proc.Name},
+			EntryPoint:    proc.EntryPoint,
+		})
+		procNode.SetProperty(graph.PropFilePath, proc.Source)
+		procNode.SetProperty(graph.PropLanguage, proc.Language)
+		procNode.SetProperty(graph.PropSource, proc.Source)
+		graph.AddEdge(p.Graph, fileNode, procNode, graph.RelDefines, nil)
 	}
 
 	// Step 3: Tree-sitter parsing — extract symbols, imports, calls, heritage.
@@ -418,6 +469,50 @@ func (p *Pipeline) Run() error {
 	return nil
 }
 
+func resolveWorkspaceModuleNode(g *lpg.Graph, manifest ManifestInfo, workspace string) (*lpg.Node, bool) {
+	if childManifestPath, ok := workspaceManifestPath(manifest, workspace); ok {
+		if child := graph.FindNodeByFilePath(g, childManifestPath); child != nil {
+			for _, edge := range graph.GetOutgoingEdges(child, graph.RelDefines) {
+				if to := edge.GetTo(); to != nil && to.HasLabel(string(graph.LabelModule)) {
+					return to, false
+				}
+			}
+		}
+	}
+
+	workspaceID := "module-workspace:" + manifest.Source + ":" + workspace
+	workspaceNode := graph.AddNode(g, graph.LabelModule, map[string]any{
+		graph.PropID:       workspaceID,
+		graph.PropName:     workspace,
+		graph.PropFilePath: manifest.Source,
+		graph.PropLanguage: manifest.Language,
+		graph.PropSource:   manifest.Source,
+	})
+	return workspaceNode, true
+}
+
+func workspaceManifestPath(manifest ManifestInfo, workspace string) (string, bool) {
+	workspace = strings.TrimSpace(workspace)
+	if workspace == "" || strings.ContainsAny(workspace, "*?[") {
+		return "", false
+	}
+
+	manifestDir := path.Dir(manifest.Source)
+	if manifestDir == "." {
+		manifestDir = ""
+	}
+
+	var candidate string
+	switch manifest.Language {
+	case "java":
+		candidate = path.Join(manifestDir, workspace, "pom.xml")
+	default:
+		return "", false
+	}
+
+	return path.Clean(candidate), true
+}
+
 // parseFiles runs tree-sitter extraction on all parseable files.
 func (p *Pipeline) parseFiles(walkResults []WalkResult) *extractors.ParseResult {
 	// Collect parseable files.
@@ -426,7 +521,6 @@ func (p *Pipeline) parseFiles(walkResults []WalkResult) *extractors.ParseResult 
 		if wr.IsDir || wr.Language == "" {
 			continue
 		}
-		// Include languages with hand-crafted queries or inferred tags queries.
 		if !extractors.CanExtract(wr.Language) {
 			continue
 		}
@@ -452,6 +546,23 @@ func (p *Pipeline) parseFiles(walkResults []WalkResult) *extractors.ParseResult 
 // addSymbolsToGraph creates lpg nodes for each extracted symbol and links
 // them to their parent File node via CONTAINS edges.
 func (p *Pipeline) addSymbolsToGraph(pr *extractors.ParseResult, absToRel map[string]string) {
+	fileNodesByPath := make(map[string]*lpg.Node)
+	for nodes := p.Graph.GetNodes(); nodes.Next(); {
+		node := nodes.Node()
+		if !node.HasLabel(string(graph.LabelFile)) {
+			continue
+		}
+		if fp := graph.GetStringProp(node, graph.PropFilePath); fp != "" {
+			fileNodesByPath[fp] = node
+		}
+	}
+
+	type symbolNodeRef struct {
+		sym  extractors.ExtractedSymbol
+		node *lpg.Node
+	}
+	refs := make([]symbolNodeRef, 0, len(pr.Symbols))
+
 	for _, sym := range pr.Symbols {
 		relPath := absToRel[sym.FilePath]
 		if relPath == "" {
@@ -473,11 +584,14 @@ func (p *Pipeline) addSymbolsToGraph(pr *extractors.ParseResult, absToRel map[st
 				ID:   sym.ID,
 				Name: sym.Name,
 			},
-			FilePath:   relPath,
-			StartLine:  sym.StartLine,
-			EndLine:    sym.EndLine,
-			IsExported: isExported,
-			Content:    sym.Content,
+			FilePath:    relPath,
+			StartLine:   sym.StartLine,
+			EndLine:     sym.EndLine,
+			IsExported:  isExported,
+			Content:     sym.Content,
+			Description: sym.DocComment,
+			Annotations: sym.Annotations,
+			Signature:   sym.Signature,
 		})
 
 		node.SetProperty(graph.PropLanguage, sym.Language)
@@ -489,33 +603,49 @@ func (p *Pipeline) addSymbolsToGraph(pr *extractors.ParseResult, absToRel map[st
 		if sym.ReturnType != "" {
 			node.SetProperty(graph.PropReturnType, sym.ReturnType)
 		}
-		if sym.DocComment != "" {
-			node.SetProperty(graph.PropDescription, sym.DocComment)
-		}
-		if sym.Signature != "" {
-			node.SetProperty(graph.PropSignature, sym.Signature)
-		}
 
-		fileNode := graph.FindNodeByFilePath(p.Graph, relPath)
+		fileNode := fileNodesByPath[relPath]
 		if fileNode != nil {
 			graph.AddEdge(p.Graph, fileNode, node, graph.RelContains, nil)
 			graph.AddEdge(p.Graph, fileNode, node, graph.RelDefines, nil)
 		}
 
-		if sym.OwnerName != "" {
-			ownerNodes := graph.FindNodesByName(p.Graph, sym.OwnerName)
-			if len(ownerNodes) > 0 {
-				var relType graph.RelType
-				switch sym.Label {
-				case graph.LabelProperty:
-					relType = graph.RelHasProperty
-				default:
-					relType = graph.RelHasMethod
-				}
-				graph.AddEdge(p.Graph, ownerNodes[0], node, relType, nil)
-			}
+		refs = append(refs, symbolNodeRef{sym: sym, node: node})
+	}
+
+	ownerIndex := graph.BuildGraphIndex(p.Graph)
+	for _, ref := range refs {
+		sym := ref.sym
+		if sym.OwnerName == "" {
+			continue
+		}
+		ownerNode := selectOwnerNode(ownerIndex.FindNodesByName(sym.OwnerName), graph.GetStringProp(ref.node, graph.PropFilePath))
+		if ownerNode == nil {
+			continue
+		}
+		var relType graph.RelType
+		switch sym.Label {
+		case graph.LabelProperty:
+			relType = graph.RelHasProperty
+		default:
+			relType = graph.RelHasMethod
+		}
+		graph.AddEdge(p.Graph, ownerNode, ref.node, relType, nil)
+	}
+}
+
+func selectOwnerNode(candidates []*lpg.Node, memberFilePath string) *lpg.Node {
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	for _, node := range candidates {
+		if graph.GetStringProp(node, graph.PropFilePath) == memberFilePath {
+			return node
 		}
 	}
+
+	return candidates[0]
 }
 
 // symbolRange holds the ID and line span of a symbol node for fast

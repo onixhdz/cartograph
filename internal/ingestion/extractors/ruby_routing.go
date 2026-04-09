@@ -3,7 +3,7 @@ package extractors
 import (
 	"strings"
 
-	ts "github.com/odvcencio/gotreesitter"
+	ts "github.com/realxen/cartograph/internal/treesitter"
 
 	"github.com/realxen/cartograph/internal/graph"
 )

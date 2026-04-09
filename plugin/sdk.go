@@ -1,0 +1,395 @@
+// Package plugin is the SDK for building Cartograph plugins.
+//
+// A plugin is a standalone binary that feeds external data into the
+// Cartograph knowledge graph. The SDK handles all protocol details —
+// handshake, JSON-RPC 2.0, stdin/stdout wiring, magic cookie — so you
+// only implement business logic.
+//
+// Quick start:
+//
+//	type myPlugin struct{}
+//
+//	func (p *myPlugin) Info() plugin.Info {
+//	    return plugin.Info{
+//	        Name:    "my-source",
+//	        Version: "0.1.0",
+//	        Entities: []plugin.Entity{
+//	            {Name: "Widget", Label: "MyWidget"},
+//	        },
+//	    }
+//	}
+//
+//	func (p *myPlugin) Resources(ctx context.Context) ([]plugin.PluginResource, error) {
+//	    return nil, nil
+//	}
+//	func (p *myPlugin) Ingest(ctx context.Context, host plugin.Host, opts plugin.IngestOptions) (plugin.IngestResult, error) {
+//	    err := host.Emit(ctx,
+//	        plugin.Node{ID: "my:widget:1", Label: "MyWidget", Properties: map[string]any{"name": "Sprocket"}},
+//	    )
+//	    if err != nil { return plugin.IngestResult{}, err }
+//	    return plugin.IngestResult{Nodes: 1}, nil
+//	}
+//
+//	func main() {
+//	    plugin.Run(&myPlugin{})
+//	}
+package plugin
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+
+	"github.com/realxen/cartograph/internal/jsonrpc2"
+)
+
+// Protocol constants. These must be kept in sync with
+// internal/plugin/process.go.
+const (
+	protocolVersion  = "1"
+	magicCookieKey   = "CARTOGRAPH_PLUGIN_MAGIC_COOKIE"
+	magicCookieValue = "cartograph-plugin-v1"
+)
+
+// Plugin is the interface that plugin authors implement. The host calls
+// these methods in order: Info → Resources → Ingest → (optional Close).
+type Plugin interface {
+	// Info returns metadata about this plugin. Called once after launch.
+	Info() Info
+
+	// Resources returns install-time reference content for this plugin.
+	// Return nil or an empty slice when the plugin has no install-time resources.
+	Resources(ctx context.Context) ([]PluginResource, error)
+
+	// Ingest is the main entry point. Fetch data from your external source
+	// and emit nodes/edges via the host. Return the total counts.
+	Ingest(ctx context.Context, host Host, opts IngestOptions) (IngestResult, error)
+}
+
+// Closer is an optional interface. If your plugin implements it,
+// Close is called before the plugin exits. Use it for cleanup.
+type Closer interface {
+	Close() error
+}
+
+// Info describes the plugin and the graph entities it provides.
+type Info struct {
+	Name        string
+	Version     string
+	Description string
+	Entities    []Entity
+}
+
+// Entity declares a graph entity type the plugin can emit.
+type Entity struct {
+	// Name is a human-readable entity type name (e.g., "Repository").
+	Name string
+	// Label is the vendor-specific graph node label (e.g., "GitHubRepo").
+	Label string
+	// Query configures host-side search/query behavior for this entity type.
+	// Nil means this entity is not queryable via `cartograph query -p`.
+	Query *EntityQuery
+}
+
+// EntityQuery configures how the host searches and displays a queryable entity.
+type EntityQuery struct {
+	SearchProps []string
+	Display     []DisplayField
+}
+
+// DisplayField projects a node property into plugin query result output.
+type DisplayField struct {
+	Prop  string
+	Label string
+}
+
+// IngestOptions are the parameters the host passes to Ingest.
+type IngestOptions struct {
+	// ResourceTypes limits ingestion to these types. Empty means all.
+	ResourceTypes []string
+	// Concurrency is the max number of concurrent operations. Zero means default.
+	Concurrency int
+}
+
+// IngestResult is returned by Ingest to report what was emitted.
+type IngestResult struct {
+	Nodes int
+	Edges int
+}
+
+// PluginResource is install-time reference content provided by a plugin.
+// The host owns storage location and lifecycle.
+type PluginResource struct {
+	Name    string `json:"name"`
+	Content string `json:"content"`
+}
+
+// Element is a graph element emitted by a plugin during ingestion.
+// The concrete types are [Node] and [Edge].
+type Element interface {
+	isElement()
+}
+
+// Node is a graph node emitted by a plugin.
+type Node struct {
+	ID         string         `json:"id"`
+	Label      string         `json:"label"`
+	Properties map[string]any `json:"properties,omitempty"`
+}
+
+// Edge is a graph edge emitted by a plugin.
+type Edge struct {
+	From       string         `json:"from"`
+	To         string         `json:"to"`
+	Type       string         `json:"type"`
+	Properties map[string]any `json:"properties,omitempty"`
+}
+
+func (Node) isElement() {}
+
+func (Edge) isElement() {}
+
+// Host provides services to the plugin during ingestion.
+type Host interface {
+	// Emit emits one or more graph elements to the host.
+	// The elements may be [Node] or [Edge].
+	Emit(ctx context.Context, elems ...Element) error
+
+	// ConfigGet retrieves a config value from the connection's config.toml
+	// section. Environment variable resolution (_env suffix) has already
+	// been applied — you get the resolved value.
+	ConfigGet(ctx context.Context, key string) (string, error)
+
+	// CacheGet retrieves a cached value. Returns the value, whether it was
+	// found, and any error.
+	CacheGet(ctx context.Context, key string) (value string, found bool, err error)
+
+	// CacheSet stores a value with a TTL in seconds. Use 0 for no expiry.
+	CacheSet(ctx context.Context, key, value string, ttlSeconds int) error
+
+	// EmitNode emits a node into the knowledge graph.
+	EmitNode(ctx context.Context, node Node) error
+
+	// EmitEdge emits a directed edge between two nodes.
+	EmitEdge(ctx context.Context, edge Edge) error
+
+	// Log sends a log message to the host. Levels: "debug", "info", "warn", "error".
+	Log(ctx context.Context, level, msg string) error
+}
+
+// Run starts the plugin. Call this from main(). It handles the magic
+// cookie check, protocol handshake, JSON-RPC setup, and lifecycle
+// dispatch. It blocks until the host disconnects.
+//
+//	func main() {
+//	    plugin.Run(&myPlugin{})
+//	}
+func Run(p Plugin) {
+	if err := run(p); err != nil {
+		fmt.Fprintf(os.Stderr, "plugin error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func run(p Plugin) error {
+	if os.Getenv(magicCookieKey) != magicCookieValue {
+		info := p.Info()
+		fmt.Fprintf(os.Stderr, "%s v%s is a Cartograph plugin.\n", info.Name, info.Version)
+		fmt.Fprintf(os.Stderr, "Install it with: cartograph plugin install ./%s\n", info.Name)
+		os.Exit(1)
+	}
+
+	info := p.Info()
+	fmt.Fprintf(os.Stdout, "%s|%s|%s\n", protocolVersion, info.Name, info.Version)
+
+	ctx := context.Background()
+	var conn *jsonrpc2.Connection
+
+	handler := jsonrpc2.HandlerFunc(func(ctx context.Context, req *jsonrpc2.Request) (any, error) {
+		h := &hostBridge{conn: conn}
+		return dispatch(ctx, p, h, req)
+	})
+
+	transport := &stdioPipe{}
+	conn = jsonrpc2.NewConnection(ctx, transport, jsonrpc2.ConnectionOptions{
+		Handler: handler,
+	})
+
+	return conn.Wait() //nolint:wrapcheck
+}
+
+// dispatch routes incoming JSON-RPC calls to the Plugin interface methods.
+func dispatch(ctx context.Context, p Plugin, host *hostBridge, req *jsonrpc2.Request) (any, error) {
+	switch req.Method {
+	case "info":
+		info := p.Info()
+		entities := make([]map[string]any, len(info.Entities))
+		for i, e := range info.Entities {
+			entity := map[string]any{
+				"name":  e.Name,
+				"label": e.Label,
+			}
+			if e.Query != nil {
+				display := make([]map[string]string, len(e.Query.Display))
+				for j, field := range e.Query.Display {
+					display[j] = map[string]string{
+						"prop":  field.Prop,
+						"label": field.Label,
+					}
+				}
+				entity["query"] = map[string]any{
+					"searchProps": e.Query.SearchProps,
+					"display":     display,
+				}
+			}
+			entities[i] = entity
+		}
+		return map[string]any{
+			"name":        info.Name,
+			"version":     info.Version,
+			"description": info.Description,
+			"entities":    entities,
+		}, nil
+
+	case "resources":
+		resources, err := p.Resources(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("resources: %w", err)
+		}
+		if resources == nil {
+			return []PluginResource{}, nil
+		}
+		return resources, nil
+
+	case "ingest":
+		var params struct {
+			ResourceTypes []string `json:"resource_types"`
+			Concurrency   int      `json:"concurrency"`
+		}
+		if req.Params != nil {
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				return nil, fmt.Errorf("invalid ingest params: %w", err)
+			}
+		}
+		result, err := p.Ingest(ctx, host, IngestOptions{
+			ResourceTypes: params.ResourceTypes,
+			Concurrency:   params.Concurrency,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("ingest: %w", err)
+		}
+		return map[string]any{"nodes": result.Nodes, "edges": result.Edges}, nil
+
+	case "close":
+		if closer, ok := p.(Closer); ok {
+			if err := closer.Close(); err != nil {
+				return nil, fmt.Errorf("close: %w", err)
+			}
+		}
+		return map[string]bool{"ok": true}, nil
+
+	default:
+		return nil, fmt.Errorf("%w: %q", jsonrpc2.ErrMethodNotFound, req.Method)
+	}
+}
+
+// hostBridge implements Host by delegating to the JSON-RPC connection.
+type hostBridge struct {
+	conn *jsonrpc2.Connection
+}
+
+func (h *hostBridge) ConfigGet(ctx context.Context, key string) (string, error) {
+	var value string
+	err := h.conn.Call(ctx, "config_get", map[string]string{"key": key}).Await(ctx, &value)
+	if err != nil {
+		return "", fmt.Errorf("config_get(%q): %w", key, err)
+	}
+	return value, nil
+}
+
+func (h *hostBridge) CacheGet(ctx context.Context, key string) (string, bool, error) {
+	var resp struct {
+		Value string `json:"value"`
+		Found bool   `json:"found"`
+	}
+	err := h.conn.Call(ctx, "cache_get", map[string]string{"key": key}).Await(ctx, &resp)
+	if err != nil {
+		return "", false, fmt.Errorf("cache_get(%q): %w", key, err)
+	}
+	return resp.Value, resp.Found, nil
+}
+
+func (h *hostBridge) CacheSet(ctx context.Context, key, value string, ttlSeconds int) error {
+	var resp struct {
+		OK bool `json:"ok"`
+	}
+	err := h.conn.Call(ctx, "cache_set", map[string]any{
+		"key":   key,
+		"value": value,
+		"ttl":   ttlSeconds,
+	}).Await(ctx, &resp)
+	if err != nil {
+		return fmt.Errorf("cache_set(%q): %w", key, err)
+	}
+	return nil
+}
+
+func (h *hostBridge) Emit(ctx context.Context, elems ...Element) error {
+	for _, elem := range elems {
+		switch e := elem.(type) {
+		case Node:
+			if err := h.EmitNode(ctx, e); err != nil {
+				return err
+			}
+		case Edge:
+			if err := h.EmitEdge(ctx, e); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("emit: unsupported element type %T", elem)
+		}
+	}
+	return nil
+}
+
+func (h *hostBridge) EmitNode(ctx context.Context, node Node) error {
+	return h.conn.Notify(ctx, "emit_node", map[string]any{ //nolint:wrapcheck
+		"label": node.Label,
+		"id":    node.ID,
+		"props": node.Properties,
+	})
+}
+
+func (h *hostBridge) EmitEdge(ctx context.Context, edge Edge) error {
+	return h.conn.Notify(ctx, "emit_edge", map[string]any{ //nolint:wrapcheck
+		"from":  edge.From,
+		"to":    edge.To,
+		"rel":   edge.Type,
+		"props": edge.Properties,
+	})
+}
+
+func (h *hostBridge) Log(ctx context.Context, level, msg string) error {
+	return h.conn.Notify(ctx, "log", map[string]any{ //nolint:wrapcheck
+		"level": level,
+		"msg":   msg,
+	})
+}
+
+// stdioPipe adapts stdin/stdout as an io.ReadWriteCloser.
+type stdioPipe struct{}
+
+func (s *stdioPipe) Read(p []byte) (int, error) {
+	return os.Stdin.Read(p) //nolint:wrapcheck
+}
+
+func (s *stdioPipe) Write(p []byte) (int, error) {
+	return os.Stdout.Write(p) //nolint:wrapcheck
+}
+
+func (s *stdioPipe) Close() error {
+	_ = os.Stdin.Close()
+	_ = os.Stdout.Close()
+	return nil
+}

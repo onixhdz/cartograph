@@ -11,6 +11,10 @@ import (
 // ErrWriteQuery is returned when a Cypher query contains write keywords.
 var ErrWriteQuery = errors.New("write queries are not allowed")
 
+// ErrPluginQueryBlocked is returned when hybrid query is used against a
+// plugin-backed dataset that should only be accessed via Cypher.
+var ErrPluginQueryBlocked = errors.New("query is not supported for plugin datasets; use cypher instead")
+
 // cypherWriteRE matches Cypher write keywords that must be blocked.
 var cypherWriteRE = regexp.MustCompile(`(?i)\b(CREATE|DELETE|SET|MERGE|REMOVE|DROP|ALTER|COPY|DETACH)\b`)
 
@@ -77,42 +81,50 @@ const (
 	RouteEmbed = APIPrefix + "/embed"
 	// RouteEmbedStatus is the endpoint to check embedding progress.
 	RouteEmbedStatus = APIPrefix + "/embed/status"
+	// RoutePluginIngest is the endpoint to trigger background plugin ingestion.
+	RoutePluginIngest = APIPrefix + "/plugin/ingest"
+	// RoutePluginIngestStatus is the endpoint to check plugin ingestion progress.
+	RoutePluginIngestStatus = APIPrefix + "/plugin/ingest/status"
 )
 
 const (
-	MethodQuery       = "query"
-	MethodContext     = "context"
-	MethodCypher      = "cypher"
-	MethodImpact      = "impact"
-	MethodCat         = "cat"
-	MethodReload      = "reload"
-	MethodStatus      = "status"
-	MethodShutdown    = "shutdown"
-	MethodSchema      = "schema"
-	MethodEmbed       = "embed"
-	MethodEmbedStatus = "embed_status"
+	MethodQuery              = "query"
+	MethodContext            = "context"
+	MethodCypher             = "cypher"
+	MethodImpact             = "impact"
+	MethodCat                = "cat"
+	MethodReload             = "reload"
+	MethodStatus             = "status"
+	MethodShutdown           = "shutdown"
+	MethodSchema             = "schema"
+	MethodEmbed              = "embed"
+	MethodEmbedStatus        = "embed_status"
+	MethodPluginIngest       = "plugin_ingest"
+	MethodPluginIngestStatus = "plugin_ingest_status"
 )
 
 // AllMethods lists every valid method name.
 var AllMethods = []string{
 	MethodQuery, MethodContext, MethodCypher, MethodImpact,
 	MethodCat, MethodReload, MethodStatus, MethodShutdown,
-	MethodSchema, MethodEmbed, MethodEmbedStatus,
+	MethodSchema, MethodEmbed, MethodEmbedStatus, MethodPluginIngest, MethodPluginIngestStatus,
 }
 
 // MethodToRoute maps method names to their HTTP route.
 var MethodToRoute = map[string]string{
-	MethodQuery:       RouteQuery,
-	MethodContext:     RouteContext,
-	MethodCypher:      RouteCypher,
-	MethodImpact:      RouteImpact,
-	MethodCat:         RouteCat,
-	MethodReload:      RouteReload,
-	MethodStatus:      RouteStatus,
-	MethodShutdown:    RouteShutdown,
-	MethodSchema:      RouteSchema,
-	MethodEmbed:       RouteEmbed,
-	MethodEmbedStatus: RouteEmbedStatus,
+	MethodQuery:              RouteQuery,
+	MethodContext:            RouteContext,
+	MethodCypher:             RouteCypher,
+	MethodImpact:             RouteImpact,
+	MethodCat:                RouteCat,
+	MethodReload:             RouteReload,
+	MethodStatus:             RouteStatus,
+	MethodShutdown:           RouteShutdown,
+	MethodSchema:             RouteSchema,
+	MethodEmbed:              RouteEmbed,
+	MethodEmbedStatus:        RouteEmbedStatus,
+	MethodPluginIngest:       RoutePluginIngest,
+	MethodPluginIngestStatus: RoutePluginIngestStatus,
 }
 
 // Response wraps all API responses with a uniform envelope.
@@ -143,6 +155,7 @@ const (
 // QueryRequest is the JSON body for POST /api/query.
 type QueryRequest struct {
 	Repo         string `json:"repo"`
+	Plugin       bool   `json:"plugin,omitempty"`
 	Text         string `json:"text"`
 	Limit        int    `json:"limit"`
 	Content      bool   `json:"content,omitempty"`
@@ -152,11 +165,24 @@ type QueryRequest struct {
 
 // QueryResult is the result payload for a query response.
 type QueryResult struct {
-	Processes      []ProcessMatch `json:"processes"`
-	ProcessSymbols []SymbolMatch  `json:"process_symbols"`
-	Definitions    []SymbolMatch  `json:"definitions"`
-	UsageExamples  []SymbolMatch  `json:"usageExamples,omitempty"`
-	TestFlows      []ProcessMatch `json:"testFlows,omitempty"`
+	Processes      []ProcessMatch     `json:"processes"`
+	ProcessSymbols []SymbolMatch      `json:"process_symbols"`
+	Definitions    []SymbolMatch      `json:"definitions"`
+	UsageExamples  []SymbolMatch      `json:"usageExamples,omitempty"`
+	TestFlows      []ProcessMatch     `json:"testFlows,omitempty"`
+	PluginResults  []PluginQueryMatch `json:"pluginResults,omitempty"`
+}
+
+type PluginQueryMatch struct {
+	EntityLabel string               `json:"entityLabel"`
+	NodeID      string               `json:"nodeId"`
+	Score       float64              `json:"score"`
+	Fields      []PluginDisplayField `json:"fields"`
+}
+
+type PluginDisplayField struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
 }
 
 // ProcessMatch represents a matched process in query results.
@@ -354,4 +380,27 @@ type EmbedStatusResult struct {
 	Duration        string `json:"duration,omitempty"`         // human-readable (set on completion)
 	DownloadFile    string `json:"download_file,omitempty"`    // filename being downloaded
 	DownloadPercent int    `json:"download_percent,omitempty"` // 0-100
+}
+
+// PluginIngestRequest is the JSON body for POST /api/plugin/ingest.
+type PluginIngestRequest struct {
+	PluginName     string   `json:"pluginName"`
+	ConnectionName string   `json:"connectionName,omitempty"`
+	ResourceTypes  []string `json:"resourceTypes,omitempty"`
+	Concurrency    int      `json:"concurrency,omitempty"`
+}
+
+// PluginIngestStatusRequest is the JSON body for POST /api/plugin/ingest/status.
+type PluginIngestStatusRequest struct {
+	PluginName string `json:"pluginName"`
+}
+
+// PluginIngestStatusResult is the result payload for a plugin ingest status response.
+type PluginIngestStatusResult struct {
+	PluginName string `json:"pluginName"`
+	Status     string `json:"status"`
+	Nodes      int    `json:"nodes,omitempty"`
+	Edges      int    `json:"edges,omitempty"`
+	Error      string `json:"error,omitempty"`
+	Duration   string `json:"duration,omitempty"`
 }

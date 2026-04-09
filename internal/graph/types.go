@@ -121,6 +121,7 @@ type SymbolProps struct {
 	IsExported     bool   `msgpack:"isExported"     json:"isExported"`
 	Content        string `msgpack:"content"        json:"content,omitempty"`
 	Description    string `msgpack:"description"    json:"description,omitempty"`
+	Annotations    string `msgpack:"annotations"    json:"annotations,omitempty"`
 	Signature      string `msgpack:"signature"      json:"signature,omitempty"`
 	ParameterCount int    `msgpack:"parameterCount" json:"parameterCount,omitempty"`
 	ReturnType     string `msgpack:"returnType"     json:"returnType,omitempty"`
@@ -149,6 +150,7 @@ type DependencyProps struct {
 	Version string `msgpack:"version" json:"version,omitempty"`
 	Source  string `msgpack:"source"  json:"source"` // manifest file, e.g. "go.mod"
 	DevDep  bool   `msgpack:"devDep"  json:"devDep,omitempty"`
+	Scope   string `msgpack:"scope"   json:"scope,omitempty"`
 }
 
 // EdgeProps contains properties for CodeRelation edges.
@@ -172,6 +174,7 @@ const (
 	PropEndLine        = "endLine"
 	PropIsExported     = "isExported"
 	PropDescription    = "description"
+	PropAnnotations    = "annotations"
 	PropSignature      = "signature"
 	PropModularity     = "modularity"
 	PropCommunitySize  = "communitySize"
@@ -192,6 +195,7 @@ const (
 	PropVersion        = "version"
 	PropSource         = "source"
 	PropDevDep         = "devDep"
+	PropScope          = "scope"
 	PropIsTest         = "isTest"
 
 	// PropRepoName identifies which repository a node belongs to.

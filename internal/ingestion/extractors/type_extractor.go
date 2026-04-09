@@ -5,7 +5,7 @@ import (
 	"strings"
 	"unicode"
 
-	ts "github.com/odvcencio/gotreesitter"
+	ts "github.com/realxen/cartograph/internal/treesitter"
 )
 
 const (

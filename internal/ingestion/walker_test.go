@@ -208,12 +208,10 @@ func TestWalk_LanguageDetection(t *testing.T) {
 		"Main.java":     "java",
 		"lib.rs":        "rust",
 		"test.cpp":      "cpp",
-		"header.h":      "c",
+		"header.h":      "cpp",
 		"prog.cs":       "csharp",
 		"app.rb":        "ruby",
 		"index.php":     "php",
-		"Main.kt":       "kotlin",
-		"App.swift":     "swift",
 		"Main.scala":    "scala",
 		"component.tsx": "typescript",
 		"module.jsx":    "javascript",
@@ -588,7 +586,7 @@ func TestWalk_TrailingSlashDirectoryOnly(t *testing.T) {
 }
 
 func TestWalk_NewLanguageDetection(t *testing.T) {
-	// Verify that the grammars.DetectLanguage fallback detects many more languages.
+	// The explicit native registry only detects first-hand supported languages.
 	dir := testutil.TempDir(t, map[string]string{
 		"test.lua":   "print('hello')",
 		"test.ex":    "defmodule M do end",
@@ -615,35 +613,26 @@ func TestWalk_NewLanguageDetection(t *testing.T) {
 		}
 	}
 
-	expectations := map[string]string{
-		"test.lua":   "lua",
-		"test.ex":    "elixir",
-		"test.hs":    "haskell",
-		"test.dart":  "dart",
-		"test.zig":   "zig",
-		"test.ml":    "ocaml",
-		"test.erl":   "erlang",
-		"test.scala": "scala",
-		"test.clj":   "clojure",
-		"test.r":     "r",
-		"test.jl":    "julia",
+	if got, ok := langMap["test.scala"]; !ok {
+		t.Error("file test.scala not found in walk results")
+	} else if got != "scala" {
+		t.Errorf("file test.scala: expected language %q, got %q", "scala", got)
 	}
 
-	for file, expectedLang := range expectations {
+	for _, file := range []string{"test.lua", "test.ex", "test.hs", "test.dart", "test.zig", "test.ml", "test.erl", "test.clj", "test.r", "test.jl"} {
 		got, ok := langMap[file]
 		if !ok {
 			t.Errorf("file %s not found in walk results", file)
 			continue
 		}
-		if got != expectedLang {
-			t.Errorf("file %s: expected language %q, got %q", file, expectedLang, got)
+		if got != "" {
+			t.Errorf("file %s: expected language %q, got %q", file, "", got)
 		}
 	}
 }
 
 func TestWalk_RubyExtensionlessFiles(t *testing.T) {
-	// Verify that Rakefile, Gemfile etc. are still detected as Ruby
-	// via grammars.DetectLanguage (which supports exact filename matches).
+	// The explicit native registry is extension-based in this first pass.
 	dir := testutil.TempDir(t, map[string]string{
 		"Rakefile":    "task :default",
 		"Gemfile":     "source 'https://rubygems.org'",
@@ -659,8 +648,52 @@ func TestWalk_RubyExtensionlessFiles(t *testing.T) {
 		if r.IsDir {
 			continue
 		}
-		if r.Language != "ruby" {
-			t.Errorf("file %s: expected language 'ruby', got %q", r.RelPath, r.Language)
+		if r.Language != "" {
+			t.Errorf("file %s: expected language '', got %q", r.RelPath, r.Language)
+		}
+	}
+}
+
+func TestWalk_SupportingLanguageDetection(t *testing.T) {
+	dir := testutil.TempDir(t, map[string]string{
+		"Dockerfile":     "FROM alpine:3.20\n",
+		"build.gradle":   "plugins { id 'java' }\n",
+		"Makefile":       "build:\n\tgo build ./...\n",
+		"config.yaml":    "key: value\n",
+		"settings.json":  "{\"key\":\"value\"}\n",
+		"infra.tf":       "resource \"aws_s3_bucket\" \"x\" {}\n",
+		"schema.proto":   "syntax = \"proto3\";\n",
+		"script.sh":      "#!/bin/sh\necho hi\n",
+		"query.sql":      "select 1;\n",
+		"pyproject.toml": "[project]\nname='x'\n",
+	})
+
+	results, err := Walk(dir, WalkOptions{})
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+
+	langMap := make(map[string]string)
+	for _, r := range results {
+		if !r.IsDir {
+			langMap[filepath.Base(r.RelPath)] = r.Language
+		}
+	}
+
+	for file, want := range map[string]string{
+		"Dockerfile":     "dockerfile",
+		"build.gradle":   "groovy",
+		"Makefile":       "make",
+		"config.yaml":    "yaml",
+		"settings.json":  "json",
+		"infra.tf":       "hcl",
+		"schema.proto":   "protobuf",
+		"script.sh":      "bash",
+		"query.sql":      "sql",
+		"pyproject.toml": "toml",
+	} {
+		if got := langMap[file]; got != want {
+			t.Errorf("file %s: expected language %q, got %q", file, want, got)
 		}
 	}
 }

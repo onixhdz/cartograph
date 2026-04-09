@@ -17,7 +17,19 @@ import (
 
 const langPHP = "php"
 
+const langJava = "java"
+
+const langCPP = "cpp"
+
 const langPython = "python"
+
+const (
+	depScopeDev      = "dev"
+	depScopeTest     = "test"
+	manifestPkgJSON  = "package.json"
+	tsKindIdentifier = "identifier"
+	tsKindString     = "string"
+)
 
 // DependencyInfo describes a single external dependency parsed from a manifest.
 type DependencyInfo struct {
@@ -25,6 +37,17 @@ type DependencyInfo struct {
 	Version string // version constraint (may be empty)
 	Source  string // manifest file name, e.g. "go.mod"
 	Dev     bool   // true for devDependencies / dev-dependencies
+	Scope   string // optional finer-grained dependency scope: peer, optional, build, test, etc.
+}
+
+func addDependency(cfg *ProjectConfig, dep DependencyInfo) {
+	if dep.Name == "" {
+		return
+	}
+	if dep.Dev && dep.Scope == "" {
+		dep.Scope = depScopeDev
+	}
+	cfg.Dependencies = append(cfg.Dependencies, dep)
 }
 
 // ProjectConfig holds language-specific configuration discovered from
@@ -51,14 +74,98 @@ type ProjectConfig struct {
 
 	// Dependencies lists external packages parsed from manifest files.
 	Dependencies []DependencyInfo
+
+	// Manifests captures high-signal package/module identity from manifest files.
+	Manifests []ManifestInfo
+
+	// BuildProcesses captures high-signal build entrypoints discovered from build files.
+	BuildProcesses []BuildProcessInfo
+}
+
+type ProjectConfigOptions struct {
+	Files []string // repo-relative file paths discovered by the walker
+}
+
+func relPathsByBase(files []string, base string) []string {
+	var out []string
+	seen := make(map[string]bool)
+	for _, rel := range files {
+		if filepath.Base(rel) != base || seen[rel] {
+			continue
+		}
+		seen[rel] = true
+		out = append(out, rel)
+	}
+	if len(out) == 0 && len(files) == 0 {
+		return []string{base}
+	}
+	return out
+}
+
+// ManifestInfo describes package/module identity discovered from a manifest.
+type ManifestInfo struct {
+	Name       string
+	Version    string
+	Source     string
+	Language   string
+	Workspaces []string
+}
+
+type BuildProcessInfo struct {
+	Name       string
+	Source     string
+	Language   string
+	EntryPoint string
+}
+
+type packageJSONManifestFile struct {
+	Name        string          `json:"name"`
+	Version     string          `json:"version"`
+	Workspaces  any             `json:"workspaces"`
+	Engines     map[string]any  `json:"engines"`
+	Contributes json.RawMessage `json:"contributes"`
+	Unity       string          `json:"unity"`
+}
+
+func shouldSkipPackageJSON(engines map[string]any, contributes json.RawMessage, unity string) bool {
+	if _, ok := engines["vscode"]; ok {
+		return true
+	}
+	if len(contributes) > 0 && string(contributes) != "null" {
+		return true
+	}
+	return unity != ""
+}
+
+func addManifest(cfg *ProjectConfig, manifest ManifestInfo) {
+	if manifest.Name == "" || manifest.Source == "" {
+		return
+	}
+	cfg.Manifests = append(cfg.Manifests, manifest)
+}
+
+func addBuildProcess(cfg *ProjectConfig, proc BuildProcessInfo) {
+	if proc.Name == "" || proc.Source == "" {
+		return
+	}
+	for _, existing := range cfg.BuildProcesses {
+		if existing.Name == proc.Name && existing.Source == proc.Source {
+			return
+		}
+	}
+	cfg.BuildProcesses = append(cfg.BuildProcesses, proc)
 }
 
 // LoadProjectConfig discovers and parses language configuration files
 // in the project root directory. ReadFile is used to read file contents
 // (can be overridden for testing with in-memory filesystems).
-func LoadProjectConfig(root string, readFile func(string) ([]byte, error)) *ProjectConfig {
+func LoadProjectConfig(root string, readFile func(string) ([]byte, error), opts ...ProjectConfigOptions) *ProjectConfig {
 	if readFile == nil {
 		readFile = os.ReadFile
+	}
+	var options ProjectConfigOptions
+	if len(opts) > 0 {
+		options = opts[0]
 	}
 	cfg := &ProjectConfig{
 		TSConfigPaths: make(map[string][]string),
@@ -72,18 +179,24 @@ func LoadProjectConfig(root string, readFile func(string) ([]byte, error)) *Proj
 	loadCSharpProjectConfig(root, readFile, cfg)
 	loadSwiftPackageConfig(root, readFile, cfg)
 
-	loadGoModDependencies(root, readFile, cfg)
+	loadGoModDependencies(root, readFile, cfg, options.Files)
 	loadPackageJSONDependencies(root, readFile, cfg)
-	loadCargoTomlDependencies(root, readFile, cfg)
-	loadRequirementsTxtDependencies(root, readFile, cfg)
+	loadWorkspacePackageJSONDependencies(root, readFile, cfg, options.Files)
+	loadPackageManagerLockfiles(root, readFile, cfg, options.Files)
+	loadCargoTomlDependencies(root, readFile, cfg, options.Files)
+	loadRequirementsTxtDependencies(root, readFile, cfg, options.Files)
 	loadComposerDependencies(root, readFile, cfg)
 	loadGemfileDependencies(root, readFile, cfg)
-	loadCsprojDependencies(root, readFile, cfg)
+	loadCsprojDependencies(root, readFile, cfg, options.Files)
 	loadSwiftPackageDependencies(root, readFile, cfg)
-	loadPomXMLDependencies(root, readFile, cfg)
-	loadGradleDependencies(root, readFile, cfg)
+	loadPomXMLDependencies(root, readFile, cfg, options.Files)
+	loadGradleLockfileDependencies(root, readFile, cfg, options.Files)
+	loadGradleBuildDependencies(root, readFile, cfg, options.Files)
 	loadVcpkgDependencies(root, readFile, cfg)
-	loadPyprojectTomlDependencies(root, readFile, cfg)
+	loadPyprojectTomlDependencies(root, readFile, cfg, options.Files)
+	loadSBTDependencies(root, readFile, cfg, options.Files)
+	loadMakefileProcesses(root, readFile, cfg, options.Files)
+	loadManifestIdentities(root, readFile, cfg, options.Files)
 
 	return cfg
 }
@@ -253,71 +366,78 @@ func lenientVersionFix(_, version string) (string, error) {
 
 // loadGoModDependencies parses go.mod using golang.org/x/mod/modfile for proper
 // handling of require blocks, replace directives, and edge cases.
-func loadGoModDependencies(root string, readFile func(string) ([]byte, error), cfg *ProjectConfig) {
-	data, err := readFile(filepath.Join(root, "go.mod"))
-	if err != nil {
-		return
-	}
-	parsed, err := modfile.Parse("go.mod", data, lenientVersionFix)
-	if err != nil {
-		return
-	}
-
-	// Build replacement lookup: version-specific ("path@version") and blanket ("path").
-	type replacement struct{ path, version string }
-	replacements := make(map[string]replacement)
-	for _, rep := range parsed.Replace {
-		if rep.New.Path == "" {
+func loadGoModDependencies(root string, readFile func(string) ([]byte, error), cfg *ProjectConfig, files []string) {
+	for _, rel := range relPathsByBase(files, "go.mod") {
+		data, err := readFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil {
 			continue
 		}
-		r := replacement{path: rep.New.Path, version: rep.New.Version}
-		if rep.Old.Version != "" {
-			// Version-specific: only applies to this exact version.
-			replacements[rep.Old.Path+"@"+rep.Old.Version] = r
-		} else {
-			// Blanket: applies to all versions.
-			replacements[rep.Old.Path] = r
+		parsed, err := modfile.Parse(rel, data, lenientVersionFix)
+		if err != nil {
+			continue
 		}
-	}
 
-	for _, req := range parsed.Require {
-		name := req.Mod.Path
-		version := req.Mod.Version
-
-		// Apply replace directives. Version-specific takes priority.
-		vKey := name + "@" + version
-		if rep, ok := replacements[vKey]; ok {
-			name = rep.path
-			if rep.version != "" {
-				version = rep.version
+		type replacement struct{ path, version string }
+		replacements := make(map[string]replacement)
+		for _, rep := range parsed.Replace {
+			if rep.New.Path == "" {
+				continue
 			}
-		} else if rep, ok := replacements[name]; ok {
-			name = rep.path
-			if rep.version != "" {
-				version = rep.version
+			r := replacement{path: rep.New.Path, version: rep.New.Version}
+			if rep.Old.Version != "" {
+				replacements[rep.Old.Path+"@"+rep.Old.Version] = r
+			} else {
+				replacements[rep.Old.Path] = r
 			}
 		}
 
-		cfg.Dependencies = append(cfg.Dependencies, DependencyInfo{
-			Name:    name,
-			Version: version,
-			Source:  "go.mod",
-		})
+		for _, req := range parsed.Require {
+			name := req.Mod.Path
+			version := req.Mod.Version
+			vKey := name + "@" + version
+			if rep, ok := replacements[vKey]; ok {
+				name = rep.path
+				if rep.version != "" {
+					version = rep.version
+				}
+			} else if rep, ok := replacements[name]; ok {
+				name = rep.path
+				if rep.version != "" {
+					version = rep.version
+				}
+			}
+			addDependency(cfg, DependencyInfo{Name: name, Version: version, Source: rel})
+		}
 	}
 }
 
 // loadPackageJSONDependencies parses dependencies and devDependencies from
 // package.json, filtering out VSCode extension manifests and Unity packages.
 func loadPackageJSONDependencies(root string, readFile func(string) ([]byte, error), cfg *ProjectConfig) {
-	data, err := readFile(filepath.Join(root, "package.json"))
+	loadPackageJSONAt(root, manifestPkgJSON, readFile, cfg)
+}
+
+func loadWorkspacePackageJSONDependencies(root string, readFile func(string) ([]byte, error), cfg *ProjectConfig, files []string) {
+	for _, rel := range files {
+		if rel == manifestPkgJSON || filepath.Base(rel) != manifestPkgJSON {
+			continue
+		}
+		loadPackageJSONAt(root, rel, readFile, cfg)
+	}
+}
+
+func loadPackageJSONAt(root, relPath string, readFile func(string) ([]byte, error), cfg *ProjectConfig) {
+	data, err := readFile(filepath.Join(root, filepath.FromSlash(relPath)))
 	if err != nil {
 		return
 	}
 	var pkg struct {
-		Name            string            `json:"name"`
-		Version         string            `json:"version"`
-		Dependencies    map[string]string `json:"dependencies"`
-		DevDependencies map[string]string `json:"devDependencies"`
+		Name                 string            `json:"name"`
+		Version              string            `json:"version"`
+		Dependencies         map[string]string `json:"dependencies"`
+		DevDependencies      map[string]string `json:"devDependencies"`
+		PeerDependencies     map[string]string `json:"peerDependencies"`
+		OptionalDependencies map[string]string `json:"optionalDependencies"`
 		// Fields used to detect non-NPM package.json files:
 		Engines     map[string]any  `json:"engines"`
 		Contributes json.RawMessage `json:"contributes"`
@@ -327,27 +447,206 @@ func loadPackageJSONDependencies(root string, readFile func(string) ([]byte, err
 		return
 	}
 
-	// Skip VSCode extension manifests (has engines.vscode or contributes field).
-	if _, ok := pkg.Engines["vscode"]; ok {
-		return
-	}
-	if len(pkg.Contributes) > 0 && string(pkg.Contributes) != "null" {
-		return
-	}
-	// Skip Unity packages (has "unity" field).
-	if pkg.Unity != "" {
+	if shouldSkipPackageJSON(pkg.Engines, pkg.Contributes, pkg.Unity) {
 		return
 	}
 
 	for name, version := range pkg.Dependencies {
-		cfg.Dependencies = append(cfg.Dependencies, DependencyInfo{
-			Name: name, Version: version, Source: "package.json",
+		addDependency(cfg, DependencyInfo{
+			Name: name, Version: version, Source: relPath,
 		})
 	}
 	for name, version := range pkg.DevDependencies {
-		cfg.Dependencies = append(cfg.Dependencies, DependencyInfo{
-			Name: name, Version: version, Source: "package.json", Dev: true,
-		})
+		addDependency(cfg, DependencyInfo{Name: name, Version: version, Source: relPath, Dev: true, Scope: depScopeDev})
+	}
+	for name, version := range pkg.PeerDependencies {
+		addDependency(cfg, DependencyInfo{Name: name, Version: version, Source: relPath, Dev: true, Scope: "peer"})
+	}
+	for name, version := range pkg.OptionalDependencies {
+		addDependency(cfg, DependencyInfo{Name: name, Version: version, Source: relPath, Dev: true, Scope: "optional"})
+	}
+}
+
+func dependencyIndexBySource(deps []DependencyInfo, source string) map[string]int {
+	idx := make(map[string]int)
+	for i, dep := range deps {
+		if dep.Source == source {
+			idx[dep.Name] = i
+		}
+	}
+	return idx
+}
+
+func parseYarnHeaderNames(header string) []string {
+	parts := strings.Split(header, ", ")
+	var out []string
+	seen := make(map[string]bool)
+	for _, part := range parts {
+		part = strings.Trim(part, `"`)
+		if part == "" {
+			continue
+		}
+		at := strings.LastIndex(part, "@")
+		if strings.HasPrefix(part, "@") {
+			at = strings.LastIndex(part[1:], "@")
+			if at >= 0 {
+				at++
+			}
+		}
+		if at <= 0 {
+			continue
+		}
+		name := part[:at]
+		if !seen[name] {
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+func loadPackageManagerLockfiles(root string, readFile func(string) ([]byte, error), cfg *ProjectConfig, files []string) {
+	if len(files) == 0 {
+		loadPackageLockJSONDependenciesAt(root, "package-lock.json", "package.json", readFile, cfg)
+		loadYarnLockDependenciesAt(root, "yarn.lock", "package.json", readFile, cfg)
+		loadPnpmLockDependenciesAt(root, "pnpm-lock.yaml", "package.json", readFile, cfg)
+		return
+	}
+	for _, rel := range files {
+		dir := path.Dir(rel)
+		if dir == "." {
+			dir = ""
+		}
+		switch filepath.Base(rel) {
+		case "package-lock.json":
+			loadPackageLockJSONDependenciesAt(root, rel, manifestPathForDir(dir, "package.json"), readFile, cfg)
+		case "yarn.lock":
+			loadYarnLockDependenciesAt(root, rel, manifestPathForDir(dir, "package.json"), readFile, cfg)
+		case "pnpm-lock.yaml":
+			loadPnpmLockDependenciesAt(root, rel, manifestPathForDir(dir, "package.json"), readFile, cfg)
+		}
+	}
+}
+
+func manifestPathForDir(dir, name string) string {
+	if dir == "" {
+		return name
+	}
+	return path.Join(dir, name)
+}
+
+func loadPackageLockJSONDependenciesAt(root, lockRelPath, manifestRelPath string, readFile func(string) ([]byte, error), cfg *ProjectConfig) {
+	data, err := readFile(filepath.Join(root, filepath.FromSlash(lockRelPath)))
+	if err != nil {
+		return
+	}
+	var lock struct {
+		LockfileVersion int `json:"lockfileVersion"`
+		Packages        map[string]struct {
+			Version  string `json:"version"`
+			Dev      bool   `json:"dev"`
+			Optional bool   `json:"optional"`
+		} `json:"packages"`
+	}
+	if err := json.Unmarshal(data, &lock); err != nil {
+		return
+	}
+	if lock.LockfileVersion < 2 || len(lock.Packages) == 0 {
+		return
+	}
+	declared := dependencyIndexBySource(cfg.Dependencies, manifestRelPath)
+	for key, entry := range lock.Packages {
+		if key == "" || entry.Version == "" {
+			continue
+		}
+		name := strings.TrimPrefix(key, "node_modules/")
+		if idx, ok := declared[name]; ok {
+			cfg.Dependencies[idx].Version = entry.Version
+			if cfg.Dependencies[idx].Scope == "" {
+				switch {
+				case entry.Dev:
+					cfg.Dependencies[idx].Dev = true
+					cfg.Dependencies[idx].Scope = depScopeDev
+				case entry.Optional:
+					cfg.Dependencies[idx].Dev = true
+					cfg.Dependencies[idx].Scope = "optional"
+				}
+			}
+		}
+	}
+}
+
+func loadYarnLockDependenciesAt(root, lockRelPath, manifestRelPath string, readFile func(string) ([]byte, error), cfg *ProjectConfig) {
+	data, err := readFile(filepath.Join(root, filepath.FromSlash(lockRelPath)))
+	if err != nil {
+		return
+	}
+	declared := dependencyIndexBySource(cfg.Dependencies, manifestRelPath)
+	if len(declared) == 0 {
+		return
+	}
+	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	var names []string
+	for scanner.Scan() {
+		raw := scanner.Text()
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			names = nil
+			continue
+		}
+		if strings.HasSuffix(line, ":") && !strings.HasPrefix(raw, " ") && !strings.HasPrefix(raw, "\t") {
+			names = parseYarnHeaderNames(strings.TrimSuffix(line, ":"))
+			continue
+		}
+		if rest, ok := strings.CutPrefix(line, "version "); ok {
+			version := strings.Trim(rest, `"`)
+			for _, name := range names {
+				if idx, ok := declared[name]; ok {
+					cfg.Dependencies[idx].Version = version
+				}
+			}
+			names = nil
+		}
+	}
+}
+
+func loadPnpmLockDependenciesAt(root, lockRelPath, manifestRelPath string, readFile func(string) ([]byte, error), cfg *ProjectConfig) {
+	data, err := readFile(filepath.Join(root, filepath.FromSlash(lockRelPath)))
+	if err != nil {
+		return
+	}
+	declared := dependencyIndexBySource(cfg.Dependencies, manifestRelPath)
+	if len(declared) == 0 {
+		return
+	}
+	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	inPackages := false
+	for scanner.Scan() {
+		raw := scanner.Text()
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if !strings.HasPrefix(raw, " ") && !strings.HasPrefix(raw, "\t") {
+			inPackages = trimmed == "packages:"
+			continue
+		}
+		if !inPackages || !strings.HasPrefix(raw, "  /") {
+			continue
+		}
+		key := strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(raw), "/"), ":")
+		at := strings.LastIndex(key, "@")
+		if at <= 0 {
+			continue
+		}
+		name := key[:at]
+		version := key[at+1:]
+		if i := strings.Index(version, "_"); i >= 0 {
+			version = version[:i]
+		}
+		if idx, ok := declared[name]; ok {
+			cfg.Dependencies[idx].Version = version
+		}
 	}
 }
 
@@ -380,59 +679,48 @@ func parseCargoDep(val any) (version, git string) {
 
 // loadCargoTomlDependencies parses [dependencies] and [dev-dependencies] from
 // Cargo.toml using pelletier/go-toml/v2 for proper TOML handling.
-func loadCargoTomlDependencies(root string, readFile func(string) ([]byte, error), cfg *ProjectConfig) {
-	data, err := readFile(filepath.Join(root, "Cargo.toml"))
-	if err != nil {
-		return
-	}
-	var cargo cargoTomlFile
-	if err := toml.Unmarshal(data, &cargo); err != nil {
-		return
-	}
-	for name, val := range cargo.Dependencies {
-		version, git := parseCargoDep(val)
-		// Skip deps with no version and no git source (path-only local deps).
-		if version == "" && git == "" {
+func loadCargoTomlDependencies(root string, readFile func(string) ([]byte, error), cfg *ProjectConfig, files []string) {
+	for _, rel := range relPathsByBase(files, "Cargo.toml") {
+		data, err := readFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil {
 			continue
 		}
-		cfg.Dependencies = append(cfg.Dependencies, DependencyInfo{
-			Name: name, Version: version, Source: "Cargo.toml",
-		})
-	}
-	for name, val := range cargo.DevDependencies {
-		version, git := parseCargoDep(val)
-		if version == "" && git == "" {
+		var cargo cargoTomlFile
+		if err := toml.Unmarshal(data, &cargo); err != nil {
 			continue
 		}
-		cfg.Dependencies = append(cfg.Dependencies, DependencyInfo{
-			Name: name, Version: version, Source: "Cargo.toml", Dev: true,
-		})
-	}
-	for name, val := range cargo.BuildDependencies {
-		version, git := parseCargoDep(val)
-		if version == "" && git == "" {
-			continue
+		for name, val := range cargo.Dependencies {
+			version, git := parseCargoDep(val)
+			if version == "" && git == "" {
+				continue
+			}
+			addDependency(cfg, DependencyInfo{Name: name, Version: version, Source: rel})
 		}
-		cfg.Dependencies = append(cfg.Dependencies, DependencyInfo{
-			Name: name, Version: version, Source: "Cargo.toml", Dev: true,
-		})
+		for name, val := range cargo.DevDependencies {
+			version, git := parseCargoDep(val)
+			if version == "" && git == "" {
+				continue
+			}
+			addDependency(cfg, DependencyInfo{Name: name, Version: version, Source: rel, Dev: true, Scope: depScopeDev})
+		}
+		for name, val := range cargo.BuildDependencies {
+			version, git := parseCargoDep(val)
+			if version == "" && git == "" {
+				continue
+			}
+			addDependency(cfg, DependencyInfo{Name: name, Version: version, Source: rel, Dev: true, Scope: "build"})
+		}
 	}
 }
 
 // loadRequirementsTxtDependencies parses requirements.txt with support for
 // -r/-c includes, line continuations, markers, extras, and inline comments.
-func loadRequirementsTxtDependencies(root string, readFile func(string) ([]byte, error), cfg *ProjectConfig) {
+func loadRequirementsTxtDependencies(root string, readFile func(string) ([]byte, error), cfg *ProjectConfig, files []string) {
 	seen := make(map[string]bool) // cycle detection for -r includes
 
-	// Try common requirements file variants.
-	// The -r include handling will follow any cross-references between them.
-	candidates := []string{
-		"requirements.txt",
-		"requirements-dev.txt",
-		"requirements-test.txt",
-		"requirements-prod.txt",
-		"requirements_dev.txt",
-		"requirements_test.txt",
+	candidates := relPathsByBase(files, "requirements.txt")
+	for _, variant := range []string{"requirements-dev.txt", "requirements-test.txt", "requirements-prod.txt", "requirements_dev.txt", "requirements_test.txt"} {
+		candidates = append(candidates, relPathsByBase(files, variant)...)
 	}
 	for _, name := range candidates {
 		parseRequirementsFile(root, name, readFile, cfg, seen)
@@ -526,9 +814,7 @@ func parseRequirementsFile(root, filename string, readFile func(string) ([]byte,
 			name = strings.TrimSpace(clean)
 		}
 		if name != "" && reValidPyPkg.MatchString(name) {
-			cfg.Dependencies = append(cfg.Dependencies, DependencyInfo{
-				Name: name, Version: version, Source: "requirements.txt",
-			})
+			addDependency(cfg, DependencyInfo{Name: name, Version: version, Source: "requirements.txt"})
 		}
 	}
 }
@@ -551,17 +837,13 @@ func loadComposerDependencies(root string, readFile func(string) ([]byte, error)
 		if name == langPHP || strings.HasPrefix(name, "ext-") || strings.HasPrefix(name, "lib-") {
 			continue
 		}
-		cfg.Dependencies = append(cfg.Dependencies, DependencyInfo{
-			Name: name, Version: version, Source: "composer.json",
-		})
+		addDependency(cfg, DependencyInfo{Name: name, Version: version, Source: "composer.json"})
 	}
 	for name, version := range composer.RequireDev {
 		if name == langPHP || strings.HasPrefix(name, "ext-") || strings.HasPrefix(name, "lib-") {
 			continue
 		}
-		cfg.Dependencies = append(cfg.Dependencies, DependencyInfo{
-			Name: name, Version: version, Source: "composer.json", Dev: true,
-		})
+		addDependency(cfg, DependencyInfo{Name: name, Version: version, Source: "composer.json", Dev: true, Scope: depScopeDev})
 	}
 }
 
@@ -580,29 +862,40 @@ func loadGemfileDependencies(root string, readFile func(string) ([]byte, error),
 			if len(m) >= 3 {
 				version = m[2]
 			}
-			cfg.Dependencies = append(cfg.Dependencies, DependencyInfo{
-				Name: m[1], Version: version, Source: "Gemfile",
-			})
+			addDependency(cfg, DependencyInfo{Name: m[1], Version: version, Source: "Gemfile"})
 		}
 	}
 }
 
 // loadCsprojDependencies extracts <PackageReference> elements from .csproj files,
 // handling Include/Update variants and skipping MSBuild variable entries.
-func loadCsprojDependencies(root string, readFile func(string) ([]byte, error), cfg *ProjectConfig) {
-	entries, err := os.ReadDir(root)
-	if err != nil {
+func loadCsprojDependencies(root string, readFile func(string) ([]byte, error), cfg *ProjectConfig, files []string) {
+	if len(files) == 0 {
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			return
+		}
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".csproj") {
+				continue
+			}
+			data, err := readFile(filepath.Join(root, e.Name()))
+			if err != nil {
+				continue
+			}
+			parseCsprojPackageRefs(data, e.Name(), cfg)
+		}
 		return
 	}
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".csproj") {
+	for _, rel := range files {
+		if filepath.Ext(rel) != ".csproj" {
 			continue
 		}
-		data, err := readFile(filepath.Join(root, e.Name()))
+		data, err := readFile(filepath.Join(root, filepath.FromSlash(rel)))
 		if err != nil {
 			continue
 		}
-		parseCsprojPackageRefs(data, e.Name(), cfg)
+		parseCsprojPackageRefs(data, rel, cfg)
 	}
 }
 
@@ -649,9 +942,7 @@ func parseCsprojPackageRefs(data []byte, source string, cfg *ProjectConfig) {
 			if name == "" || isMSBuildVariable(name) || isMSBuildVariable(version) {
 				continue
 			}
-			cfg.Dependencies = append(cfg.Dependencies, DependencyInfo{
-				Name: name, Version: version, Source: source,
-			})
+			addDependency(cfg, DependencyInfo{Name: name, Version: version, Source: source})
 		}
 	}
 }
@@ -678,9 +969,7 @@ func loadSwiftPackageDependencies(root string, readFile func(string) ([]byte, er
 				break
 			}
 		}
-		cfg.Dependencies = append(cfg.Dependencies, DependencyInfo{
-			Name: name, Version: version, Source: "Package.swift",
-		})
+		addDependency(cfg, DependencyInfo{Name: name, Version: version, Source: "Package.swift"})
 	}
 }
 
@@ -701,22 +990,26 @@ func swiftPackageName(url string) string {
 
 // loadPomXMLDependencies parses direct <dependency> elements from pom.xml,
 // extracting groupId:artifactId and version (skipping unresolved ${...} properties).
-func loadPomXMLDependencies(root string, readFile func(string) ([]byte, error), cfg *ProjectConfig) {
-	data, err := readFile(filepath.Join(root, "pom.xml"))
-	if err != nil {
-		return
+func loadPomXMLDependencies(root string, readFile func(string) ([]byte, error), cfg *ProjectConfig, files []string) {
+	for _, rel := range relPathsByBase(files, "pom.xml") {
+		data, err := readFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil {
+			continue
+		}
+		parsePomXMLDependencies(data, rel, cfg)
 	}
+}
+
+func parsePomXMLDependencies(data []byte, source string, cfg *ProjectConfig) {
 	var pom pomXMLFile
 	if err := xml.Unmarshal(data, &pom); err != nil {
 		return
 	}
-
-	// Build properties map for variable substitution.
+	inheritPomProjectFields(&pom)
 	props := make(map[string]string)
 	for _, p := range pom.Properties.Inner {
 		props[p.XMLName.Local] = strings.TrimSpace(string(p.Content))
 	}
-	// Add implicit properties.
 	if pom.GroupID != "" {
 		props["project.groupId"] = pom.GroupID
 		props["pom.groupId"] = pom.GroupID
@@ -729,51 +1022,52 @@ func loadPomXMLDependencies(root string, readFile func(string) ([]byte, error), 
 		props["project.version"] = pom.Version
 		props["pom.version"] = pom.Version
 	}
-
 	for _, dep := range pom.Dependencies.Dependency {
 		groupID := expandMavenProp(dep.GroupID, props)
 		artifactID := expandMavenProp(dep.ArtifactID, props)
 		version := expandMavenProp(dep.Version, props)
 		scope := strings.TrimSpace(dep.Scope)
-
-		// Skip entries with unresolved properties.
 		if containsMavenProp(groupID) || containsMavenProp(artifactID) {
 			continue
 		}
-
 		name := groupID + ":" + artifactID
-		dev := scope == "test"
-
-		// Skip provided/system scope (not runtime deps).
+		dev := scope == depScopeTest
 		if scope == "provided" || scope == "system" {
 			continue
 		}
-
-		cfg.Dependencies = append(cfg.Dependencies, DependencyInfo{
-			Name: name, Version: version, Source: "pom.xml", Dev: dev,
-		})
+		scopeName := ""
+		if dev {
+			scopeName = depScopeTest
+		}
+		addDependency(cfg, DependencyInfo{Name: name, Version: version, Source: source, Dev: dev, Scope: scopeName})
 	}
-
-	// Also parse dependencyManagement for version catalog visibility.
 	for _, dep := range pom.DependencyManagement.Dependencies.Dependency {
 		groupID := expandMavenProp(dep.GroupID, props)
 		artifactID := expandMavenProp(dep.ArtifactID, props)
 		version := expandMavenProp(dep.Version, props)
 		scope := strings.TrimSpace(dep.Scope)
-
-		if containsMavenProp(groupID) || containsMavenProp(artifactID) {
+		if containsMavenProp(groupID) || containsMavenProp(artifactID) || scope == "import" {
 			continue
 		}
-		// Skip import-scoped BOM entries.
-		if scope == "import" {
-			continue
-		}
-
 		name := groupID + ":" + artifactID
-		cfg.Dependencies = append(cfg.Dependencies, DependencyInfo{
-			Name: name, Version: version, Source: "pom.xml",
-			Dev: scope == "test",
-		})
+		dev := scope == depScopeTest
+		scopeName := ""
+		if dev {
+			scopeName = depScopeTest
+		}
+		addDependency(cfg, DependencyInfo{Name: name, Version: version, Source: source, Dev: dev, Scope: scopeName})
+	}
+}
+
+func inheritPomProjectFields(pom *pomXMLFile) {
+	if pom == nil {
+		return
+	}
+	if pom.GroupID == "" {
+		pom.GroupID = pom.Parent.GroupID
+	}
+	if pom.Version == "" {
+		pom.Version = pom.Parent.Version
 	}
 }
 
@@ -783,6 +1077,8 @@ type pomXMLFile struct {
 	GroupID      string        `xml:"groupId"`
 	ArtifactID   string        `xml:"artifactId"`
 	Version      string        `xml:"version"`
+	Parent       pomParent     `xml:"parent"`
+	Modules      []string      `xml:"modules>module"`
 	Properties   pomProperties `xml:"properties"`
 	Dependencies struct {
 		Dependency []pomDep `xml:"dependency"`
@@ -792,6 +1088,12 @@ type pomXMLFile struct {
 			Dependency []pomDep `xml:"dependency"`
 		} `xml:"dependencies"`
 	} `xml:"dependencyManagement"`
+}
+
+type pomParent struct {
+	GroupID    string `xml:"groupId"`
+	ArtifactID string `xml:"artifactId"`
+	Version    string `xml:"version"`
 }
 
 type pomProperties struct {
@@ -828,34 +1130,23 @@ func containsMavenProp(s string) bool {
 	return strings.Contains(s, "${")
 }
 
-// loadGradleDependencies parses gradle.lockfile (Gradle 4.8+ dependency locking).
+// loadGradleLockfileDependencies parses gradle.lockfile (Gradle 4.8+ dependency locking).
 // Cross-referenced against Trivy's gradle/lockfile parser. Format:
 //
 //	group:artifact:version=classPaths
 //
 // Lines starting with # are comments; the last line is "empty=" with config names.
-func loadGradleDependencies(root string, readFile func(string) ([]byte, error), cfg *ProjectConfig) {
-	// Try both Gradle lockfile locations.
-	for _, name := range []string{"gradle.lockfile", "buildscript-gradle.lockfile"} {
-		data, err := readFile(filepath.Join(root, name))
+func loadGradleLockfileDependencies(root string, readFile func(string) ([]byte, error), cfg *ProjectConfig, files []string) {
+	for _, rel := range append(relPathsByBase(files, "gradle.lockfile"), relPathsByBase(files, "buildscript-gradle.lockfile")...) {
+		data, err := readFile(filepath.Join(root, filepath.FromSlash(rel)))
 		if err != nil {
 			continue
 		}
-		parseGradleLockfile(data, cfg)
-	}
-
-	// Also try build.gradle / build.gradle.kts for inline declarations.
-	for _, name := range []string{"build.gradle", "build.gradle.kts"} {
-		data, err := readFile(filepath.Join(root, name))
-		if err != nil {
-			continue
-		}
-		parseGradleBuildFile(data, cfg)
-		break // only parse one
+		parseGradleLockfile(data, rel, cfg)
 	}
 }
 
-func parseGradleLockfile(data []byte, cfg *ProjectConfig) {
+func parseGradleLockfile(data []byte, source string, cfg *ProjectConfig) {
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -884,32 +1175,11 @@ func parseGradleLockfile(data []byte, cfg *ProjectConfig) {
 			dev = false
 		}
 
-		cfg.Dependencies = append(cfg.Dependencies, DependencyInfo{
-			Name: name, Version: version, Source: "gradle.lockfile", Dev: dev,
-		})
-	}
-}
-
-// reGradleDep matches common Gradle dependency declarations.
-var reGradleDep = regexp.MustCompile(`(?:implementation|api|compileOnly|runtimeOnly|testImplementation|testCompileOnly|testRuntimeOnly|classpath|annotationProcessor|kapt)\s*[\(]?\s*['"]([^'"]+:[^'"]+:[^'"]+)['"]`)
-
-func parseGradleBuildFile(data []byte, cfg *ProjectConfig) {
-	for _, m := range reGradleDep.FindAllStringSubmatch(string(data), -1) {
-		coord := m[1]
-		parts := strings.SplitN(coord, ":", 3)
-		if len(parts) != 3 {
-			continue
+		scope := ""
+		if dev {
+			scope = depScopeTest
 		}
-		name := parts[0] + ":" + parts[1]
-		version := parts[2]
-		// Skip variable references like $kotlinVersion.
-		if strings.Contains(version, "$") {
-			continue
-		}
-		dev := strings.Contains(m[0], "test") || strings.Contains(m[0], "Test")
-		cfg.Dependencies = append(cfg.Dependencies, DependencyInfo{
-			Name: name, Version: version, Source: "build.gradle", Dev: dev,
-		})
+		addDependency(cfg, DependencyInfo{Name: name, Version: version, Source: source, Dev: dev, Scope: scope})
 	}
 }
 
@@ -930,9 +1200,7 @@ func loadVcpkgDependencies(root string, readFile func(string) ([]byte, error), c
 		// Dependencies can be a plain string or an object {"name": "...", "version>=": "..."}.
 		var name string
 		if err := json.Unmarshal(raw, &name); err == nil {
-			cfg.Dependencies = append(cfg.Dependencies, DependencyInfo{
-				Name: name, Source: "vcpkg.json",
-			})
+			addDependency(cfg, DependencyInfo{Name: name, Source: "vcpkg.json"})
 			continue
 		}
 		var obj struct {
@@ -945,71 +1213,65 @@ func loadVcpkgDependencies(root string, readFile func(string) ([]byte, error), c
 			if version == "" {
 				version = obj.Version
 			}
-			cfg.Dependencies = append(cfg.Dependencies, DependencyInfo{
-				Name: obj.Name, Version: version, Source: "vcpkg.json",
-			})
+			addDependency(cfg, DependencyInfo{Name: obj.Name, Version: version, Source: "vcpkg.json"})
 		}
 	}
 }
 
 // loadPyprojectTomlDependencies parses pyproject.toml for Python dependencies
 // (PEP 621 and Poetry formats).
-func loadPyprojectTomlDependencies(root string, readFile func(string) ([]byte, error), cfg *ProjectConfig) {
-	data, err := readFile(filepath.Join(root, "pyproject.toml"))
-	if err != nil {
-		return
-	}
-	var pyproj pyprojectFile
-	if err := toml.Unmarshal(data, &pyproj); err != nil {
-		return
-	}
-
-	hasPEP621 := len(pyproj.Project.Dependencies) > 0 || len(pyproj.Project.OptionalDependencies) > 0
-
-	if hasPEP621 {
-		// PEP 621: [project.dependencies] is a list of PEP 508 requirement strings.
-		for _, dep := range pyproj.Project.Dependencies {
-			name, version := parsePEP508(dep)
-			if name != "" {
-				cfg.Dependencies = append(cfg.Dependencies, DependencyInfo{
-					Name: name, Version: version, Source: "pyproject.toml",
-				})
-			}
+func loadPyprojectTomlDependencies(root string, readFile func(string) ([]byte, error), cfg *ProjectConfig, files []string) {
+	for _, rel := range relPathsByBase(files, "pyproject.toml") {
+		data, err := readFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil {
+			continue
 		}
-		// [project.optional-dependencies] groups.
-		for group, deps := range pyproj.Project.OptionalDependencies {
-			dev := strings.Contains(group, "dev") || strings.Contains(group, "test")
-			for _, dep := range deps {
+		var pyproj pyprojectFile
+		if err := toml.Unmarshal(data, &pyproj); err != nil {
+			continue
+		}
+		hasPEP621 := len(pyproj.Project.Dependencies) > 0 || len(pyproj.Project.OptionalDependencies) > 0
+		if hasPEP621 {
+			for _, dep := range pyproj.Project.Dependencies {
 				name, version := parsePEP508(dep)
 				if name != "" {
-					cfg.Dependencies = append(cfg.Dependencies, DependencyInfo{
-						Name: name, Version: version, Source: "pyproject.toml", Dev: dev,
-					})
+					addDependency(cfg, DependencyInfo{Name: name, Version: version, Source: rel})
 				}
 			}
-		}
-	} else if len(pyproj.Tool.Poetry.Dependencies) > 0 {
-		// Poetry: [tool.poetry.dependencies] is a map.
-		for name, val := range pyproj.Tool.Poetry.Dependencies {
-			if strings.ToLower(name) == langPython {
-				continue
+			for group, deps := range pyproj.Project.OptionalDependencies {
+				dev := strings.Contains(group, "dev") || strings.Contains(group, "test")
+				for _, dep := range deps {
+					name, version := parsePEP508(dep)
+					if name != "" {
+						scope := ""
+						if dev {
+							scope = depScopeDev
+						}
+						addDependency(cfg, DependencyInfo{Name: name, Version: version, Source: rel, Dev: dev, Scope: scope})
+					}
+				}
 			}
-			version := parsePoetryVersion(val)
-			cfg.Dependencies = append(cfg.Dependencies, DependencyInfo{
-				Name: name, Version: version, Source: "pyproject.toml",
-			})
-		}
-		// Poetry groups: [tool.poetry.group.dev.dependencies]
-		for group, g := range pyproj.Tool.Poetry.Group {
-			dev := strings.Contains(group, "dev") || strings.Contains(group, "test")
-			for name, val := range g.Dependencies {
+		} else if len(pyproj.Tool.Poetry.Dependencies) > 0 {
+			for name, val := range pyproj.Tool.Poetry.Dependencies {
 				if strings.ToLower(name) == langPython {
 					continue
 				}
 				version := parsePoetryVersion(val)
-				cfg.Dependencies = append(cfg.Dependencies, DependencyInfo{
-					Name: name, Version: version, Source: "pyproject.toml", Dev: dev,
-				})
+				addDependency(cfg, DependencyInfo{Name: name, Version: version, Source: rel})
+			}
+			for group, g := range pyproj.Tool.Poetry.Group {
+				dev := strings.Contains(group, "dev") || strings.Contains(group, "test")
+				for name, val := range g.Dependencies {
+					if strings.ToLower(name) == langPython {
+						continue
+					}
+					version := parsePoetryVersion(val)
+					scope := ""
+					if dev {
+						scope = depScopeDev
+					}
+					addDependency(cfg, DependencyInfo{Name: name, Version: version, Source: rel, Dev: dev, Scope: scope})
+				}
 			}
 		}
 	}

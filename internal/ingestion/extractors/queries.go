@@ -1,19 +1,62 @@
 package extractors
 
-import "github.com/odvcencio/gotreesitter/grammars"
+import ts "github.com/realxen/cartograph/internal/treesitter"
 
-// CanExtract returns true if the given language can have symbols extracted,
-// either via a hand-crafted query in LanguageQueries or via an inferred
-// tags query from the gotreesitter library.
+// genericFallbackAllowlist is the explicit set of languages that may use the
+// generic AST fallback path once pipeline routing enables it.
+var genericFallbackAllowlist = map[string]bool{
+	"json":       true,
+	"yaml":       true,
+	"toml":       true,
+	"hcl":        true,
+	"sql":        true,
+	"protobuf":   true,
+	"dockerfile": true,
+	"bash":       true,
+	"groovy":     true,
+	"make":       true,
+}
+
+// HasNativeSupport reports whether the language is available via the native
+// tree-sitter bindings path.
+func HasNativeSupport(language string) bool {
+	return ts.DetectLanguageByName(language) != nil
+}
+
+// HasFallbackGrammar reports whether the language is available via the
+// gotreesitter fallback grammar registry.
+func HasFallbackGrammar(language string) bool {
+	return ts.DetectFallbackLanguageByName(language) != nil
+}
+
+// HasCustomQueries returns true if the given language has first-hand query support.
+func HasCustomQueries(language string) bool {
+	_, ok := LanguageQueries[language]
+	return ok
+}
+
+// UsesFallbackExtraction reports whether the language should route through the
+// generic AST fallback extraction path.
+func UsesFallbackExtraction(language string) bool {
+	return genericFallbackAllowlist[language] && HasFallbackGrammar(language) && !HasCustomQueries(language)
+}
+
+// CanParse reports whether the given language name resolves to any registered
+// tree-sitter grammar.
+func CanParse(language string) bool {
+	return HasNativeSupport(language) || HasFallbackGrammar(language)
+}
+
+// SupportsGenericFallback is kept as a compatibility shim while callers move to
+// UsesFallbackExtraction.
+func SupportsGenericFallback(language string) bool {
+	return UsesFallbackExtraction(language)
+}
+
+// CanExtract reports whether the language should enter extraction at all.
+// Kept as a compatibility shim while callers move to capability-based routing.
 func CanExtract(language string) bool {
-	if _, ok := LanguageQueries[language]; ok {
-		return true
-	}
-	entry := grammars.DetectLanguageByName(language)
-	if entry == nil {
-		return false
-	}
-	return grammars.ResolveTagsQuery(*entry) != ""
+	return HasCustomQueries(language) || UsesFallbackExtraction(language)
 }
 
 // LanguagePreProcess maps language names to source-preprocessing functions
@@ -131,7 +174,7 @@ const pyQueries = "(class_definition name: (identifier) @name) @definition.class
 	// Python property: class-level annotated assignment (dataclass fields, Pydantic models)
 	"(class_definition body: (block (expression_statement (assignment left: (identifier) @name)) @definition.property))\n" +
 	// Python property: bare type annotation (e.g., name: str)
-	"(class_definition body: (block (expression_statement (type (identifier) @name)) @definition.property))\n" +
+	"(class_definition body: (block (expression_statement (assignment left: (identifier) @name type: (_) right: (_)?)) @definition.property))\n" +
 	"(import_statement name: (dotted_name) @import.source) @import\n" +
 	"(import_from_statement module_name: (dotted_name) @import.source) @import\n" +
 	"(import_from_statement module_name: (relative_import) @import.source) @import\n" +
@@ -248,6 +291,7 @@ const cppQueries = "(function_definition declarator: (function_declarator declar
 	"(declaration declarator: (function_declarator declarator: (qualified_identifier name: (identifier) @name))) @definition.method\n" +
 	// Field method declarations (inside class body).
 	"(field_declaration declarator: (function_declarator declarator: (field_identifier) @name)) @definition.method\n" +
+	"(function_definition declarator: (function_declarator declarator: (field_identifier) @name)) @definition.method\n" +
 	"(class_specifier name: (type_identifier) @name body: (field_declaration_list)) @definition.class\n" +
 	"(class_specifier name: (type_identifier) @name) @definition.class\n" +
 	"(struct_specifier name: (type_identifier) @name body: (field_declaration_list)) @definition.struct\n" +
@@ -315,9 +359,7 @@ const phpQueries = "(namespace_definition name: (namespace_name) @name) @definit
 	"(property_declaration (property_element (variable_name (name) @name))) @definition.property\n" +
 	"(assignment_expression left: (member_access_expression object: (_) @assignment.receiver name: (name) @assignment.property) right: (_)) @assignment\n" +
 	// PHP spawn: pcntl_fork()
-	"(function_call_expression function: (name) @_fn (#eq? @_fn \"pcntl_fork\")) @spawn\n" +
-	// PHP delegate: bare name passed as function argument
-	"(function_call_expression arguments: (arguments (name) @delegate.target)) @delegate\n"
+	"(function_call_expression function: (name) @_fn (#eq? @_fn \"pcntl_fork\")) @spawn\n"
 
 const ktQueries = "(class_declaration (type_identifier) @name) @definition.class\n" +
 	"(object_declaration (type_identifier) @name) @definition.class\n" +
@@ -340,9 +382,7 @@ const ktQueries = "(class_declaration (type_identifier) @name) @definition.class
 	"(property_declaration (variable_declaration (simple_identifier) @name)) @definition.property\n" +
 	// Kotlin spawn: launch { }, async { }, GlobalScope.launch { }
 	"(call_expression (simple_identifier) @_fn (#match? @_fn \"^(launch|async)$\")) @spawn\n" +
-	"(call_expression (navigation_expression (simple_identifier) @_fn (#match? @_fn \"^(launch|async)$\"))) @spawn\n" +
-	// Kotlin delegate: identifier passed as function argument
-	"(call_expression (value_arguments (value_argument (simple_identifier) @delegate.target))) @delegate\n"
+	"(call_expression (navigation_expression (simple_identifier) @_fn (#match? @_fn \"^(launch|async)$\"))) @spawn\n"
 
 const swiftQueries = "(class_declaration \"class\" name: (type_identifier) @name) @definition.class\n" +
 	"(class_declaration \"struct\" name: (type_identifier) @name) @definition.struct\n" +
@@ -364,9 +404,7 @@ const swiftQueries = "(class_declaration \"class\" name: (type_identifier) @name
 	// Extension conformance heritage.
 	"(class_declaration \"extension\" name: (user_type (type_identifier) @heritage.class) (inheritance_specifier inherits_from: (user_type (type_identifier) @heritage.extends))) @heritage\n" +
 	// Swift spawn: Task { }, Task.detached { }, DispatchQueue.global().async { }
-	"(call_expression (simple_identifier) @_fn (#eq? @_fn \"Task\")) @spawn\n" +
-	// Swift delegate: identifier passed as function argument
-	"(call_expression (value_arguments (value_argument (simple_identifier) @delegate.target))) @delegate\n"
+	"(call_expression (simple_identifier) @_fn (#eq? @_fn \"Task\")) @spawn\n"
 
 const scalaQueries = // Class-like definitions.
 "(class_definition name: (identifier) @name) @definition.class\n" +

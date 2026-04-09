@@ -5,8 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	ts "github.com/odvcencio/gotreesitter"
-	"github.com/odvcencio/gotreesitter/grammars"
+	ts "github.com/realxen/cartograph/internal/treesitter"
 )
 
 const (
@@ -31,30 +30,28 @@ var (
 // resolveInferredExtra probes a grammar's symbol table and returns the node
 // type names that correspond to import statements and function calls. The
 // result is cached per language name.
-func resolveInferredExtra(entry *grammars.LangEntry) *inferredExtra {
+func resolveInferredExtra(lang *ts.Language) *inferredExtra {
 	inferredCacheMu.Lock()
 	defer inferredCacheMu.Unlock()
 
-	if cached, ok := inferredCache[entry.Name]; ok {
+	langName := ts.LanguageName(lang)
+	if cached, ok := inferredCache[langName]; ok {
 		return cached
 	}
 
-	lang := entry.Language()
 	if lang == nil {
-		inferredCache[entry.Name] = &inferredExtra{}
-		return inferredCache[entry.Name]
+		inferredCache[langName] = &inferredExtra{}
+		return inferredCache[langName]
 	}
 
 	result := &inferredExtra{}
 
-	for i, meta := range lang.SymbolMetadata {
-		if !meta.Named || !meta.Visible {
+	for i := range int(lang.NodeKindCount()) {
+		id := uint16(i)
+		if !lang.NodeKindIsNamed(id) || !lang.NodeKindIsVisible(id) {
 			continue
 		}
-		name := ""
-		if i < len(lang.SymbolNames) {
-			name = lang.SymbolNames[i]
-		}
+		name := lang.NodeKindForID(id)
 		if name == "" {
 			continue
 		}
@@ -72,7 +69,7 @@ func resolveInferredExtra(entry *grammars.LangEntry) *inferredExtra {
 		}
 	}
 
-	inferredCache[entry.Name] = result
+	inferredCache[langName] = result
 	return result
 }
 

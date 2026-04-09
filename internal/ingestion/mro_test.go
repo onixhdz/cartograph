@@ -327,7 +327,7 @@ func TestComputeMRO_CppDiamond_LeftmostWins(t *testing.T) {
 		t.Fatal("expected entry for D")
 		return
 	}
-	if dEntry.Language != "cpp" {
+	if dEntry.Language != langCPP {
 		t.Errorf("expected language cpp, got %s", dEntry.Language)
 	}
 

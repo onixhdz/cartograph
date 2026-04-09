@@ -14,7 +14,7 @@ permissions:
   artifact-metadata: write
 
 jobs:
-  release:
+  verify:
     runs-on: ubuntu-latest
     env:
       CGO_ENABLED: '1'
@@ -33,10 +33,14 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.15.2
+          use-cache: true
 
-      - uses: arduino/setup-task@v2
+      - uses: go-task/setup-task@v1
         with:
           version: 3.x
+
+      - name: Clean generated artifacts
+        run: task clean:artifacts
 
       - name: Build native embedding prereqs
         run: task build:embedding:lib
@@ -47,10 +51,82 @@ jobs:
           version: v2.11
 
       - name: Run tests
-        run: go test -short ./...
+        run: task test
 
-      - name: Build all platforms
-        run: task build VERSION=${GITHUB_REF_NAME}
+  build:
+    needs: verify
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - task: build:target:linux:amd64
+            artifact: cartograph-linux-amd64
+          - task: build:target:linux:arm64
+            artifact: cartograph-linux-arm64
+          - task: build:target:mac:arm64
+            artifact: cartograph-darwin-arm64
+          - task: build:target:mac:amd64
+            artifact: cartograph-darwin-amd64
+          - task: build:target:windows
+            artifact: cartograph-windows-amd64.exe
+    env:
+      CGO_ENABLED: '1'
+      CC: zig cc
+      CXX: zig c++
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+          use-cache: true
+
+      - uses: go-task/setup-task@v1
+        with:
+          version: 3.x
+
+      - name: Clean generated artifacts
+        run: task clean:artifacts
+
+      - name: Build target
+        run: task ${{ matrix.task }} VERSION=${GITHUB_REF_NAME}
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v5
+        with:
+          path: dist
+
+      - name: Flatten artifacts
+        run: |
+          mv dist/cartograph-linux-amd64/cartograph-linux-amd64 .
+          mv dist/cartograph-linux-arm64/cartograph-linux-arm64 .
+          mv dist/cartograph-darwin-amd64/cartograph-darwin-amd64 .
+          mv dist/cartograph-darwin-arm64/cartograph-darwin-arm64 .
+          mv dist/cartograph-windows-amd64.exe/cartograph-windows-amd64.exe .
 
       - name: Generate checksums
         run: |
@@ -73,11 +149,7 @@ jobs:
 
       - name: Extract tag annotation
         run: |
-          # Fetch annotated tag objects (checkout may not include them).
           git fetch origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}" --force 2>/dev/null || true
-          # Extract raw tag message (preserves markdown ## headers that
-          # git's %(contents) format functions strip as comments).
-          # -p prints the object, sed strips the header lines.
           git cat-file -p "${GITHUB_REF_NAME}" | sed '1,/^$/d' > release-notes.md
           echo "--- release-notes.md ---"
           cat release-notes.md

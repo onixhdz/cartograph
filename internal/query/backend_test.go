@@ -11,6 +11,7 @@ import (
 	"github.com/realxen/cartograph/internal/graph"
 	"github.com/realxen/cartograph/internal/search"
 	"github.com/realxen/cartograph/internal/service"
+	"github.com/realxen/cartograph/plugin"
 )
 
 const (
@@ -20,6 +21,7 @@ const (
 	testFileMainGo        = "main.go"
 	testNameBob           = "bob"
 	testNameCharlie       = "charlie"
+	testPluginRepo        = "capec-plugin"
 )
 
 // buildTestGraph creates a graph with several symbols and relationships.
@@ -141,6 +143,63 @@ func TestQuery_NoResults(t *testing.T) {
 	}
 	if len(result.Definitions) != 0 {
 		t.Errorf("expected 0 definitions, got %d", len(result.Definitions))
+	}
+}
+
+func TestQuery_PluginResults(t *testing.T) {
+	g := lpg.NewGraph()
+	graph.AddNode(g, graph.NodeLabel("CAPECPattern"), map[string]any{
+		"id":                "capec:66",
+		"name":              "SQL Injection",
+		"description":       "Attacker injects SQL into an application query.",
+		"capec_id":          "CAPEC-66",
+		"related_cwes_text": "CWE-89",
+	})
+	graph.AddNode(g, graph.NodeLabel("CAPECPattern"), map[string]any{
+		"id":                "capec:1",
+		"name":              "Phishing",
+		"description":       "Deceptive social engineering attack.",
+		"capec_id":          "CAPEC-98",
+		"related_cwes_text": "CWE-601",
+	})
+
+	b := &Backend{
+		Graph: g,
+		Entities: []plugin.Entity{{
+			Name:  "AttackPattern",
+			Label: "CAPECPattern",
+			Query: &plugin.EntityQuery{
+				SearchProps: []string{"name", "description", "related_cwes_text"},
+				Display: []plugin.DisplayField{
+					{Prop: "name", Label: "Name"},
+					{Prop: "capec_id", Label: "CAPEC"},
+				},
+			},
+		}},
+	}
+
+	result, err := b.Query(service.QueryRequest{Repo: testPluginRepo, Plugin: true, Text: "sql injection", Limit: 5})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(result.PluginResults) != 1 {
+		t.Fatalf("plugin results = %d, want 1", len(result.PluginResults))
+	}
+	if len(result.Definitions) != 0 {
+		t.Fatalf("definitions = %d, want 0", len(result.Definitions))
+	}
+	match := result.PluginResults[0]
+	if match.NodeID != "capec:66" {
+		t.Fatalf("node id = %q, want %q", match.NodeID, "capec:66")
+	}
+	if len(match.Fields) != 2 {
+		t.Fatalf("fields = %d, want 2", len(match.Fields))
+	}
+	if match.Fields[0].Label != "Name" || match.Fields[0].Value != "SQL Injection" {
+		t.Fatalf("first field = %#v, want Name/SQL Injection", match.Fields[0])
+	}
+	if match.Fields[1].Label != "CAPEC" || match.Fields[1].Value != "CAPEC-66" {
+		t.Fatalf("second field = %#v, want CAPEC/CAPEC-66", match.Fields[1])
 	}
 }
 
@@ -2371,5 +2430,51 @@ func TestQuery_ProcessResultsCapped(t *testing.T) {
 		if p.Relevance < 0.05 && len(result.Processes) > 1 {
 			t.Errorf("process %q has relevance %.4f below minimum threshold", p.Name, p.Relevance)
 		}
+	}
+}
+
+func TestCypher_CAPECLowercaseSearchProperties(t *testing.T) {
+	g := lpg.NewGraph()
+	pattern := g.NewNode([]string{"CAPECPattern"}, map[string]any{
+		"capec_id":       "CAPEC-66",
+		"name":           "SQL Injection",
+		"name_lc":        "sql injection",
+		"description":    "Use crafted SQL input to alter query behavior",
+		"description_lc": "use crafted sql input to alter query behavior",
+	})
+	_ = pattern
+
+	b := &Backend{Graph: g}
+	result, err := b.Cypher(service.CypherRequest{
+		Repo:  "test",
+		Query: `MATCH (p:CAPECPattern) WHERE p.name_lc CONTAINS 'sql injection' RETURN p.capec_id, p.name`,
+	})
+	if err != nil {
+		t.Fatalf("Cypher: %v", err)
+	}
+	if len(result.Rows) == 0 {
+		t.Fatal("expected CAPEC pattern result")
+	}
+}
+
+func TestCypher_CAPECCWETxtPivot(t *testing.T) {
+	g := lpg.NewGraph()
+	g.NewNode([]string{"CAPECPattern"}, map[string]any{
+		"capec_id":          "CAPEC-126",
+		"name":              "Path Traversal",
+		"related_cwes":      "CWE-22, CWE-23",
+		"related_cwes_text": "cwe-22, cwe-23",
+	})
+
+	b := &Backend{Graph: g}
+	result, err := b.Cypher(service.CypherRequest{
+		Repo:  "test",
+		Query: `MATCH (p:CAPECPattern) WHERE p.related_cwes_text CONTAINS 'cwe-22' RETURN p.capec_id, p.name`,
+	})
+	if err != nil {
+		t.Fatalf("Cypher: %v", err)
+	}
+	if len(result.Rows) == 0 {
+		t.Fatal("expected CAPEC CWE pivot result")
 	}
 }

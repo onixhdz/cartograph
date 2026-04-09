@@ -54,7 +54,7 @@ func ResolveImportsWithConfig(g *lpg.Graph, imports []ImportInfo, cfg *ProjectCo
 			target = resolveTSJSImport(g, imp, cfg, fileIndex)
 		case "python":
 			target = resolvePythonImport(g, imp, cfg, fileIndex)
-		case "java", "kotlin":
+		case langJava, "kotlin":
 			target = resolveJVMImport(g, imp, cfg, fileIndex)
 		case "rust":
 			target = resolveRustImport(g, imp, cfg, fileIndex)

@@ -10,8 +10,7 @@ import (
 	"testing"
 	"time"
 
-	ts "github.com/odvcencio/gotreesitter"
-	"github.com/odvcencio/gotreesitter/grammars"
+	ts "github.com/realxen/cartograph/internal/treesitter"
 )
 
 // TestParseTimings is a manual benchmark for serial vs parallel parse overhead.
@@ -56,7 +55,7 @@ func TestParseTimings(t *testing.T) {
 	}
 	t.Logf("loaded %d files", len(files))
 
-	lang := grammars.DetectLanguageByName("go").Language()
+	lang := ts.DetectLanguageByName("go")
 	pool := ts.NewParserPool(lang)
 
 	// --- Measure Parse-only time (serial) ---
@@ -72,9 +71,9 @@ func TestParseTimings(t *testing.T) {
 	q, _ := ts.NewQuery(goQueries, lang)
 	start = time.Now()
 	totalMatches := 0
-	for _, tr := range trees {
+	for i, tr := range trees {
 		if tr != nil {
-			totalMatches += len(q.Execute(tr))
+			totalMatches += len(q.Execute(tr, files[i].data))
 		}
 	}
 	execSerial := time.Since(start)
@@ -88,7 +87,7 @@ func TestParseTimings(t *testing.T) {
 			continue
 		}
 		q2, _ := ts.NewQuery(goQueries, lang)
-		q2.Execute(tr)
+		q2.Execute(tr, f.data)
 	}
 	fullSerial := time.Since(start)
 	t.Logf("SERIAL Parse+Execute (%d files): %v", len(files), fullSerial)
@@ -113,7 +112,7 @@ func TestParseTimings(t *testing.T) {
 						continue
 					}
 					q2, _ := ts.NewQuery(goQueries, lang)
-					q2.Execute(tr)
+					q2.Execute(tr, files[j].data)
 				}
 			})
 		}
@@ -139,7 +138,7 @@ func TestParseTimings(t *testing.T) {
 						continue
 					}
 					q2, _ := ts.NewQuery(goQueries, lang)
-					q2.Execute(tr)
+					q2.Execute(tr, files[j].data)
 				}
 			})
 		}

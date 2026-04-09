@@ -169,6 +169,81 @@ func TestHandleQueryMethodNotAllowed(t *testing.T) {
 	}
 }
 
+func TestHandleQueryBlocksPluginDataset(t *testing.T) {
+	const pluginDatasetName = "plugin-dataset"
+	tmpDir := t.TempDir()
+	reg, err := storage.NewRegistry(tmpDir)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	if err := reg.Add(storage.RegistryEntry{
+		Name: pluginDatasetName,
+		Hash: "pluginhash",
+		Meta: storage.Meta{PluginName: pluginDatasetName},
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	s := newTestServer()
+	s.dataDir = tmpDir
+	body := jsonBody(t, QueryRequest{Repo: pluginDatasetName, Text: "sql injection", Limit: 10})
+	req := httptest.NewRequestWithContext(context.Background(), "POST", RouteQuery, body)
+	rec := httptest.NewRecorder()
+	s.handleQuery(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+	resp := decodeResponse(t, rec)
+	if resp.Error == nil {
+		t.Fatal("expected blocked query error")
+	}
+	if resp.Error.Code != ErrCodeQueryBlocked {
+		t.Fatalf("error code = %d, want %d", resp.Error.Code, ErrCodeQueryBlocked)
+	}
+	if !strings.Contains(resp.Error.Message, "use cypher instead") {
+		t.Fatalf("unexpected error message: %s", resp.Error.Message)
+	}
+	if !strings.Contains(resp.Error.Message, "use plugin references") {
+		t.Fatalf("expected plugin reference guidance, got: %s", resp.Error.Message)
+	}
+	if !strings.Contains(resp.Error.Message, "cypher -p <plugin-dataset>") {
+		t.Fatalf("expected generic cypher guidance, got: %s", resp.Error.Message)
+	}
+}
+
+func TestHandleQueryAllowsExplicitPluginDatasetQuery(t *testing.T) {
+	const pluginDatasetName = "plugin-dataset"
+	tmpDir := t.TempDir()
+	reg, err := storage.NewRegistry(tmpDir)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	if err := reg.Add(storage.RegistryEntry{
+		Name: pluginDatasetName,
+		Hash: "pluginhash",
+		Meta: storage.Meta{PluginName: pluginDatasetName},
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	s := newTestServer()
+	s.dataDir = tmpDir
+	s.graph[pluginDatasetName] = lpg.NewGraph()
+	body := jsonBody(t, QueryRequest{Repo: pluginDatasetName, Plugin: true, Text: "sql injection", Limit: 10})
+	req := httptest.NewRequestWithContext(context.Background(), "POST", RouteQuery, body)
+	rec := httptest.NewRecorder()
+	s.handleQuery(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	resp := decodeResponse(t, rec)
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %+v", resp.Error)
+	}
+}
+
 func TestHandleContext(t *testing.T) {
 	s := newTestServer()
 	body := jsonBody(t, ContextRequest{Repo: "testrepo", Name: "main"})

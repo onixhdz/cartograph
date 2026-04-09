@@ -76,6 +76,9 @@ func (c *SkillsInstallCmd) Run(cli *CLI) error {
 		if err := installSkillFiles(c.Path); err != nil {
 			return err
 		}
+		if err := syncInstalledPluginRegistryToSkillBase(c.Path); err != nil {
+			return err
+		}
 		fmt.Printf("✓ Installed cartograph skills to %s\n", c.Path)
 		return nil
 	}
@@ -167,6 +170,10 @@ func doInstall(targets []agentTarget, global bool) error {
 
 		if err := installSkillFiles(dir); err != nil {
 			fmt.Fprintf(os.Stderr, "  Error installing for %s: %v\n", t.Name, err)
+			continue
+		}
+		if err := syncInstalledPluginRegistryToSkillBase(dir); err != nil {
+			fmt.Fprintf(os.Stderr, "  Error syncing plugin references for %s: %v\n", t.Name, err)
 			continue
 		}
 		results = append(results, result{id: t.ID, dir: skillDir, updated: updated})
@@ -441,6 +448,27 @@ func countFiles(dir string) int {
 		return nil
 	})
 	return n
+}
+
+func syncInstalledPluginRegistryToSkillBase(baseDir string) error {
+	refsDir := filepath.Join(baseDir, "cartograph", "references")
+	if err := os.MkdirAll(refsDir, 0o750); err != nil {
+		return fmt.Errorf("mkdir %s: %w", refsDir, err)
+	}
+
+	data, err := os.ReadFile(PluginRegistryPath())
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("read plugin registry: %w", err)
+		}
+		data = []byte("{\n  \"plugins\": []\n}\n")
+	}
+
+	pluginsPath := filepath.Join(refsDir, "plugins.json")
+	if err := os.WriteFile(pluginsPath, data, 0o600); err != nil { //nolint:gosec // path is constructed from skill install base
+		return fmt.Errorf("write plugins.json %s: %w", pluginsPath, err)
+	}
+	return nil
 }
 
 // offerShellCompletion prompts the user to set up shell tab-completion

@@ -22,6 +22,7 @@ import (
 	"github.com/realxen/cartograph/internal/search"
 	"github.com/realxen/cartograph/internal/service"
 	"github.com/realxen/cartograph/internal/storage/bbolt"
+	"github.com/realxen/cartograph/plugin"
 )
 
 // QueryEmbedFn embeds a single query text and returns its vector.
@@ -37,12 +38,17 @@ type Backend struct {
 	Index    *search.Index // may be nil if FTS not available
 	EmbedDir string        // repo data dir containing embeddings.db (optional)
 	EmbedFn  QueryEmbedFn  // embeds query text for vector search (optional)
+	Entities []plugin.Entity
 }
 
 // Query executes a hybrid BM25 search, maps results to process memberships,
 // and returns grouped results. BM25 scores are carried through to SymbolMatch
 // and used for score-weighted process relevance.
 func (b *Backend) Query(req service.QueryRequest) (*service.QueryResult, error) {
+	if req.Plugin {
+		return b.queryPlugin(req)
+	}
+
 	limit := req.Limit
 	if limit <= 0 {
 		limit = 10
@@ -376,6 +382,89 @@ func (b *Backend) Query(req service.QueryRequest) (*service.QueryResult, error) 
 		UsageExamples:  usageExamples,
 		TestFlows:      testFlows,
 	}, nil
+}
+
+func (b *Backend) queryPlugin(req service.QueryRequest) (*service.QueryResult, error) {
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 10
+	}
+	needle := strings.ToLower(strings.TrimSpace(req.Text))
+	if needle == "" {
+		return &service.QueryResult{PluginResults: []service.PluginQueryMatch{}}, nil
+	}
+
+	var results []service.PluginQueryMatch
+	for _, entity := range b.Entities {
+		if entity.Query == nil {
+			continue
+		}
+		for _, node := range graph.FindNodesByLabel(b.Graph, graph.NodeLabel(entity.Label)) {
+			score := pluginMatchScore(node, *entity.Query, needle)
+			if score == 0 {
+				continue
+			}
+			fields := renderPluginFields(node, entity.Query.Display)
+			if len(fields) == 0 {
+				continue
+			}
+			results = append(results, service.PluginQueryMatch{
+				EntityLabel: entity.Label,
+				NodeID:      graph.GetStringProp(node, graph.PropID),
+				Score:       score,
+				Fields:      fields,
+			})
+		}
+	}
+
+	if len(results) == 0 {
+		return &service.QueryResult{PluginResults: []service.PluginQueryMatch{}}, nil
+	}
+
+	sort.SliceStable(results, func(i, j int) bool {
+		if results[i].Score == results[j].Score {
+			return results[i].NodeID < results[j].NodeID
+		}
+		return results[i].Score > results[j].Score
+	})
+	if len(results) > limit {
+		results = results[:limit]
+	}
+	return &service.QueryResult{PluginResults: results}, nil
+}
+
+func pluginMatchScore(node *lpg.Node, cfg plugin.EntityQuery, needle string) float64 {
+	var score float64
+	for _, prop := range cfg.SearchProps {
+		value := strings.ToLower(graph.GetStringProp(node, prop))
+		if value == "" {
+			continue
+		}
+		if value == needle {
+			score += 5
+			continue
+		}
+		if strings.Contains(value, needle) {
+			score += 1
+		}
+	}
+	return score
+}
+
+func renderPluginFields(node *lpg.Node, fields []plugin.DisplayField) []service.PluginDisplayField {
+	out := make([]service.PluginDisplayField, 0, len(fields))
+	for _, field := range fields {
+		value := graph.GetStringProp(node, field.Prop)
+		if value == "" {
+			continue
+		}
+		label := field.Label
+		if label == "" {
+			label = field.Prop
+		}
+		out = append(out, service.PluginDisplayField{Label: label, Value: value})
+	}
+	return out
 }
 
 // vectorSupplement finds symbols via vector search that BM25 missed and

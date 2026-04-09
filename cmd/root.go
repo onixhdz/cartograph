@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -35,6 +36,7 @@ import (
 
 const (
 	embedOff       = "off"
+	embedAsync     = "async"
 	statusComplete = "complete"
 	statusFailed   = "failed"
 	statusPending  = "pending"
@@ -72,6 +74,7 @@ type CLI struct {
 	Mcp        McpCmd           `cmd:"" help:"Start MCP server over stdin/stdout (for AI editor integration)." needs-client:"false"`
 	Skills     SkillsCmd        `cmd:"" help:"Install/manage cartograph skills for AI coding agents."`
 	Models     ModelsCmd        `cmd:"" help:"Manage embedding models (download, list, remove)."`
+	Plugin     PluginCmd        `cmd:"" help:"Manage plugins (install, list, remove, ingest)." needs-client:"false"`
 	Completion completionCmd    `cmd:"" help:"Set up shell tab-completion (bash, zsh, fish)." needs-client:"false"`
 	Version    kong.VersionFlag `help:"Print version and exit." short:"v"`
 
@@ -108,6 +111,26 @@ func resolveRepo(explicit string) (string, error) {
 		return name, nil
 	}
 	return resolved, nil
+}
+
+func resolveTarget(repo, plugin string) (string, error) {
+	if repo != "" && plugin != "" {
+		return "", errors.New("specify either -r or -p, not both")
+	}
+	target := repo
+	if plugin != "" {
+		target = plugin
+	}
+	return resolveRepo(target)
+}
+
+type TargetSelector struct {
+	Repo   string `help:"Repository name." short:"r"`
+	Plugin string `help:"Plugin dataset name." short:"p"`
+}
+
+func (t TargetSelector) Resolve() (string, error) {
+	return resolveTarget(t.Repo, t.Plugin)
 }
 
 // CloneCmd clones a remote Git repository without indexing.
@@ -203,6 +226,7 @@ type AnalyzeCmd struct {
 	Targets       []string `arg:"" optional:"" help:"Local paths or Git URLs to analyze (defaults to current directory)."`
 	Force         bool     `help:"Force full re-analysis, ignoring cache."`
 	Clone         bool     `help:"Clone URL to disk (keeps source + git history)."`
+	Timing        bool     `name:"timing" help:"Print detailed stage timing information." env:"CARTOGRAPH_TIMING"`
 	Branch        string   `help:"Branch or tag to analyze."`
 	Depth         int      `help:"Clone depth (0 = full history)." default:"1"`
 	AuthToken     string   `help:"Auth token for private repos." env:"GITHUB_TOKEN"`
@@ -451,7 +475,8 @@ func (c *AnalyzeCmd) runLocal(cli *CLI, target string) error {
 	spPipeline := newSpinner("Walking repository...")
 	spPipeline.Start()
 	pipeline := ingestion.NewPipeline(abs, ingestion.PipelineOptions{
-		Force: c.Force,
+		Force:  c.Force,
+		Timing: c.Timing,
 		OnStep: func(step string, current, total int) {
 			spPipeline.Update(fmt.Sprintf("[%d/%d] %s", current, total, step))
 		},
@@ -712,7 +737,8 @@ func (c *AnalyzeCmd) runCloneToMemory(
 		Root:  "/",
 		Graph: lpg.NewGraph(),
 		Options: ingestion.PipelineOptions{
-			Force: c.Force,
+			Force:  c.Force,
+			Timing: c.Timing,
 			OnStep: func(step string, current, total int) {
 				spPipeline.Update(fmt.Sprintf("[%d/%d] %s", current, total, step))
 			},
@@ -880,7 +906,8 @@ func (c *AnalyzeCmd) runCloneToDisk(
 	spPipeline := newSpinner("Walking repository...")
 	spPipeline.Start()
 	pipeline := ingestion.NewPipeline(srcDir, ingestion.PipelineOptions{
-		Force: c.Force,
+		Force:  c.Force,
+		Timing: c.Timing,
 		OnStep: func(step string, current, total int) {
 			spPipeline.Update(fmt.Sprintf("[%d/%d] %s", current, total, step))
 		},
@@ -1012,7 +1039,7 @@ func (c *AnalyzeCmd) requestEmbedding(repoName string) {
 		return
 	}
 
-	if c.Embed == "async" {
+	if c.Embed == embedAsync {
 		fmt.Printf("  Embedding in background (%s)...\n", status.Provider)
 		return
 	}
@@ -1815,11 +1842,11 @@ func (c *CatCmd) Run(cli *CLI) error {
 
 // QueryCmd searches the knowledge graph.
 type QueryCmd struct {
-	SearchQuery  string `arg:"" help:"Search query text."`
-	Repo         string `help:"Repository name to search." short:"r"`
-	Limit        int    `help:"Maximum number of results." default:"10" short:"l"`
-	Content      bool   `help:"Include source content in results."`
-	IncludeTests bool   `help:"Include test files in results." name:"include-tests"`
+	SearchQuery string `arg:"" help:"Search query text."`
+	TargetSelector
+	Limit        int  `help:"Maximum number of results." default:"10" short:"l"`
+	Content      bool `help:"Include source content in results."`
+	IncludeTests bool `help:"Include test files in results." name:"include-tests"`
 }
 
 func (c *QueryCmd) Run(cli *CLI) error {
@@ -1828,13 +1855,14 @@ func (c *QueryCmd) Run(cli *CLI) error {
 		return nil
 	}
 
-	repo, err := resolveRepo(c.Repo)
+	repo, err := c.Resolve()
 	if err != nil {
-		return err
+		return fmt.Errorf("query: %w", err)
 	}
 
 	req := service.QueryRequest{
 		Repo:         repo,
+		Plugin:       c.Plugin != "",
 		Text:         c.SearchQuery,
 		Limit:        c.Limit,
 		Content:      c.Content,
@@ -1843,6 +1871,19 @@ func (c *QueryCmd) Run(cli *CLI) error {
 	result, err := cli.Client.Query(req)
 	if err != nil {
 		return fmt.Errorf("query: %w", err)
+	}
+
+	if len(result.PluginResults) > 0 {
+		for i, match := range result.PluginResults {
+			fmt.Printf("%d.\n", i+1)
+			for _, field := range match.Fields {
+				fmt.Printf("  %s: %s\n", field.Label, field.Value)
+			}
+			if i < len(result.PluginResults)-1 {
+				fmt.Println()
+			}
+		}
+		return nil
 	}
 
 	if len(result.Processes) > 0 {
@@ -2045,7 +2086,7 @@ func (c *ImpactCmd) Run(cli *CLI) error {
 // CypherCmd executes a raw Cypher query.
 type CypherCmd struct {
 	Query string `arg:"" help:"Cypher query to execute."`
-	Repo  string `help:"Repository name." short:"r"`
+	TargetSelector
 }
 
 func (c *CypherCmd) Run(cli *CLI) error {
@@ -2054,9 +2095,9 @@ func (c *CypherCmd) Run(cli *CLI) error {
 		return nil
 	}
 
-	repo, err := resolveRepo(c.Repo)
+	repo, err := c.Resolve()
 	if err != nil {
-		return err
+		return fmt.Errorf("cypher: %w", err)
 	}
 
 	req := service.CypherRequest{
@@ -2087,7 +2128,7 @@ func (c *CypherCmd) Run(cli *CLI) error {
 
 // SchemaCmd shows the graph schema (node labels, edge types, properties).
 type SchemaCmd struct {
-	Repo string `arg:"" optional:"" help:"Repository name or hash (defaults to current directory)."`
+	TargetSelector
 }
 
 func (c *SchemaCmd) Run(cli *CLI) error {
@@ -2095,10 +2136,9 @@ func (c *SchemaCmd) Run(cli *CLI) error {
 		fmt.Println(errNoService)
 		return nil
 	}
-
-	repo, err := resolveRepo(c.Repo)
+	repo, err := c.Resolve()
 	if err != nil {
-		return err
+		return fmt.Errorf("schema: %w", err)
 	}
 
 	result, err := cli.Client.Schema(service.SchemaRequest{Repo: repo})
@@ -2140,6 +2180,11 @@ func (c *SchemaCmd) Run(cli *CLI) error {
 	}
 
 	fmt.Println("Example Cypher queries:")
+	if c.Plugin != "" {
+		fmt.Println("  Use plugin-provided references for dataset-specific examples.")
+		fmt.Println("  Use: cartograph cypher -p <plugin-dataset> \"MATCH (n) RETURN n LIMIT 10\"")
+		return nil
+	}
 	fmt.Println("  MATCH (n:Function) RETURN n.name, n.filePath LIMIT 10")
 	fmt.Println("  MATCH (a)-[r:CodeRelation {type:'CALLS'}]->(b) RETURN a.name, b.name LIMIT 10")
 	fmt.Println("  MATCH (c:Community) RETURN c.name, c.communitySize ORDER BY c.communitySize DESC LIMIT 5")

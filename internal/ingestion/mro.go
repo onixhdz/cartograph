@@ -368,7 +368,7 @@ func deduplicateByNode(sources []ancestorMethod) []ancestorMethod {
 // resolveAmbiguity picks a winner based on language-specific rules.
 func resolveAmbiguity(language string, sources []ancestorMethod, parentOrder []*lpg.Node) (resolvedTo string, reason string) {
 	switch language {
-	case "cpp":
+	case langCPP:
 		// C++: leftmost base wins
 		return resolveLeftmost(sources, parentOrder, "C++ leftmost")
 
