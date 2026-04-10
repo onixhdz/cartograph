@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
@@ -61,4 +61,4 @@ jobs:
         run: task clean
       - name: Build native embedding prereqs
         run: task build:embedding:lib
-      - run: go test -short ./...
+      - run: task test

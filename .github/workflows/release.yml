@@ -51,7 +51,7 @@ jobs:
           version: v2.11
 
       - name: Run tests
-        run: go test -short ./...
+        run: task test
 
       - name: Build all platforms
         run: task build VERSION=${GITHUB_REF_NAME}
