@@ -177,6 +177,15 @@ func (c *Client) Tree(req TreeRequest) (*TreeResult, error) {
 	return &res, nil
 }
 
+// List retrieves indexed repositories from the registry.
+func (c *Client) List() (*ListResult, error) {
+	var res ListResult
+	if err := c.do(http.MethodGet, RouteList, nil, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
 // Reload requests the service to drop and re-load a repo's graph.
 func (c *Client) Reload(req ReloadRequest) error {
 	return c.do(http.MethodPost, RouteReload, req, nil)

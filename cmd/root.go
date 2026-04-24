@@ -1271,6 +1271,14 @@ func gitCurrentBranch(dir string) string {
 type ListCmd struct{}
 
 func (c *ListCmd) Run(cli *CLI) error {
+	if cli.Client != nil {
+		result, err := cli.Client.List()
+		if err == nil {
+			printListResult(result)
+			return nil
+		}
+	}
+
 	dataDir := DefaultDataDir()
 	registry, err := storage.NewRegistry(dataDir)
 	if err != nil {
@@ -1322,6 +1330,53 @@ func (c *ListCmd) Run(cli *CLI) error {
 	}
 	fmt.Print(formatTable(headers, rows))
 	return nil
+}
+
+func printListResult(result *service.ListResult) {
+	if result == nil || len(result.Repos) == 0 {
+		fmt.Println("No indexed repositories.")
+		return
+	}
+
+	headers := []string{"Name", "Hash", "Type", "Analyzed", "Nodes", "Edges", "Built With", "Embedding"}
+	rows := make([][]string, 0, len(result.Repos))
+	for _, repo := range result.Repos {
+		hashLabel := repo.Hash
+		if len(hashLabel) > 8 {
+			hashLabel = hashLabel[:8]
+		}
+		builtWith := repo.BuiltWith
+		if builtWith == "" {
+			builtWith = "-"
+		}
+		embedding := repo.Embedding
+		if embedding == "" {
+			embedding = "none"
+		}
+
+		rows = append(rows, []string{
+			repo.Name,
+			hashLabel,
+			repo.Type,
+			timeAgo(parseIndexedAt(repo.IndexedAt)),
+			strconv.Itoa(repo.NodeCount),
+			strconv.Itoa(repo.EdgeCount),
+			builtWith,
+			embedding,
+		})
+	}
+	fmt.Print(formatTable(headers, rows))
+}
+
+func parseIndexedAt(value string) time.Time {
+	if value == "" {
+		return time.Time{}
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return time.Time{}
+	}
+	return parsed
 }
 
 // embedStatusLabel returns a compact human-readable embedding status string.

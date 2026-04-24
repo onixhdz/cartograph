@@ -71,6 +71,8 @@ const (
 	RouteCat = APIPrefix + "/cat"
 	// RouteTree is the endpoint to list indexed repository file paths.
 	RouteTree = APIPrefix + "/tree"
+	// RouteList is the endpoint to list indexed repositories from the registry.
+	RouteList = APIPrefix + "/list"
 	// RouteReload is the endpoint to reload a repo's graph.
 	RouteReload = APIPrefix + "/reload"
 	// RouteStatus is the endpoint for service health/status.
@@ -96,6 +98,7 @@ const (
 	MethodImpact             = "impact"
 	MethodCat                = "cat"
 	MethodTree               = "tree"
+	MethodList               = "list"
 	MethodReload             = "reload"
 	MethodStatus             = "status"
 	MethodShutdown           = "shutdown"
@@ -109,7 +112,7 @@ const (
 // AllMethods lists every valid method name.
 var AllMethods = []string{
 	MethodQuery, MethodContext, MethodCypher, MethodImpact,
-	MethodCat, MethodTree, MethodReload, MethodStatus, MethodShutdown,
+	MethodCat, MethodTree, MethodList, MethodReload, MethodStatus, MethodShutdown,
 	MethodSchema, MethodEmbed, MethodEmbedStatus, MethodPluginIngest, MethodPluginIngestStatus,
 }
 
@@ -121,6 +124,7 @@ var MethodToRoute = map[string]string{
 	MethodImpact:             RouteImpact,
 	MethodCat:                RouteCat,
 	MethodTree:               RouteTree,
+	MethodList:               RouteList,
 	MethodReload:             RouteReload,
 	MethodStatus:             RouteStatus,
 	MethodShutdown:           RouteShutdown,
@@ -305,6 +309,24 @@ type TreeResult struct {
 	Repo        string                   `json:"repo"`
 	Files       []string                 `json:"files"`
 	FileSymbols map[string][]SymbolMatch `json:"fileSymbols,omitempty"`
+}
+
+// ListResult is the result payload for GET /api/list.
+type ListResult struct {
+	Repos []RepoListEntry `json:"repos"`
+}
+
+// RepoListEntry describes an indexed repository from the registry.
+type RepoListEntry struct {
+	Name          string `json:"name"`
+	Hash          string `json:"hash"`
+	Type          string `json:"type"`
+	IndexedAt     string `json:"indexedAt,omitempty"`
+	NodeCount     int    `json:"nodeCount"`
+	EdgeCount     int    `json:"edgeCount"`
+	BuiltWith     string `json:"builtWith,omitempty"`
+	Embedding     string `json:"embedding,omitempty"`
+	EmbeddingInfo string `json:"embeddingInfo,omitempty"`
 }
 
 // ReloadRequest is the JSON body for POST /api/reload.

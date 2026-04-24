@@ -192,6 +192,23 @@ func (mc *MemoryClient) LoadAllFromRegistry() error {
 	return nil
 }
 
+// List retrieves indexed repositories from the registry.
+func (mc *MemoryClient) List() (*ListResult, error) {
+	if mc.dataDir == "" {
+		return &ListResult{}, nil
+	}
+	registry, err := storage.NewRegistry(mc.dataDir)
+	if err != nil {
+		return nil, fmt.Errorf("memory client: open registry: %w", err)
+	}
+	entries := registry.List()
+	repos := make([]RepoListEntry, 0, len(entries))
+	for _, entry := range entries {
+		repos = append(repos, repoListEntryFromRegistry(entry))
+	}
+	return &ListResult{Repos: repos}, nil
+}
+
 // Query performs a hybrid search query.
 func (mc *MemoryClient) Query(req QueryRequest) (*QueryResult, error) {
 	be, err := mc.getBackend(req.Repo)
