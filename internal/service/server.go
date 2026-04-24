@@ -700,6 +700,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc(RouteCypher, s.handleCypher)
 	mux.HandleFunc(RouteImpact, s.handleImpact)
 	mux.HandleFunc(RouteCat, s.handleCat)
+	mux.HandleFunc(RouteTree, s.handleTree)
 	mux.HandleFunc(RouteReload, s.handleReload)
 	mux.HandleFunc(RouteStatus, s.handleStatus)
 	mux.HandleFunc(RouteSchema, s.handleSchema)

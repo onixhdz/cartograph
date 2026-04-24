@@ -69,6 +69,8 @@ const (
 	RouteImpact = APIPrefix + "/impact"
 	// RouteCat is the endpoint to retrieve file source content.
 	RouteCat = APIPrefix + "/cat"
+	// RouteTree is the endpoint to list indexed repository file paths.
+	RouteTree = APIPrefix + "/tree"
 	// RouteReload is the endpoint to reload a repo's graph.
 	RouteReload = APIPrefix + "/reload"
 	// RouteStatus is the endpoint for service health/status.
@@ -93,6 +95,7 @@ const (
 	MethodCypher             = "cypher"
 	MethodImpact             = "impact"
 	MethodCat                = "cat"
+	MethodTree               = "tree"
 	MethodReload             = "reload"
 	MethodStatus             = "status"
 	MethodShutdown           = "shutdown"
@@ -106,7 +109,7 @@ const (
 // AllMethods lists every valid method name.
 var AllMethods = []string{
 	MethodQuery, MethodContext, MethodCypher, MethodImpact,
-	MethodCat, MethodReload, MethodStatus, MethodShutdown,
+	MethodCat, MethodTree, MethodReload, MethodStatus, MethodShutdown,
 	MethodSchema, MethodEmbed, MethodEmbedStatus, MethodPluginIngest, MethodPluginIngestStatus,
 }
 
@@ -117,6 +120,7 @@ var MethodToRoute = map[string]string{
 	MethodCypher:             RouteCypher,
 	MethodImpact:             RouteImpact,
 	MethodCat:                RouteCat,
+	MethodTree:               RouteTree,
 	MethodReload:             RouteReload,
 	MethodStatus:             RouteStatus,
 	MethodShutdown:           RouteShutdown,
@@ -289,6 +293,17 @@ type CatFile struct {
 	Content   string `json:"content"`
 	LineCount int    `json:"lineCount"`
 	Error     string `json:"error,omitempty"`
+}
+
+// TreeRequest is the JSON body for POST /api/tree.
+type TreeRequest struct {
+	Repo string `json:"repo"`
+}
+
+// TreeResult is the result payload for a tree response.
+type TreeResult struct {
+	Repo  string   `json:"repo"`
+	Files []string `json:"files"`
 }
 
 // ReloadRequest is the JSON body for POST /api/reload.

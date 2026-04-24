@@ -31,6 +31,7 @@ type mockClient struct {
 	lastContextReq service.ContextRequest
 	lastCypherReq  service.CypherRequest
 	lastImpactReq  service.ImpactRequest
+	lastTreeReq    service.TreeRequest
 	lastReloadReq  service.ReloadRequest
 }
 
@@ -90,6 +91,21 @@ func (m *mockClient) Cat(req service.CatRequest) (*service.CatResult, error) {
 	return &service.CatResult{
 		Files: []service.CatFile{
 			{Path: "test.go", Content: "package test\n", LineCount: 1},
+		},
+	}, nil
+}
+
+func (m *mockClient) Tree(req service.TreeRequest) (*service.TreeResult, error) {
+	m.lastTreeReq = req
+	return &service.TreeResult{
+		Repo: req.Repo,
+		Files: []string{
+			"cmd/root.go",
+			"cmd/root_test.go",
+			"go.mod",
+			"internal/service/client.go",
+			"internal/service/client_test.go",
+			"main.go",
 		},
 	}, nil
 }
@@ -333,6 +349,108 @@ func TestCypherCmd(t *testing.T) {
 		}
 		if !strings.Contains(out, "Foo") {
 			t.Error("expected output to contain 'Foo'")
+		}
+	})
+}
+
+func TestTreeCmd(t *testing.T) {
+	t.Run("prints full tree", func(t *testing.T) {
+		mc := &mockClient{}
+		cli := &CLI{Client: mc}
+		cmd := &TreeCmd{Repo: testRepo}
+
+		out := captureStdout(t, func() {
+			if err := cmd.Run(cli); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+
+		if mc.lastTreeReq.Repo != testRepo {
+			t.Errorf("repo: got %q, want %q", mc.lastTreeReq.Repo, testRepo)
+		}
+		for _, want := range []string{"myrepo/", "├── cmd/", "│   ├── root.go", "│   └── root_test.go", "├── internal/", "│   └── service/", "│       ├── client.go", "│       └── client_test.go", "├── go.mod", "└── main.go", "3 directories, 6 files"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("expected output to contain %q, got:\n%s", want, out)
+			}
+		}
+	})
+
+	t.Run("limits depth", func(t *testing.T) {
+		mc := &mockClient{}
+		cli := &CLI{Client: mc}
+		cmd := &TreeCmd{Repo: testRepo, Depth: 1}
+
+		out := captureStdout(t, func() {
+			if err := cmd.Run(cli); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+
+		if !strings.Contains(out, "│   └── ...") {
+			t.Fatalf("expected ellipsis for truncated directory, got:\n%s", out)
+		}
+		if strings.Contains(out, "client.go") {
+			t.Fatalf("did not expect nested file beyond depth, got:\n%s", out)
+		}
+	})
+
+	t.Run("prints selected directory", func(t *testing.T) {
+		mc := &mockClient{}
+		cli := &CLI{Client: mc}
+		cmd := &TreeCmd{Repo: testRepo, Path: "internal/service"}
+
+		out := captureStdout(t, func() {
+			if err := cmd.Run(cli); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+
+		for _, want := range []string{"internal/service/", "├── client.go", "└── client_test.go", "0 directories, 2 files"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("expected output to contain %q, got:\n%s", want, out)
+			}
+		}
+		if strings.Contains(out, "root.go") {
+			t.Fatalf("did not expect file outside selected directory, got:\n%s", out)
+		}
+	})
+
+	t.Run("prints selected file with parent", func(t *testing.T) {
+		mc := &mockClient{}
+		cli := &CLI{Client: mc}
+		cmd := &TreeCmd{Repo: testRepo, Path: "internal/service/client.go"}
+
+		out := captureStdout(t, func() {
+			if err := cmd.Run(cli); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+
+		for _, want := range []string{"internal/service/", "└── client.go", "0 directories, 1 file"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("expected output to contain %q, got:\n%s", want, out)
+			}
+		}
+		if strings.Contains(out, "client_test.go") {
+			t.Fatalf("did not expect sibling file, got:\n%s", out)
+		}
+	})
+
+	t.Run("errors on missing path", func(t *testing.T) {
+		cmd := &TreeCmd{Repo: testRepo, Path: "missing/path"}
+		err := cmd.Run(&CLI{Client: &mockClient{}})
+		if err == nil {
+			t.Fatal("expected missing path error")
+		}
+		if !strings.Contains(err.Error(), `path "missing/path" not found`) {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("rejects negative depth", func(t *testing.T) {
+		cmd := &TreeCmd{Repo: testRepo, Depth: -1}
+		if err := cmd.Run(&CLI{Client: &mockClient{}}); err == nil {
+			t.Fatal("expected error for negative depth")
 		}
 	})
 }

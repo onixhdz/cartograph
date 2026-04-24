@@ -328,6 +328,41 @@ func (s *Server) handleCat(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, &result)
 }
 
+func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
+	s.resetIdleTimer(r.Context())
+	if !requirePOST(w, r) {
+		return
+	}
+	var req TreeRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Repo == "" {
+		writeError(w, http.StatusBadRequest, "missing repo")
+		return
+	}
+
+	repo, err := s.ResolveRepoName(req.Repo)
+	if err != nil {
+		writeError(w, ErrCodeRepoNotFound, err.Error())
+		return
+	}
+	req.Repo = repo
+
+	if err := s.lazyLoadGraph(req.Repo); err != nil {
+		writeError(w, ErrCodeIncompatible, err.Error())
+		return
+	}
+	g, _, ok := s.GetRepoResources(req.Repo)
+	if !ok || g == nil {
+		writeError(w, ErrCodeRepoNotFound, fmt.Sprintf("repository %q not indexed", req.Repo))
+		return
+	}
+
+	writeJSON(w, BuildTreeResult(req.Repo, g))
+}
+
 func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 	s.resetIdleTimer(r.Context())
 	if !requirePOST(w, r) {
