@@ -68,8 +68,8 @@ MVP
  ├─► 14: Package Architecture Map    → aggregation only, quick win
  ├─► 15: Architecture Summary        → surfaces subsystems organically
  ├─► 7:  PR Context Generation       → daily use, drives adoption
- ├─► 21: CloudGraph                  → ingest cloud/SaaS APIs into the graph alongside code
- ├─► 1:  Cross-Repo Analysis         → microservice / enterprise use case
+ ├─► 1:  Cross-Repo Analysis         → dependency/import workspace foundation for microservice / enterprise use cases; does not require CloudGraph
+ │    ├─► 21: CloudGraph             → enriches runtime/service identity with cloud/SaaS APIs alongside code
  │    └─► 11: Vulnerability Surface  → needs cross-repo dep graph
  ├─► 4:  Architecture Guardrails     → CI integration + retention
  ├─► 9:  TUI Explorer                → polish + demos
