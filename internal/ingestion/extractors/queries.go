@@ -2,21 +2,6 @@ package extractors
 
 import ts "github.com/realxen/cartograph/internal/treesitter"
 
-// genericFallbackAllowlist is the explicit set of languages that may use the
-// generic AST fallback path once pipeline routing enables it.
-var genericFallbackAllowlist = map[string]bool{
-	"json":       true,
-	"yaml":       true,
-	"toml":       true,
-	"hcl":        true,
-	"sql":        true,
-	"protobuf":   true,
-	"dockerfile": true,
-	"bash":       true,
-	"groovy":     true,
-	"make":       true,
-}
-
 // HasNativeSupport reports whether the language is available via the native
 // tree-sitter bindings path.
 func HasNativeSupport(language string) bool {
@@ -35,28 +20,18 @@ func HasCustomQueries(language string) bool {
 	return ok
 }
 
-// UsesFallbackExtraction reports whether the language should route through the
-// generic AST fallback extraction path.
-func UsesFallbackExtraction(language string) bool {
-	return genericFallbackAllowlist[language] && HasFallbackGrammar(language) && !HasCustomQueries(language)
-}
-
 // CanParse reports whether the given language name resolves to any registered
 // tree-sitter grammar.
 func CanParse(language string) bool {
 	return HasNativeSupport(language) || HasFallbackGrammar(language)
 }
 
-// SupportsGenericFallback is kept as a compatibility shim while callers move to
-// UsesFallbackExtraction.
-func SupportsGenericFallback(language string) bool {
-	return UsesFallbackExtraction(language)
-}
-
 // CanExtract reports whether the language should enter extraction at all.
-// Kept as a compatibility shim while callers move to capability-based routing.
+// Extraction is limited to languages with first-hand query support. Config,
+// infra, schema, and data files should use semantic loaders rather than generic
+// fallback symbol inference.
 func CanExtract(language string) bool {
-	return HasCustomQueries(language) || UsesFallbackExtraction(language)
+	return HasCustomQueries(language)
 }
 
 // LanguagePreProcess maps language names to source-preprocessing functions

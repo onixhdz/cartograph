@@ -150,8 +150,7 @@ func ParseFiles(files []FileInput, opts ParseOptions) *ParseResult {
 				}
 
 				// Extract symbols from the file using cached parsers/queries.
-				// The parser pool has a cooperative 10-second timeout that
-				// prevents pathological files from stalling the worker.
+				// The parser pool timeout prevents pathological files from stalling the worker.
 				result, err := extractFileWithCache(fi.Path, data, fi.Language, cache)
 				if err != nil {
 					mu.Lock()
