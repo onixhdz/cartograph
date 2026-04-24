@@ -31,7 +31,7 @@ func TestBuildTreeResultIncludesFileSymbols(t *testing.T) {
 	if got := symbols[0].Name; got != "alpha" {
 		t.Fatalf("first symbol = %q, want alpha", got)
 	}
-	if symbols[0].StartLine != 10 || symbols[0].EndLine != 12 || symbols[0].Label != string(graph.LabelMethod) || symbols[0].Repo != "repo" {
+	if symbols[0].UID != "fn:a" || symbols[0].StartLine != 10 || symbols[0].EndLine != 12 || symbols[0].Label != string(graph.LabelMethod) || symbols[0].Repo != "repo" {
 		t.Fatalf("unexpected symbol payload: %#v", symbols[0])
 	}
 	if symbols[2].Signature != "func zeta()" {

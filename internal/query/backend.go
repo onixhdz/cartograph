@@ -1016,6 +1016,7 @@ func nodeToSymbolMatch(node *lpg.Node, includeContent bool) service.SymbolMatch 
 	}
 
 	sm := service.SymbolMatch{
+		UID:       graph.GetStringProp(node, graph.PropID),
 		Name:      graph.GetStringProp(node, graph.PropName),
 		FilePath:  graph.GetStringProp(node, graph.PropFilePath),
 		StartLine: graph.GetIntProp(node, graph.PropStartLine),

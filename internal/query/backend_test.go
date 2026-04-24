@@ -963,6 +963,9 @@ func TestNodeToSymbolMatch(t *testing.T) {
 	if sm.Name != "test" {
 		t.Errorf("name: %q", sm.Name)
 	}
+	if sm.UID != "func:test" {
+		t.Errorf("uid: %q", sm.UID)
+	}
 	if sm.FilePath != "test.go" {
 		t.Errorf("filePath: %q", sm.FilePath)
 	}

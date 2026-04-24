@@ -752,7 +752,7 @@ func TestHandleTreeSerializesFileSymbols(t *testing.T) {
 	if len(symbols) != 1 {
 		t.Fatalf("main.go symbols = %d, want 1", len(symbols))
 	}
-	if symbols[0].Name != "main" || symbols[0].StartLine != 3 || symbols[0].EndLine != 7 {
+	if symbols[0].UID != "fn:main" || symbols[0].Name != "main" || symbols[0].StartLine != 3 || symbols[0].EndLine != 7 {
 		t.Fatalf("unexpected symbol payload: %#v", symbols[0])
 	}
 }

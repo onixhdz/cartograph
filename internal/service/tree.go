@@ -58,6 +58,7 @@ func treeSymbolFromNode(repo string, n *lpg.Node) (SymbolMatch, bool) {
 	}
 
 	return SymbolMatch{
+		UID:       graph.GetStringProp(n, graph.PropID),
 		Name:      name,
 		FilePath:  path,
 		StartLine: startLine,

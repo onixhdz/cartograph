@@ -425,10 +425,25 @@ func TestSymbolMatchOmitsOptional(t *testing.T) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	for _, key := range []string{"startLine", "endLine", "processName", "content", "repo"} {
+	for _, key := range []string{"uid", "startLine", "endLine", "processName", "content", "repo"} {
 		if _, ok := raw[key]; ok {
 			t.Errorf("expected key %q to be omitted when zero", key)
 		}
+	}
+}
+
+func TestSymbolMatchUIDField(t *testing.T) {
+	sym := SymbolMatch{UID: "func:foo", Name: "foo", Label: "Function", FilePath: "a.go"}
+	data, err := json.Marshal(sym)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got := raw["uid"]; got != "func:foo" {
+		t.Fatalf("uid = %v, want func:foo", got)
 	}
 }
 

@@ -205,6 +205,7 @@ type ProcessMatch struct {
 
 // SymbolMatch represents a matched symbol in query/context results.
 type SymbolMatch struct {
+	UID         string  `json:"uid,omitempty"`
 	Name        string  `json:"name"`
 	FilePath    string  `json:"filePath"`
 	StartLine   int     `json:"startLine,omitempty"`
