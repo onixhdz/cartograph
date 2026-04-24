@@ -721,3 +721,38 @@ func TestHandleTree_ConcurrentColdLoad(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestHandleTreeSerializesFileSymbols(t *testing.T) {
+	s := newTestServer()
+	g := s.graph["testrepo"]
+	graph.AddFileNode(g, graph.FileProps{BaseNodeProps: graph.BaseNodeProps{ID: "file:main", Name: "main.go"}, FilePath: "main.go"})
+	graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{BaseNodeProps: graph.BaseNodeProps{ID: "fn:main", Name: "main"}, FilePath: "main.go", StartLine: 3, EndLine: 7})
+
+	body := jsonBody(t, TreeRequest{Repo: "testrepo"})
+	req := httptest.NewRequestWithContext(context.Background(), "POST", RouteTree, body)
+	rec := httptest.NewRecorder()
+	s.handleTree(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	resp := decodeResponse(t, rec)
+	data, err := json.Marshal(resp.Result)
+	if err != nil {
+		t.Fatalf("marshal result: %v", err)
+	}
+	var result TreeResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal tree result: %v", err)
+	}
+	if got := strings.Join(result.Files, ","); got != "main.go" {
+		t.Fatalf("files = %q, want main.go", got)
+	}
+	symbols := result.FileSymbols["main.go"]
+	if len(symbols) != 1 {
+		t.Fatalf("main.go symbols = %d, want 1", len(symbols))
+	}
+	if symbols[0].Name != "main" || symbols[0].StartLine != 3 || symbols[0].EndLine != 7 {
+		t.Fatalf("unexpected symbol payload: %#v", symbols[0])
+	}
+}

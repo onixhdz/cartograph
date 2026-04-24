@@ -302,8 +302,9 @@ type TreeRequest struct {
 
 // TreeResult is the result payload for a tree response.
 type TreeResult struct {
-	Repo  string   `json:"repo"`
-	Files []string `json:"files"`
+	Repo        string                   `json:"repo"`
+	Files       []string                 `json:"files"`
+	FileSymbols map[string][]SymbolMatch `json:"fileSymbols,omitempty"`
 }
 
 // ReloadRequest is the JSON body for POST /api/reload.
