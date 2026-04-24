@@ -299,6 +299,31 @@ func (mc *MemoryClient) Cat(req CatRequest) (*CatResult, error) {
 	return result, nil
 }
 
+// Tree retrieves indexed file paths from a repository graph.
+func (mc *MemoryClient) Tree(req TreeRequest) (*TreeResult, error) {
+	if req.Repo == "" {
+		return nil, errors.New("memory client: missing repo")
+	}
+
+	resolved, err := mc.resolveRepoName(req.Repo)
+	if err != nil {
+		return nil, err
+	}
+
+	g, _, ok := mc.GetRepoResources(resolved)
+	if !ok {
+		if err := mc.loadFromDisk(resolved); err != nil {
+			return nil, err
+		}
+		g, _, ok = mc.GetRepoResources(resolved)
+	}
+	if !ok || g == nil {
+		return nil, fmt.Errorf("repository %q not indexed", resolved)
+	}
+
+	return BuildTreeResult(resolved, g), nil
+}
+
 // Reload drops and re-loads a repo's graph from disk.
 func (mc *MemoryClient) Reload(req ReloadRequest) error {
 	mc.mu.Lock()

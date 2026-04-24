@@ -20,6 +20,19 @@ Five layers, top to bottom:
 
 Design documents, implementation plans, and roadmap details live in `.local.plans/` (gitignored via `.local.*`). Always check this directory for existing plans before starting work on a feature — there may already be a design doc or prior analysis. When creating new plans or design documents, place them in `.local.plans/`.
 
+## API And UX Surface Discipline
+
+Keep Cartograph's architecture and user experience KISS/YAGNI-aligned. Do not add new CLI commands, flags, HTTP endpoints, MCP tools, service methods, storage buckets, graph labels, or public result fields unless they are needed for a concrete shipped workflow.
+
+- Prefer extending an existing command, request, result shape, or MCP tool before adding a new surface.
+- Prefer one clear user-facing concept over parallel concepts that define the same scope or behavior.
+- Do not add speculative aliases, compatibility modes, discovery commands, or convenience APIs without an explicit requirement.
+- Do not expose internal implementation details as public UX just because they exist in storage or service code.
+- If a capability is advisory or experimental, keep it in planning until there is a clear user workflow and acceptance criteria.
+- When a new surface is justified, it must work consistently through `ServiceClient`, HTTP service mode, and `MemoryClient`; avoid CLI-only behavior.
+- Keep MCP tool count small. Existing tools should gain scoped inputs or structured result fields before adding specialized tools.
+- If unsure whether a new surface is warranted, ask one short product/UX question instead of implementing it.
+
 ## Key Design Decisions
 
 - **Single edge label**: All relationships use `EdgeLabel = "CodeRelation"` with a `type` property (e.g., `CALLS`, `IMPORTS`). Use `graph.GetEdgeRelType(e)` to read it.

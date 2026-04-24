@@ -51,6 +51,7 @@ type Server struct {
 	backendFactory BackendFactory                      // creates ToolBackend per repo
 	dataDir        string                              // base data directory for lazy resolver init
 	mu             sync.RWMutex
+	loadLocks      sync.Map
 	mux            *http.ServeMux
 	httpServer     *http.Server
 	listener       net.Listener
@@ -58,6 +59,7 @@ type Server struct {
 	startTime      time.Time
 	idleTimeout    time.Duration
 	idleTimer      *time.Timer
+	idleMu         sync.Mutex
 	stopOnce       sync.Once
 	done           chan struct{} // closed when Serve returns
 	ready          atomic.Bool   // true once at least one repo has been loaded
@@ -182,9 +184,11 @@ func (s *Server) Start() error {
 func (s *Server) Stop(ctx context.Context) error {
 	var stopErr error
 	s.stopOnce.Do(func() {
+		s.idleMu.Lock()
 		if s.idleTimer != nil {
 			s.idleTimer.Stop()
 		}
+		s.idleMu.Unlock()
 		shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 		if err := s.httpServer.Shutdown(shutdownCtx); err != nil {
@@ -209,6 +213,8 @@ func (s *Server) resetIdleTimer(_ context.Context) {
 	if s.idleTimeout == 0 {
 		return
 	}
+	s.idleMu.Lock()
+	defer s.idleMu.Unlock()
 	if s.idleTimer != nil {
 		s.idleTimer.Stop()
 	}
@@ -396,6 +402,33 @@ func (s *Server) lazyLoadGraph(repo string) error {
 		return nil
 	}
 
+	s.mu.RLock()
+	_, loaded := s.graph[repo]
+	s.mu.RUnlock()
+	if loaded {
+		return nil
+	}
+
+	loadLock := s.repoLoadLock(repo)
+	loadLock.Lock()
+	defer loadLock.Unlock()
+
+	s.mu.RLock()
+	_, loaded = s.graph[repo]
+	s.mu.RUnlock()
+	if loaded {
+		return nil
+	}
+
+	return s.loadGraphFromRegistry(repo)
+}
+
+func (s *Server) repoLoadLock(repo string) *sync.Mutex {
+	mu, _ := s.loadLocks.LoadOrStore(repo, &sync.Mutex{})
+	return mu.(*sync.Mutex)
+}
+
+func (s *Server) loadGraphFromRegistry(repo string) error {
 	registry, err := storage.NewRegistry(s.dataDir)
 	if err != nil {
 		return nil //nolint:nilerr // registry unavailable — repo simply not loaded
@@ -439,7 +472,7 @@ func (s *Server) lazyLoadGraph(repo string) error {
 
 	// Prefer the persisted Bleve index written by analyze.
 	blevePath := filepath.Join(repoDir, "search.bleve")
-	idx, err := search.NewIndex(blevePath)
+	idx, err := search.NewReadOnlyIndex(blevePath)
 	if err != nil {
 		// Fall back to in-memory index if persisted index is missing or corrupt.
 		idx, err = search.NewMemoryIndex()
@@ -700,6 +733,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc(RouteCypher, s.handleCypher)
 	mux.HandleFunc(RouteImpact, s.handleImpact)
 	mux.HandleFunc(RouteCat, s.handleCat)
+	mux.HandleFunc(RouteTree, s.handleTree)
 	mux.HandleFunc(RouteReload, s.handleReload)
 	mux.HandleFunc(RouteStatus, s.handleStatus)
 	mux.HandleFunc(RouteSchema, s.handleSchema)

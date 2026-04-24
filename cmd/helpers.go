@@ -22,6 +22,7 @@ type ServiceClient interface {
 	Cypher(service.CypherRequest) (*service.CypherResult, error)
 	Impact(service.ImpactRequest) (*service.ImpactResult, error)
 	Cat(service.CatRequest) (*service.CatResult, error)
+	Tree(service.TreeRequest) (*service.TreeResult, error)
 	Schema(service.SchemaRequest) (*service.SchemaResult, error)
 	Reload(service.ReloadRequest) error
 	Status() (*service.StatusResult, error)

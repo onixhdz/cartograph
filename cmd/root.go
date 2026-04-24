@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -61,6 +62,7 @@ type CLI struct {
 	Analyze    AnalyzeCmd       `cmd:"" help:"Index a repository (full analysis)."`
 	Clone      CloneCmd         `cmd:"" help:"Clone a remote repository to disk without indexing."`
 	Cat        CatCmd           `cmd:"" help:"Print file contents from an indexed repository."`
+	Tree       TreeCmd          `cmd:"" help:"Print the indexed repository file tree."`
 	List       ListCmd          `cmd:"" help:"List all indexed repositories."`
 	Status     StatusCmd        `cmd:"" help:"Show index status for a repository (defaults to current directory)."`
 	Clean      CleanCmd         `cmd:"" help:"Delete index for a repository (defaults to current directory)."`
@@ -1838,6 +1840,189 @@ func (c *CatCmd) Run(cli *CLI) error {
 		}
 	}
 	return nil
+}
+
+// TreeCmd prints the indexed file tree for a repository.
+type TreeCmd struct {
+	Path  string `arg:"" optional:"" help:"File or directory path relative to repo root."`
+	Repo  string `help:"Repository name." short:"r"`
+	Depth int    `help:"Maximum directory depth to show (0 = unlimited)."`
+}
+
+func (c *TreeCmd) Run(cli *CLI) error {
+	if cli.Client == nil {
+		fmt.Println(errNoService)
+		return nil
+	}
+	if c.Depth < 0 {
+		return errors.New("tree: depth must be >= 0")
+	}
+
+	repo, err := resolveRepo(c.Repo)
+	if err != nil {
+		return err
+	}
+
+	result, err := cli.Client.Tree(service.TreeRequest{Repo: repo})
+	if err != nil {
+		return fmt.Errorf("tree: %w", err)
+	}
+
+	root, files, err := selectTreeFiles(result.Repo, result.Files, c.Path)
+	if err != nil {
+		return fmt.Errorf("tree: %w", err)
+	}
+
+	printFileTree(os.Stdout, root, files, c.Depth)
+	return nil
+}
+
+type fileTreeNode struct {
+	name     string
+	children map[string]*fileTreeNode
+	file     bool
+}
+
+func printFileTree(w io.Writer, root string, files []string, maxDepth int) {
+	rootNode := &fileTreeNode{children: make(map[string]*fileTreeNode)}
+	for _, path := range files {
+		addFileTreePath(rootNode, path)
+	}
+
+	fmt.Fprintf(w, "%s/\n", root)
+	printFileTreeChildren(w, rootNode, "", 1, maxDepth)
+
+	dirs, fileCount := countFileTree(rootNode)
+	if len(files) > 0 {
+		fmt.Fprintln(w)
+	}
+	fmt.Fprintf(w, "%d directories, %d files\n", dirs, fileCount)
+}
+
+func selectTreeFiles(repo string, files []string, selectedPath string) (string, []string, error) {
+	selectedPath = normalizeTreePath(selectedPath)
+	if selectedPath == "" {
+		return repo, files, nil
+	}
+
+	prefix := selectedPath + "/"
+	selected := make([]string, 0)
+	for _, path := range files {
+		path = normalizeTreePath(path)
+		if path == selectedPath {
+			root, file := splitTreeFileRoot(path)
+			return root, []string{file}, nil
+		}
+		if trimmed, ok := strings.CutPrefix(path, prefix); ok {
+			selected = append(selected, trimmed)
+		}
+	}
+	if len(selected) == 0 {
+		return "", nil, fmt.Errorf("path %q not found in indexed files", selectedPath)
+	}
+	return selectedPath, selected, nil
+}
+
+func normalizeTreePath(path string) string {
+	path = filepath.ToSlash(strings.TrimSpace(path))
+	for strings.HasPrefix(path, "./") {
+		path = strings.TrimPrefix(path, "./")
+	}
+	return strings.Trim(path, "/")
+}
+
+func splitTreeFileRoot(path string) (string, string) {
+	idx := strings.LastIndex(path, "/")
+	if idx < 0 {
+		return ".", path
+	}
+	return path[:idx], path[idx+1:]
+}
+
+func addFileTreePath(root *fileTreeNode, path string) {
+	path = normalizeTreePath(path)
+	if path == "" {
+		return
+	}
+	parts := strings.Split(path, "/")
+	node := root
+	for i, part := range parts {
+		if part == "" {
+			return
+		}
+		if node.children == nil {
+			node.children = make(map[string]*fileTreeNode)
+		}
+		child := node.children[part]
+		if child == nil {
+			child = &fileTreeNode{name: part, children: make(map[string]*fileTreeNode)}
+			node.children[part] = child
+		}
+		if i == len(parts)-1 {
+			child.file = true
+		}
+		node = child
+	}
+}
+
+func printFileTreeChildren(w io.Writer, node *fileTreeNode, prefix string, depth, maxDepth int) {
+	children := sortedFileTreeChildren(node)
+	for i, child := range children {
+		last := i == len(children)-1
+		branch := "├── "
+		nextPrefix := prefix + "│   "
+		if last {
+			branch = "└── "
+			nextPrefix = prefix + "    "
+		}
+
+		name := child.name
+		if !child.file {
+			name += "/"
+		}
+		fmt.Fprintf(w, "%s%s%s\n", prefix, branch, name)
+		if !child.file {
+			if maxDepth > 0 && depth >= maxDepth {
+				if hasVisibleChildren(child) {
+					fmt.Fprintf(w, "%s└── ...\n", nextPrefix)
+				}
+				continue
+			}
+			printFileTreeChildren(w, child, nextPrefix, depth+1, maxDepth)
+		}
+	}
+}
+
+func sortedFileTreeChildren(node *fileTreeNode) []*fileTreeNode {
+	children := make([]*fileTreeNode, 0, len(node.children))
+	for _, child := range node.children {
+		children = append(children, child)
+	}
+	sort.Slice(children, func(i, j int) bool {
+		if children[i].file != children[j].file {
+			return !children[i].file
+		}
+		return children[i].name < children[j].name
+	})
+	return children
+}
+
+func countFileTree(node *fileTreeNode) (dirs, files int) {
+	for _, child := range node.children {
+		if child.file {
+			files++
+			continue
+		}
+		dirs++
+		childDirs, childFiles := countFileTree(child)
+		dirs += childDirs
+		files += childFiles
+	}
+	return dirs, files
+}
+
+func hasVisibleChildren(node *fileTreeNode) bool {
+	return len(node.children) > 0
 }
 
 // QueryCmd searches the knowledge graph.

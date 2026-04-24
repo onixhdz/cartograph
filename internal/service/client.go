@@ -168,6 +168,15 @@ func (c *Client) Cat(req CatRequest) (*CatResult, error) {
 	return &res, nil
 }
 
+// Tree retrieves indexed file paths for a repository.
+func (c *Client) Tree(req TreeRequest) (*TreeResult, error) {
+	var res TreeResult
+	if err := c.do(http.MethodPost, RouteTree, req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
 // Reload requests the service to drop and re-load a repo's graph.
 func (c *Client) Reload(req ReloadRequest) error {
 	return c.do(http.MethodPost, RouteReload, req, nil)

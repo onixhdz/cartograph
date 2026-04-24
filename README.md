@@ -61,6 +61,9 @@ cartograph analyze <path|url> --embed async
 # Search for execution flows
 cartograph query "authentication middleware"
 
+# Inspect the indexed file tree
+cartograph tree internal/service --depth 2
+
 # See everything about a symbol — callers, callees, processes
 cartograph context UserService
 

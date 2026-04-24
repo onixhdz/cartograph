@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/cloudprivacylabs/lpg/v2"
 
+	"github.com/realxen/cartograph/internal/graph"
 	"github.com/realxen/cartograph/internal/search"
 )
 
@@ -25,6 +27,8 @@ func testClientServer(t *testing.T) *Client {
 		idleTimeout: DefaultIdleTimeout,
 	}
 	s.graph["myrepo"] = lpg.NewGraph()
+	graph.AddFileNode(s.graph["myrepo"], graph.FileProps{FilePath: "main.go", BaseNodeProps: graph.BaseNodeProps{Name: "main.go"}})
+	graph.AddFileNode(s.graph["myrepo"], graph.FileProps{FilePath: "internal/service/client_test.go", BaseNodeProps: graph.BaseNodeProps{Name: "client_test.go"}})
 	s.backendFactory = func(repo string) ToolBackend {
 		if _, ok := s.graph[repo]; !ok {
 			return nil
@@ -125,6 +129,18 @@ func TestClientReload(t *testing.T) {
 	err := cl.Reload(ReloadRequest{Repo: "myrepo"})
 	if err != nil {
 		t.Fatalf("reload: %v", err)
+	}
+}
+
+func TestClientTree(t *testing.T) {
+	cl := testClientServer(t)
+	res, err := cl.Tree(TreeRequest{Repo: "myrepo"})
+	if err != nil {
+		t.Fatalf("tree: %v", err)
+	}
+	want := "internal/service/client_test.go,main.go"
+	if got := strings.Join(res.Files, ","); got != want {
+		t.Fatalf("files = %q, want %q", got, want)
 	}
 }
 

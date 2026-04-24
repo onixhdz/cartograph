@@ -22,9 +22,16 @@ func newTestMemoryClient(t *testing.T) *MemoryClient {
 
 	g := lpg.NewGraph()
 	g.NewNode([]string{"File"}, map[string]any{
-		graph.PropID:   "file://main.go",
-		graph.PropName: "main.go",
-		graph.PropType: "file",
+		graph.PropID:       "file://main.go",
+		graph.PropName:     "main.go",
+		graph.PropFilePath: "main.go",
+		graph.PropType:     "file",
+	})
+	g.NewNode([]string{"File"}, map[string]any{
+		graph.PropID:       "file://internal/service/client_test.go",
+		graph.PropName:     "client_test.go",
+		graph.PropFilePath: "internal/service/client_test.go",
+		graph.PropType:     "file",
 	})
 	g.NewNode([]string{"Function"}, map[string]any{
 		graph.PropID:   "func://main",
@@ -101,6 +108,18 @@ func TestMemoryClient_Impact(t *testing.T) {
 	if res == nil {
 		t.Fatal("nil result")
 		return
+	}
+}
+
+func TestMemoryClient_Tree(t *testing.T) {
+	mc := newTestMemoryClient(t)
+	res, err := mc.Tree(TreeRequest{Repo: "testrepo"})
+	if err != nil {
+		t.Fatalf("tree: %v", err)
+	}
+	want := []string{"internal/service/client_test.go", "main.go"}
+	if strings.Join(res.Files, ",") != strings.Join(want, ",") {
+		t.Fatalf("files = %#v, want %#v", res.Files, want)
 	}
 }
 

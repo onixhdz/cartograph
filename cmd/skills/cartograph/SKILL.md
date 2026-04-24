@@ -1,6 +1,6 @@
 ---
 name: cartograph
-description: "Cartograph: graph-powered code intelligence. Use when the user asks to index, analyze, understand, or explore a repository or codebase. Covers CLI commands, practical workflows, and deep-dive architecture analysis."
+description: "Cartograph: graph-powered code intelligence. Use when the user asks to index, analyze, understand, explore, compare, or inspect how a repository/project/codebase does something, including named-project prompts like 'see what <project> does for <topic>'."
 metadata:
   author: cartograph
   version: "1.0"
@@ -145,7 +145,7 @@ query hit `deadline exceeded`.
 ### Always Index Before Querying
 
 Cartograph commands that read the knowledge graph (`query`, `context`,
-`impact`, `cypher`, `cat`) require a prior `analyze` run. If no index
+`impact`, `cypher`, `cat`, `tree`) require a prior `analyze` run. If no index
 exists for the target repo, run `cartograph analyze` first.
 
 ### Prefer `cartograph cat` for Real Code
@@ -156,10 +156,15 @@ inside Cartograph as long as possible:
 
 ```bash
 cartograph query "<theme>" -l 8
+cartograph tree [path] --depth 2
 cartograph context <symbol> --depth 2 --content
 cartograph impact <symbol> --direction upstream -d 3
 cartograph cat <file> -l <startLine>-<endLine>
 ```
+
+Use `cartograph tree` to inspect the indexed file inventory before choosing
+paths for `cartograph cat`. `cartograph tree [path]` accepts a file or directory
+path relative to repo root; repository selection still uses `-r/--repo`.
 
 Avoid builtin file reads for indexed repositories unless one of these is true:
 
@@ -253,6 +258,18 @@ repository or project without explicitly mentioning cartograph.
 - The skill was already used in this conversation.
 - The current repo is already indexed (`cartograph list`).
 
+### -0.5. Named Indexed Project Mention
+
+**Triggers:** User asks how a named project/repository/codebase does something,
+where behavior lives, how a feature works, or how it compares to another
+codebase, even without mentioning cartograph.
+
+**Action:** Explicit requests to use Cartograph always win. Otherwise, run
+`cartograph list`; use Cartograph with `-r <name>` for an indexed full name or
+unambiguous basename outside the current working repo. For the current repo, use
+regular workspace tools. If not indexed, fall through to rule **0c**; if
+ambiguous, ask which indexed repo they mean. Never hardcode project names.
+
 ### 0. Remote Repository (URL or Shorthand)
 
 **Triggers:** User provides a Git URL (e.g. `https://github.com/…`,
@@ -302,18 +319,19 @@ and Y to my project", "what's the difference between X and Y".
    using `--repo <name>` and synthesize a comparison. For the current
    project, `--repo` can be omitted (auto-detected).
 
-### 0c. Bare Project Names (Confirm Before Indexing)
+### 0c. Bare Project Names (Check Indexed Repos, Then Confirm Before Indexing)
 
 **Triggers:** User mentions projects by **bare name** (no URL or `org/repo`
 shorthand). E.g. "analyze nomad and docker", "compare consul with my
 project", "how does etcd work".
 
-**Action:** Run `cartograph analyze <bare-name>` — it searches GitHub and
-prints a ranked list of matches (e.g. `moby/moby`, `docker/cli`,
-`docker/compose` for "docker"). Present the suggestions to the user and
-ask which one to index. Once confirmed, run
-`cartograph analyze <org/repo>` with the confirmed shorthand, then follow
-the exploration/comparison workflow.
+**Action:** Explicit requests to use Cartograph always win. Otherwise, first run
+`cartograph list`. Use Cartograph with `-r <name>` for an indexed full name or
+unambiguous basename outside the current working repo; use regular workspace
+tools for the current repo. If not indexed, run `cartograph analyze <bare-name>`
+to search GitHub and suggest matches. Once confirmed, run `cartograph analyze
+<org/repo>` with the confirmed shorthand, then follow the exploration/comparison
+workflow.
 
 ### 1. Deep-Dive Architecture Analysis
 
@@ -344,7 +362,7 @@ or mentions "wiki" in the context of documentation generation.
 ### 2. CLI Commands
 
 **Triggers:** User mentions a specific command (`analyze`, `query`, `context`,
-`impact`, `cypher`, `schema`, `cat`, `clone`, `models`, `serve`, `mcp`,
+`impact`, `cypher`, `schema`, `cat`, `tree`, `clone`, `models`, `serve`, `mcp`,
 `skills`, `list`, `status`, `clean`, `wiki`), command flags, graph schema,
 Cypher syntax, node labels, relationship types, embedding configuration,
 model management, MCP configuration, or needs a command reference.
@@ -388,6 +406,6 @@ These clarify ambiguous routing where two rules could plausibly match:
 - **"explore this codebase"** or **"understand the architecture"** → Deep-Dive Architecture (not Workflows)
 - **"mcp"**, **"editor integration"**, **"configure cursor/claude code/opencode"** → CLI Commands + Service Architecture (this file)
 - **"sub-agents"**, **"agent prompt template"**, **"launch explore agents"** → [references/cartograph-delegation.md](references/cartograph-delegation.md)
-- **Bare name** ("analyze docker") vs **shorthand** ("analyze moby/moby") → Bare names trigger confirm-first (rule 0c); shorthands go directly (rule 0)
+- **Bare name** ("analyze docker") vs **shorthand** ("analyze moby/moby") → Bare names first check indexed repos dynamically (rule 0c); shorthands go directly (rule 0)
 - **"analyze this repo: <url>"** → CLI Commands only (just indexing, no exploration workflow)
 - **"wiki"** as a CLI command reference ("what flags does wiki take") → CLI Commands; as a generation workflow ("generate wiki for this repo") → Wiki Generation (rule 1c)
