@@ -45,6 +45,7 @@ Most structural code questions (blast radius, call chains, process ownership, su
 | 21  | TUI Explorer                | 🔲 Planned | Medium   | `bubbletea` graph walker, process viewer, Cypher REPL                                                                                            |
 | 22  | Plugin System               | 🚧 Partial | Low      | Exec-based plugin install/list/rm/ingest flows and SDK are shipped; WASM plugins and extractor mapping are not implemented yet                   |
 | 23  | Web UI                      | 🔲 Planned | Low      | Browser-based graph visualization; node/edge explorer, process flows, Cypher query runner                                                        |
+| 24  | Semantic Config & Infra Parsing | 🔲 Planned | High | Classify config/infra/schema files and extract evidence-backed runtime facts from contracts, deployment manifests, SQL, Terraform/HCL, Docker, etc.; replaces generic fallback parsing with semantic extractors |
 
 ---
 
@@ -69,6 +70,7 @@ MVP
  ├─► 15: Architecture Summary        → surfaces subsystems organically
  ├─► 7:  PR Context Generation       → daily use, drives adoption
  ├─► 1:  Cross-Repo Analysis         → dependency/import workspace foundation for microservice / enterprise use cases; does not require CloudGraph
+ │    ├─► 24: Semantic Config & Infra Parsing → contract/deployment evidence for runtime boundaries
  │    ├─► 21: CloudGraph             → enriches runtime/service identity with cloud/SaaS APIs alongside code
  │    └─► 11: Vulnerability Surface  → needs cross-repo dep graph
  ├─► 4:  Architecture Guardrails     → CI integration + retention
