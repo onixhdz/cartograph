@@ -6,13 +6,18 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/cloudprivacylabs/lpg/v2"
 
+	"github.com/realxen/cartograph/internal/graph"
 	"github.com/realxen/cartograph/internal/search"
 	"github.com/realxen/cartograph/internal/storage"
+	"github.com/realxen/cartograph/internal/storage/bbolt"
 )
 
 // stubBackend is a minimal ToolBackend for handler tests.
@@ -592,4 +597,131 @@ func TestHandleQuery_ShortNameResolvesViaRegistry(t *testing.T) {
 	if resp.Error != nil {
 		t.Errorf("unexpected error: %v", resp.Error)
 	}
+}
+
+func TestHandleTree_ConcurrentRequestsUseLoadedGraph(t *testing.T) {
+	dir := t.TempDir()
+	reg, err := storage.NewRegistry(dir)
+	if err != nil {
+		t.Fatalf("registry: %v", err)
+	}
+	if err := reg.Add(storage.RegistryEntry{Name: "acme/sdk", Hash: "h1"}); err != nil {
+		t.Fatalf("registry add: %v", err)
+	}
+
+	s := &Server{
+		graph:       make(map[string]*lpg.Graph),
+		searchIdx:   make(map[string]*search.Index),
+		repoDirs:    make(map[string]string),
+		dataDir:     dir,
+		idleTimeout: DefaultIdleTimeout,
+	}
+	s.graph["acme/sdk"] = lpg.NewGraph()
+	graph.AddFileNode(s.graph["acme/sdk"], graph.FileProps{FilePath: "main.go", BaseNodeProps: graph.BaseNodeProps{ID: "file://main.go", Name: "main.go"}})
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			body := jsonBody(t, TreeRequest{Repo: "sdk"})
+			req := httptest.NewRequestWithContext(context.Background(), "POST", RouteTree, body)
+			rec := httptest.NewRecorder()
+			s.handleTree(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Errorf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+				return
+			}
+			resp := decodeResponse(t, rec)
+			if resp.Error != nil {
+				t.Errorf("unexpected error: %v", resp.Error)
+				return
+			}
+			data, err := json.Marshal(resp.Result)
+			if err != nil {
+				t.Errorf("marshal result: %v", err)
+				return
+			}
+			var result TreeResult
+			if err := json.Unmarshal(data, &result); err != nil {
+				t.Errorf("unmarshal tree result: %v", err)
+				return
+			}
+			if got := strings.Join(result.Files, ","); got != "main.go" {
+				t.Errorf("files = %q, want main.go", got)
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+func TestHandleTree_ConcurrentColdLoad(t *testing.T) {
+	dir := t.TempDir()
+	repoDir := filepath.Join(dir, "acme/sdk", "h1")
+	if err := os.MkdirAll(repoDir, 0o750); err != nil {
+		t.Fatalf("mkdir repo dir: %v", err)
+	}
+
+	g := lpg.NewGraph()
+	graph.AddFileNode(g, graph.FileProps{FilePath: "main.go", BaseNodeProps: graph.BaseNodeProps{ID: "file://main.go", Name: "main.go"}})
+	store, err := bbolt.New(filepath.Join(repoDir, "graph.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	if err := store.SaveGraph(g); err != nil {
+		t.Fatalf("save graph: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+
+	idx, err := search.NewIndex(filepath.Join(repoDir, "search.bleve"))
+	if err != nil {
+		t.Fatalf("create index: %v", err)
+	}
+	if _, err := idx.IndexGraph(g); err != nil {
+		t.Fatalf("index graph: %v", err)
+	}
+	if err := idx.Close(); err != nil {
+		t.Fatalf("close index: %v", err)
+	}
+
+	reg, err := storage.NewRegistry(dir)
+	if err != nil {
+		t.Fatalf("registry: %v", err)
+	}
+	if err := reg.Add(storage.RegistryEntry{Name: "acme/sdk", Hash: "h1"}); err != nil {
+		t.Fatalf("registry add: %v", err)
+	}
+
+	s := &Server{
+		graph:       make(map[string]*lpg.Graph),
+		searchIdx:   make(map[string]*search.Index),
+		repoDirs:    make(map[string]string),
+		dataDir:     dir,
+		idleTimeout: DefaultIdleTimeout,
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			body := jsonBody(t, TreeRequest{Repo: "sdk"})
+			req := httptest.NewRequestWithContext(context.Background(), "POST", RouteTree, body)
+			rec := httptest.NewRecorder()
+			s.handleTree(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Errorf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+				return
+			}
+			resp := decodeResponse(t, rec)
+			if resp.Error != nil {
+				t.Errorf("unexpected error: %v", resp.Error)
+			}
+		}()
+	}
+	wg.Wait()
 }
