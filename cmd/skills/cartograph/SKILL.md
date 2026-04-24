@@ -145,7 +145,7 @@ query hit `deadline exceeded`.
 ### Always Index Before Querying
 
 Cartograph commands that read the knowledge graph (`query`, `context`,
-`impact`, `cypher`, `cat`) require a prior `analyze` run. If no index
+`impact`, `cypher`, `cat`, `tree`) require a prior `analyze` run. If no index
 exists for the target repo, run `cartograph analyze` first.
 
 ### Prefer `cartograph cat` for Real Code
@@ -156,10 +156,15 @@ inside Cartograph as long as possible:
 
 ```bash
 cartograph query "<theme>" -l 8
+cartograph tree [path] --depth 2
 cartograph context <symbol> --depth 2 --content
 cartograph impact <symbol> --direction upstream -d 3
 cartograph cat <file> -l <startLine>-<endLine>
 ```
+
+Use `cartograph tree` to inspect the indexed file inventory before choosing
+paths for `cartograph cat`. `cartograph tree [path]` accepts a file or directory
+path relative to repo root; repository selection still uses `-r/--repo`.
 
 Avoid builtin file reads for indexed repositories unless one of these is true:
 
@@ -344,7 +349,7 @@ or mentions "wiki" in the context of documentation generation.
 ### 2. CLI Commands
 
 **Triggers:** User mentions a specific command (`analyze`, `query`, `context`,
-`impact`, `cypher`, `schema`, `cat`, `clone`, `models`, `serve`, `mcp`,
+`impact`, `cypher`, `schema`, `cat`, `tree`, `clone`, `models`, `serve`, `mcp`,
 `skills`, `list`, `status`, `clean`, `wiki`), command flags, graph schema,
 Cypher syntax, node labels, relationship types, embedding configuration,
 model management, MCP configuration, or needs a command reference.

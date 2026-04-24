@@ -225,6 +225,42 @@ cartograph cat src/handler.go -l 40-60
 cartograph cat src/handler.go src/router.go
 ```
 
+### `cartograph tree [path]`
+
+Print the indexed repository file tree. This shows files Cartograph has indexed,
+including tests, and works for local, cloned, and remote repositories through the
+same service-backed path as other graph-reading commands.
+
+**Arguments:**
+- `path` — Optional file or directory path relative to repo root. When omitted, prints the whole indexed tree.
+
+**Flags:**
+- `-r, --repo <name>` — Repository name (short names like `nomad` resolve automatically)
+- `--depth <n>` — Maximum directory depth to show (default: 0 = unlimited)
+
+**Examples:**
+```bash
+# Full indexed tree for the current repo
+cartograph tree
+
+# Only a selected directory
+cartograph tree internal/service
+
+# Limit depth relative to the selected path
+cartograph tree internal --depth 2
+
+# Print a single indexed file with parent context
+cartograph tree internal/service/client.go
+
+# Select a different indexed repo
+cartograph tree -r hashicorp/nomad command
+```
+
+**Output:** Unix-tree-style directory structure with a final directory/file count.
+If `path` is missing from indexed files, the command returns a clear not-found
+error. Use `-r` for repository selection; positional arguments are paths, not repo
+names.
+
 ### `cartograph clone <url>`
 
 Clone a remote repository to disk without indexing.
