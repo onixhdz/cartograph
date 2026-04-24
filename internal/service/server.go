@@ -425,7 +425,8 @@ func (s *Server) lazyLoadGraph(repo string) error {
 
 func (s *Server) repoLoadLock(repo string) *sync.Mutex {
 	mu, _ := s.loadLocks.LoadOrStore(repo, &sync.Mutex{})
-	return mu.(*sync.Mutex)
+	loadMu, _ := mu.(*sync.Mutex)
+	return loadMu
 }
 
 func (s *Server) loadGraphFromRegistry(repo string) error {

@@ -620,10 +620,8 @@ func TestHandleTree_ConcurrentRequestsUseLoadedGraph(t *testing.T) {
 	graph.AddFileNode(s.graph["acme/sdk"], graph.FileProps{FilePath: "main.go", BaseNodeProps: graph.BaseNodeProps{ID: "file://main.go", Name: "main.go"}})
 
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 8 {
+		wg.Go(func() {
 			body := jsonBody(t, TreeRequest{Repo: "sdk"})
 			req := httptest.NewRequestWithContext(context.Background(), "POST", RouteTree, body)
 			rec := httptest.NewRecorder()
@@ -651,7 +649,7 @@ func TestHandleTree_ConcurrentRequestsUseLoadedGraph(t *testing.T) {
 			if got := strings.Join(result.Files, ","); got != "main.go" {
 				t.Errorf("files = %q, want main.go", got)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }
@@ -704,10 +702,8 @@ func TestHandleTree_ConcurrentColdLoad(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 8 {
+		wg.Go(func() {
 			body := jsonBody(t, TreeRequest{Repo: "sdk"})
 			req := httptest.NewRequestWithContext(context.Background(), "POST", RouteTree, body)
 			rec := httptest.NewRecorder()
@@ -721,7 +717,7 @@ func TestHandleTree_ConcurrentColdLoad(t *testing.T) {
 			if resp.Error != nil {
 				t.Errorf("unexpected error: %v", resp.Error)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }
