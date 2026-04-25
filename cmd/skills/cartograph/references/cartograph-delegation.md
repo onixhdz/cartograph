@@ -9,6 +9,12 @@ results in ms compared to grep-based exploration, and they surface
 structural relationships (call trees, execution flows, process labels)
 that text search cannot discover.
 
+For bare project names, run `cartograph list` and use `-r <name>` when the name
+matches an indexed repo's full name or unambiguous basename outside the current
+working repo. For the current repo, use regular workspace tools unless the user
+explicitly asks for Cartograph; explicit Cartograph requests always take
+precedence. Never hardcode project names.
+
 ## When to delegate with cartograph
 
 - The target repo is already indexed (check `cartograph list`)
@@ -25,6 +31,12 @@ You have access to `cartograph`, a graph-powered code intelligence CLI.
 The repository "{repo_name}" is already indexed. Use cartograph as your
 PRIMARY search tool -- it is 100x faster than grep and surfaces structural
 relationships.
+
+If you were given a bare project name, verify it with `cartograph list` before
+using `-r {repo_name}`. Use Cartograph for indexed repos outside the current
+working repo; use regular workspace tools for the current repo unless explicitly
+asked otherwise. Explicit Cartograph requests always take precedence. Never
+hardcode project names.
 
 **Before you begin** -- ensure the background service is running:
 ```bash
