@@ -45,9 +45,15 @@ func treeSymbolFromNode(repo string, n *lpg.Node) (SymbolMatch, bool) {
 
 	path := normalizeTreePath(graph.GetStringProp(n, graph.PropFilePath))
 	name := strings.TrimSpace(graph.GetStringProp(n, graph.PropName))
+	if _, ok := n.GetProperty(graph.PropStartLine); !ok {
+		return SymbolMatch{}, false
+	}
+	if _, ok := n.GetProperty(graph.PropEndLine); !ok {
+		return SymbolMatch{}, false
+	}
 	startLine := graph.GetIntProp(n, graph.PropStartLine)
 	endLine := graph.GetIntProp(n, graph.PropEndLine)
-	if path == "" || name == "" || startLine <= 0 || endLine < startLine {
+	if path == "" || name == "" || startLine < 0 || endLine < startLine {
 		return SymbolMatch{}, false
 	}
 

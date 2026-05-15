@@ -721,6 +721,9 @@ func TestPipeline_AddSymbolsToGraphPrefersOwnerInSameFile(t *testing.T) {
 	if methodNode == nil {
 		t.Fatal("expected method node to be created")
 	}
+	if got := graph.GetIntProp(methodNode, graph.PropStartLine); got != 4 {
+		t.Fatalf("method startLine = %d, want 4", got)
+	}
 
 	var gotOwnerID string
 	graph.ForEachEdge(p.Graph, func(e *lpg.Edge) bool {

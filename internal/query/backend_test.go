@@ -983,6 +983,17 @@ func TestNodeToSymbolMatch(t *testing.T) {
 	if sm2.Content != "" {
 		t.Errorf("expected empty content, got %q", sm2.Content)
 	}
+
+	firstLine := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "func:first", Name: "first"},
+		FilePath:      "test.go",
+		StartLine:     1,
+		EndLine:       3,
+	})
+	firstMatch := nodeToSymbolMatch(firstLine, false)
+	if firstMatch.StartLine != 1 || firstMatch.EndLine != 3 {
+		t.Errorf("first line range: %d-%d", firstMatch.StartLine, firstMatch.EndLine)
+	}
 }
 
 func TestFindSymbol_ByUID(t *testing.T) {
