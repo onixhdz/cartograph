@@ -2003,6 +2003,49 @@ func TestGapFix_TSAssignmentExtraction(t *testing.T) {
 	}
 }
 
+func TestTSXFunctionDeclarationWithJSX(t *testing.T) {
+	src := `import * as React from "react";
+
+function ComboboxContent({ open }: { open: boolean }) {
+  React.useLayoutEffect(() => {
+    if (!open) return;
+
+    function updateRect() {
+      setRect(anchor.current?.getBoundingClientRect() ?? null);
+    }
+
+    updateRect();
+    window.addEventListener("resize", updateRect);
+    return () => window.removeEventListener("resize", updateRect);
+  }, [open]);
+
+  if (!open) return null;
+  return <div>{String(open)}</div>;
+}
+`
+	result, err := ExtractFile("/tmp/combobox.tsx", []byte(src), "tsx")
+	if err != nil {
+		t.Fatalf("ExtractFile failed: %v", err)
+	}
+
+	symbols := make(map[string]ExtractedSymbol)
+	for _, sym := range result.Symbols {
+		symbols[sym.Name] = sym
+	}
+
+	if sym, ok := symbols["ComboboxContent"]; !ok {
+		t.Fatalf("expected ComboboxContent symbol, got %#v", result.Symbols)
+	} else if sym.Label != graph.LabelFunction {
+		t.Fatalf("ComboboxContent label = %s, want %s", sym.Label, graph.LabelFunction)
+	}
+
+	if sym, ok := symbols["updateRect"]; !ok {
+		t.Fatalf("expected updateRect symbol, got %#v", result.Symbols)
+	} else if sym.Label != graph.LabelFunction {
+		t.Fatalf("updateRect label = %s, want %s", sym.Label, graph.LabelFunction)
+	}
+}
+
 // GAP-16: C assignment extraction (struct field writes via . and ->).
 func TestGapFix_CAssignmentExtraction(t *testing.T) {
 	src := `struct Point { int x; int y; };

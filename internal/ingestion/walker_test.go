@@ -213,7 +213,7 @@ func TestWalk_LanguageDetection(t *testing.T) {
 		"app.rb":        "ruby",
 		"index.php":     "php",
 		"Main.scala":    "scala",
-		"component.tsx": "typescript",
+		"component.tsx": "tsx",
 		"module.jsx":    "javascript",
 		"file.cc":       "cpp",
 		"file.cxx":      "cpp",
