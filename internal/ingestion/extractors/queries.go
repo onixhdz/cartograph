@@ -55,6 +55,7 @@ var LanguagePreProcess = map[string]func([]byte) []byte{
 var LanguageQueries = map[string]string{
 	"go":         goQueries,
 	"typescript": tsQueries,
+	"tsx":        tsQueries,
 	"javascript": jsQueries,
 	"python":     pyQueries,
 	"java":       javaQueries,

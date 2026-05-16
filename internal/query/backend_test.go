@@ -122,6 +122,30 @@ func TestQuery_DefaultLimit(t *testing.T) {
 	_ = result
 }
 
+func TestSchema_RelationshipPatterns(t *testing.T) {
+	b := &Backend{Graph: buildTestGraph()}
+
+	result, err := b.Schema(service.SchemaRequest{Repo: "test"})
+	if err != nil {
+		t.Fatalf("Schema: %v", err)
+	}
+
+	patterns := make(map[string]int)
+	for _, pattern := range result.RelationshipPatterns {
+		patterns[fmt.Sprintf("%s|%s|%s", pattern.From, pattern.Type, pattern.To)] = pattern.Count
+	}
+
+	if got := patterns["Function|CALLS|Function"]; got != 2 {
+		t.Fatalf("Function CALLS Function count = %d, want 2", got)
+	}
+	if got := patterns["File|IMPORTS|File"]; got != 1 {
+		t.Fatalf("File IMPORTS File count = %d, want 1", got)
+	}
+	if got := patterns["Function|STEP_IN_PROCESS|Process"]; got != 3 {
+		t.Fatalf("Function STEP_IN_PROCESS Process count = %d, want 3", got)
+	}
+}
+
 func TestQuery_ProcessMembership(t *testing.T) {
 	b := &Backend{Graph: buildTestGraph()}
 
@@ -791,6 +815,35 @@ func TestCypher_TypeR(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected type(r) to return edge labels")
+	}
+}
+
+func TestCypher_ReturnsRelationshipValues(t *testing.T) {
+	b := &Backend{Graph: buildTestGraph()}
+
+	result, err := b.Cypher(service.CypherRequest{
+		Repo:  "test",
+		Query: "MATCH (a)-[r]->(b) RETURN a, r, b LIMIT 1",
+	})
+	if err != nil {
+		t.Fatalf("Cypher: %v", err)
+	}
+	if len(result.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(result.Rows))
+	}
+
+	rel, ok := result.Rows[0]["2"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected relationship map in column 2, got %T: %#v", result.Rows[0]["2"], result.Rows[0]["2"])
+	}
+	if rel["_label"] == "" || rel["_label"] == nil {
+		t.Fatalf("expected relationship _label, got %#v", rel)
+	}
+	if rel["_from"] == "" || rel["_from"] == nil {
+		t.Fatalf("expected relationship _from, got %#v", rel)
+	}
+	if rel["_to"] == "" || rel["_to"] == nil {
+		t.Fatalf("expected relationship _to, got %#v", rel)
 	}
 }
 
@@ -1684,6 +1737,92 @@ func TestCypherValueToAny_Node(t *testing.T) {
 	}
 	if m["_labels"] == nil {
 		t.Error("expected _labels in node map")
+	}
+}
+
+func TestCypherValueToAny_Edge(t *testing.T) {
+	g := lpg.NewGraph()
+	from := graph.AddFileNode(g, graph.FileProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "file:source.go", Name: "source.go"},
+		FilePath:      "source.go",
+	})
+	to := graph.AddFileNode(g, graph.FileProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "file:target.go", Name: "target.go"},
+		FilePath:      "target.go",
+	})
+	edge := graph.AddEdge(g, from, to, graph.RelImports, map[string]any{"confidence": 0.9})
+
+	result := cypherValueToAny(opencypher.RValue{Value: edge})
+	m, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map, got %T", result)
+	}
+	if m["_label"] != string(graph.RelImports) {
+		t.Errorf("expected _label %q, got %v", graph.RelImports, m["_label"])
+	}
+	if m["_from"] != "file:source.go" {
+		t.Errorf("expected _from source id, got %v", m["_from"])
+	}
+	if m["_to"] != "file:target.go" {
+		t.Errorf("expected _to target id, got %v", m["_to"])
+	}
+	if m["confidence"] != 0.9 {
+		t.Errorf("expected confidence property, got %v", m["confidence"])
+	}
+}
+
+func TestCypherValueToAny_EdgeUsesTypePropertyForLegacyLabel(t *testing.T) {
+	g := lpg.NewGraph()
+	from := graph.AddFileNode(g, graph.FileProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "file:source.go", Name: "source.go"},
+		FilePath:      "source.go",
+	})
+	to := graph.AddFileNode(g, graph.FileProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "file:target.go", Name: "target.go"},
+		FilePath:      "target.go",
+	})
+	edge := g.NewEdge(from, to, graph.EdgeLabel, map[string]any{graph.PropType: string(graph.RelImports)})
+
+	result := cypherValueToAny(opencypher.RValue{Value: edge})
+	m, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map, got %T", result)
+	}
+	if m["_label"] != string(graph.RelImports) {
+		t.Errorf("expected _label %q, got %v", graph.RelImports, m["_label"])
+	}
+}
+
+func TestCypherValueToAny_Path(t *testing.T) {
+	g := lpg.NewGraph()
+	a := graph.AddFileNode(g, graph.FileProps{BaseNodeProps: graph.BaseNodeProps{ID: "file:a.go", Name: "a.go"}})
+	b := graph.AddFileNode(g, graph.FileProps{BaseNodeProps: graph.BaseNodeProps{ID: "file:b.go", Name: "b.go"}})
+	c := graph.AddFileNode(g, graph.FileProps{BaseNodeProps: graph.BaseNodeProps{ID: "file:c.go", Name: "c.go"}})
+	edge1 := graph.AddEdge(g, a, b, graph.RelCalls, nil)
+	edge2 := graph.AddEdge(g, b, c, graph.RelImports, nil)
+	path := lpg.NewPathFromElements(lpg.NewPathElementsFromEdges([]*lpg.Edge{edge1, edge2})...)
+
+	result := cypherValueToAny(opencypher.RValue{Value: path})
+	edges, ok := result.([]any)
+	if !ok {
+		t.Fatalf("expected []any, got %T", result)
+	}
+	if len(edges) != 2 {
+		t.Fatalf("expected 2 edges, got %d", len(edges))
+	}
+	first, ok := edges[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected first edge map, got %T", edges[0])
+	}
+	second, ok := edges[1].(map[string]any)
+	if !ok {
+		t.Fatalf("expected second edge map, got %T", edges[1])
+	}
+	if first["_label"] != string(graph.RelCalls) {
+		t.Errorf("first edge _label = %v, want %q", first["_label"], graph.RelCalls)
+	}
+	if second["_label"] != string(graph.RelImports) {
+		t.Errorf("second edge _label = %v, want %q", second["_label"], graph.RelImports)
 	}
 }
 
