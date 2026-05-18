@@ -348,6 +348,8 @@ var classNodeTypes = map[string]bool{
 	"companion_object":      true,
 	"record_declaration":    true,
 	"type_alias":            true,
+	"contract_declaration":  true, // Solidity owner extraction
+	"library_declaration":   true, // Solidity owner extraction
 }
 
 // heritageChildKeywords are substrings of child node type names that
@@ -512,8 +514,8 @@ func extractTypeIdentifiers(node *ts.Node, source []byte, lang *ts.Language) []s
 func isKeyword(s string) bool {
 	switch strings.ToLower(s) {
 	case heritageExtends, heritageImplements, "with", nodeClass, "struct", "interface",
-		"trait", "mixin", "super", "public", "private", "protected",
-		"open", "abstract", "final", "override", "virtual":
+		"trait", "mixin", "super", visPublic, visPrivate, visProtected,
+		"open", "abstract", "final", modifierOverride, "virtual":
 		return true
 	}
 	return false

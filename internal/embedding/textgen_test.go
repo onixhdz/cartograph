@@ -111,6 +111,27 @@ func TestGenerateEmbeddingText_Method(t *testing.T) {
 	}
 }
 
+func TestGenerateEmbeddingText_CodeElementKind(t *testing.T) {
+	g := lpg.NewGraph()
+	event := graph.AddSymbolNode(g, graph.LabelCodeElement, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "e1", Name: "Minted"},
+		FilePath:      "contracts/Token.sol",
+		Content:       "event Minted(address indexed to, uint256 amount);",
+	})
+	event.SetProperty(graph.PropKind, graph.KindEvent)
+
+	text := GenerateEmbeddingText(event, g)
+	for _, want := range []string{
+		"CodeElement: Minted",
+		"Kind: event",
+		"event Minted",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("expected %q in output, got:\n%s", want, text)
+		}
+	}
+}
+
 func TestGenerateEmbeddingText_Class(t *testing.T) {
 	g, _, _, class, _ := quickGraph(t)
 
@@ -318,6 +339,23 @@ func TestShouldEmbed(t *testing.T) {
 	})
 	if !ShouldEmbed(strct, g) {
 		t.Error("struct: want true (always embed)")
+	}
+
+	// Meaningful generic code elements are selected by kind, not language.
+	event := graph.AddSymbolNode(g, graph.LabelCodeElement, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "e1", Name: "Minted"},
+		FilePath:      "token.sol",
+	})
+	event.SetProperty(graph.PropKind, graph.KindEvent)
+	if !ShouldEmbed(event, g) {
+		t.Error("code element event: want true")
+	}
+	genericElement := graph.AddSymbolNode(g, graph.LabelCodeElement, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "ce1", Name: "Region"},
+		FilePath:      "server.go",
+	})
+	if ShouldEmbed(genericElement, g) {
+		t.Error("generic code element without structural kind: want false")
 	}
 
 	// Unexported function with high connectivity (3+ edges) — should embed.

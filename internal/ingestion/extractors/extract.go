@@ -27,7 +27,9 @@ const modifierVirtual = "virtual"
 
 // Visibility modifier keywords used in export detection.
 const (
+	visPublic    = "public"
 	visPrivate   = "private"
+	visInternal  = "internal"
 	visProtected = "protected"
 )
 
@@ -37,6 +39,7 @@ type ExtractedSymbol struct {
 	ID             string          // Unique node ID
 	Name           string          // Symbol name
 	Label          graph.NodeLabel // Function, Class, Method, etc.
+	Kind           string          // More specific kind for generic labels (e.g., event, error)
 	FilePath       string          // Absolute file path
 	StartLine      int             // 0-based
 	EndLine        int             // 0-based
@@ -409,7 +412,13 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 			receiverName := capTexts["call.receiver"]
 			for i, callee := range names {
 				if !isValidSymbolName(callee) {
-					continue
+					if i >= len(nodes) {
+						continue
+					}
+					callee = firstIdentifierText(nodes[i], source, lang)
+					if !isValidSymbolName(callee) {
+						continue
+					}
 				}
 				line := 0
 				if i < len(nodes) {
@@ -518,6 +527,7 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 		if label == "" {
 			continue
 		}
+		kind := classifyDefinitionKind(caps)
 
 		defNode := definitionNode(caps)
 
@@ -528,11 +538,10 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 			content = string(source[start:end])
 		}
 
-		// Extract enclosing class/struct name BEFORE generating the ID
-		// so that same-name methods in the same file (e.g., AnalyzeCmd.Run
-		// and ListCmd.Run in cmd/root.go) get distinct node IDs.
+		// Extract enclosing class/struct name BEFORE generating the ID so
+		// same-name members in the same file can be distinguished.
 		var ownerName string
-		if label == graph.LabelMethod || label == graph.LabelProperty || label == graph.LabelConstructor {
+		if canHaveOwner(label) {
 			ownerName = findEnclosingClassName(defNode, source, lang)
 			// Fallback: extract from receiver parameter (e.g., Go method
 			// declarations where methods are at file scope, not nested
@@ -550,10 +559,18 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 			}
 		}
 
+		var parameterCount int
+		var returnType string
+		var signature string
+		if label == graph.LabelFunction || label == graph.LabelMethod || label == graph.LabelConstructor {
+			parameterCount, returnType = extractMethodSignature(defNode, source, lang)
+			signature = extractSignature(defNode, source, lang)
+		}
 		sym := ExtractedSymbol{
 			ID:          generateID(string(label), filePath, nameText, ownerName),
 			Name:        nameText,
 			Label:       label,
+			Kind:        kind,
 			FilePath:    filePath,
 			StartLine:   int(defNode.StartPoint().Row),
 			EndLine:     int(defNode.EndPoint().Row),
@@ -565,12 +582,9 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 			Annotations: extractAnnotations(defNode, source, lang, language),
 		}
 
-		// Extract method signature (parameter count, return type) for
-		// functions, methods, and constructors.
-		if label == graph.LabelFunction || label == graph.LabelMethod || label == graph.LabelConstructor {
-			sym.ParameterCount, sym.ReturnType = extractMethodSignature(defNode, source, lang)
-			sym.Signature = extractSignature(defNode, source, lang)
-		}
+		sym.ParameterCount = parameterCount
+		sym.ReturnType = returnType
+		sym.Signature = signature
 
 		result.Symbols = append(result.Symbols, sym)
 	}
@@ -614,6 +628,7 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 	result.Symbols = append(result.Symbols, extractPrimaryConstructorParams(result.Symbols, rootNode, source, filePath, lang, language)...)
 
 	result.Symbols = append(result.Symbols, extractInterfaceMethodSpecs(rootNode, source, filePath, lang, language)...)
+	result.Symbols = disambiguateDuplicateSymbolIDs(result.Symbols)
 
 	// Grammar-agnostic type inference: extract variable types, parameter types,
 	// constructor bindings, pattern matching types, comment-based types, and
@@ -712,6 +727,11 @@ func deduplicateSymbols(syms []ExtractedSymbol) []ExtractedSymbol {
 			if syms[existing].Label == graph.LabelFunction && s.Label == graph.LabelMethod {
 				best[k] = i
 			}
+			// Const is more specific than Property when grammars expose constants
+			// as specialized state/field declarations.
+			if syms[existing].Label == graph.LabelProperty && s.Label == graph.LabelConst {
+				best[k] = i
+			}
 			// Otherwise keep the first (more specific) one.
 		} else {
 			best[k] = i
@@ -732,10 +752,53 @@ func deduplicateSymbols(syms []ExtractedSymbol) []ExtractedSymbol {
 	return deduped
 }
 
+func disambiguateDuplicateSymbolIDs(syms []ExtractedSymbol) []ExtractedSymbol {
+	groups := make(map[string][]int)
+	for i, sym := range syms {
+		key := string(sym.Label) + "\x00" + sym.FilePath + "\x00" + sym.OwnerName + "\x00" + sym.Name
+		groups[key] = append(groups[key], i)
+	}
+
+	for _, indexes := range groups {
+		if len(indexes) < 2 {
+			continue
+		}
+		for _, idx := range indexes {
+			sym := syms[idx]
+			disambiguator := symbolIDDisambiguator(sym)
+			if disambiguator == "" {
+				disambiguator = fmt.Sprintf("%d:%d", sym.StartLine, sym.EndLine)
+			}
+			syms[idx].ID = generateID(string(sym.Label), sym.FilePath, sym.Name, sym.OwnerName, disambiguator)
+		}
+	}
+
+	return syms
+}
+
+func symbolIDDisambiguator(sym ExtractedSymbol) string {
+	if sym.Signature != "" {
+		return sym.Signature
+	}
+	if sym.Kind != "" || sym.Content != "" {
+		return sym.Kind + "\x00" + sym.Content
+	}
+	return ""
+}
+
 // isGenericLabel returns true for catch-all labels that should yield to
 // more specific ones.
 func isGenericLabel(l graph.NodeLabel) bool {
 	return l == graph.LabelTypeAlias || l == graph.LabelCodeElement
+}
+
+func canHaveOwner(label graph.NodeLabel) bool {
+	return label != graph.LabelClass &&
+		label != graph.LabelInterface &&
+		label != graph.LabelModule &&
+		label != graph.LabelNamespace &&
+		label != graph.LabelTrait &&
+		label != graph.LabelImpl
 }
 
 // classifyDefinition maps tree-sitter capture names to graph.NodeLabel.
@@ -785,6 +848,8 @@ func classifyDefinition(caps map[string]*ts.Node) graph.NodeLabel {
 			return graph.LabelAnnotation
 		case "definition.constructor":
 			return graph.LabelConstructor
+		case "definition.event", "definition.error":
+			return graph.LabelCodeElement
 		case "definition.template":
 			return graph.LabelTemplate
 		case "definition.constant":
@@ -797,6 +862,18 @@ func classifyDefinition(caps map[string]*ts.Node) graph.NodeLabel {
 		}
 	}
 	return fallback
+}
+
+func classifyDefinitionKind(caps map[string]*ts.Node) string {
+	for name := range caps {
+		switch name {
+		case "definition.event":
+			return graph.KindEvent
+		case "definition.error":
+			return graph.KindError
+		}
+	}
+	return ""
 }
 
 // definitionNode returns the best AST node for line range information.
@@ -876,15 +953,15 @@ func detectExported(defNode *ts.Node, name, language string, lang *ts.Language, 
 		return true
 	case "kotlin":
 		// Kotlin: default visibility is public. Check for private/internal/protected.
-		return !hasVisibilityModifier(defNode, lang, source, visPrivate, "internal", visProtected)
+		return !hasVisibilityModifier(defNode, lang, source, visPrivate, visInternal, visProtected)
 	case "typescript", "javascript":
 		// TS/JS: check if enclosed in export_statement.
 		return hasAncestorType(defNode, lang, "export_statement")
 	case "java":
 		// Java: check for 'public' modifier in sibling modifiers node.
-		return hasSiblingModifier(defNode, lang, source, "public")
+		return hasSiblingModifier(defNode, lang, source, visPublic)
 	case "csharp":
-		return hasSiblingModifier(defNode, lang, source, "public")
+		return hasSiblingModifier(defNode, lang, source, visPublic)
 	case "rust":
 		// Rust: check for visibility_modifier starting with "pub".
 		return hasSiblingNodeType(defNode, lang, "visibility_modifier")
@@ -896,12 +973,16 @@ func detectExported(defNode *ts.Node, name, language string, lang *ts.Language, 
 		return !hasVisibilityModifier(defNode, lang, source, visPrivate, visProtected)
 	case "swift":
 		// Swift: default is internal; check for public/open.
-		return hasVisibilityModifier(defNode, lang, source, "public", "open")
+		return hasVisibilityModifier(defNode, lang, source, visPublic, "open")
 	case "scala":
 		// Scala: default visibility is public. Bare private/protected means
 		// non-exported, but private[scope]/protected[scope] means accessible
 		// within that scope (package/object) — treat as exported.
 		return !hasScalaBareVisibility(defNode, lang, source)
+	case "solidity":
+		// Solidity contract-like declarations, events, and errors are addressable
+		// ABI/source concepts. Members marked private/internal are not exported.
+		return !hasVisibilityModifier(defNode, lang, source, visPrivate, visInternal)
 	default:
 		return true
 	}
@@ -1271,7 +1352,10 @@ func collectDirectAnnotationNames(node *ts.Node, source []byte, lang *ts.Languag
 }
 
 func appendMissingModifierAnnotations(existing []string, defNode *ts.Node, source []byte, language string) []string {
-	if language != langCPP || defNode == nil {
+	if defNode == nil {
+		return existing
+	}
+	if language != langCPP {
 		return existing
 	}
 
@@ -1759,12 +1843,24 @@ func extractReceiverType(defNode *ts.Node, source []byte, lang *ts.Language) str
 
 // generateID creates a deterministic unique ID for a symbol.
 // Includes ownerName in the hash when present to distinguish same-name methods.
-func generateID(label, filePath, name, ownerName string) string {
-	key := label + ":" + filePath + ":" + name
+func generateID(label, filePath, name, ownerName string, disambiguators ...string) string {
+	var key strings.Builder
+	key.WriteString(label)
+	key.WriteByte(':')
+	key.WriteString(filePath)
+	key.WriteByte(':')
 	if ownerName != "" {
-		key = label + ":" + filePath + ":" + ownerName + "." + name
+		key.WriteString(ownerName)
+		key.WriteByte('.')
 	}
-	h := sha256.Sum256([]byte(key))
+	key.WriteString(name)
+	for _, disambiguator := range disambiguators {
+		if disambiguator != "" {
+			key.WriteByte(':')
+			key.WriteString(disambiguator)
+		}
+	}
+	h := sha256.Sum256([]byte(key.String()))
 	return hex.EncodeToString(h[:12])
 }
 

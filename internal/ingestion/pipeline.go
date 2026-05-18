@@ -596,6 +596,9 @@ func (p *Pipeline) addSymbolsToGraph(pr *extractors.ParseResult, absToRel map[st
 
 		node.SetProperty(graph.PropLanguage, sym.Language)
 		node.SetProperty(graph.PropIsTest, IsTestFile(relPath))
+		if sym.Kind != "" {
+			node.SetProperty(graph.PropKind, sym.Kind)
+		}
 
 		if sym.ParameterCount > 0 {
 			node.SetProperty(graph.PropParameterCount, sym.ParameterCount)
@@ -625,10 +628,14 @@ func (p *Pipeline) addSymbolsToGraph(pr *extractors.ParseResult, absToRel map[st
 		}
 		var relType graph.RelType
 		switch sym.Label {
-		case graph.LabelProperty:
+		case graph.LabelProperty, graph.LabelConst:
 			relType = graph.RelHasProperty
-		default:
+		case graph.LabelFunction, graph.LabelMethod, graph.LabelConstructor:
 			relType = graph.RelHasMethod
+		default:
+			// Lexical containment for owned symbols that are not properties or callables
+			// (for example, contract events/errors and nested structs/enums).
+			relType = graph.RelContains
 		}
 		graph.AddEdge(p.Graph, ownerNode, ref.node, relType, nil)
 	}

@@ -32,6 +32,7 @@ var EmbeddableLabels = []graph.NodeLabel{
 	graph.LabelInterface,
 	graph.LabelStruct,
 	graph.LabelConstructor,
+	graph.LabelCodeElement,
 }
 
 // Embedding priority tiers. Lower value = higher priority.
@@ -84,6 +85,9 @@ func ShouldEmbed(node *lpg.Node, g *lpg.Graph) bool {
 		node.HasLabel(string(graph.LabelStruct)) {
 		return true
 	}
+	if node.HasLabel(string(graph.LabelCodeElement)) && isStructuralCodeElement(node) {
+		return true
+	}
 
 	// Doc comments are where semantic search adds value over BM25.
 	hasDoc := graph.GetStringProp(node, graph.PropDescription) != ""
@@ -113,6 +117,15 @@ func ShouldEmbed(node *lpg.Node, g *lpg.Graph) bool {
 	}
 
 	return false
+}
+
+func isStructuralCodeElement(node *lpg.Node) bool {
+	switch graph.GetStringProp(node, graph.PropKind) {
+	case graph.KindEvent, graph.KindError:
+		return true
+	default:
+		return false
+	}
 }
 
 // GenerateEmbeddingText produces the text fed to the embedding model,
@@ -171,6 +184,7 @@ func generateSymbolText(node *lpg.Node, g *lpg.Graph, label string) string {
 	signature := graph.GetStringProp(node, graph.PropSignature)
 	description := graph.GetStringProp(node, graph.PropDescription)
 	content := graph.GetStringProp(node, graph.PropContent)
+	kind := graph.GetStringProp(node, graph.PropKind)
 
 	var b strings.Builder
 	b.Grow(512)
@@ -183,6 +197,12 @@ func generateSymbolText(node *lpg.Node, g *lpg.Graph, label string) string {
 	b.WriteString("File: ")
 	b.WriteString(filePath)
 	b.WriteByte('\n')
+
+	if kind != "" {
+		b.WriteString("Kind: ")
+		b.WriteString(kind)
+		b.WriteByte('\n')
+	}
 
 	if pkg := packageFromPath(filePath); pkg != "" {
 		b.WriteString("Package: ")

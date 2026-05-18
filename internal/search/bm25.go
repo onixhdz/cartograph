@@ -34,6 +34,7 @@ var searchableLabels = []graph.NodeLabel{
 	graph.LabelTypeAlias,
 	graph.LabelProperty,
 	graph.LabelConstructor,
+	graph.LabelCodeElement,
 	graph.LabelDelegate,
 	graph.LabelRecord,
 	graph.LabelMacro,
