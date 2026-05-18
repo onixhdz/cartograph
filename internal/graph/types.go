@@ -53,22 +53,23 @@ var AllNodeLabels = []NodeLabel{
 type RelType string
 
 const (
-	RelContains      RelType = "CONTAINS"
-	RelCalls         RelType = "CALLS"
-	RelImports       RelType = "IMPORTS"
-	RelExtends       RelType = "EXTENDS"
-	RelImplements    RelType = "IMPLEMENTS"
-	RelHasMethod     RelType = "HAS_METHOD"
-	RelHasProperty   RelType = "HAS_PROPERTY"
-	RelOverrides     RelType = "OVERRIDES"
-	RelMemberOf      RelType = "MEMBER_OF"
-	RelStepInProcess RelType = "STEP_IN_PROCESS"
-	RelDefines       RelType = "DEFINES"
-	RelAccesses      RelType = "ACCESSES"
-	RelUses          RelType = "USES"
-	RelDependsOn     RelType = "DEPENDS_ON"
-	RelSpawns        RelType = "SPAWNS"       // Async launch: goroutine, thread, task
-	RelDelegatesTo   RelType = "DELEGATES_TO" // Function passed as argument
+	RelContains       RelType = "CONTAINS"
+	RelCalls          RelType = "CALLS"
+	RelImports        RelType = "IMPORTS"
+	RelExtends        RelType = "EXTENDS"
+	RelImplements     RelType = "IMPLEMENTS"
+	RelHasMethod      RelType = "HAS_METHOD"
+	RelHasProperty    RelType = "HAS_PROPERTY"
+	RelOverrides      RelType = "OVERRIDES"
+	RelMemberOf       RelType = "MEMBER_OF"
+	RelStepInProcess  RelType = "STEP_IN_PROCESS"
+	RelDefines        RelType = "DEFINES"
+	RelAccesses       RelType = "ACCESSES"
+	RelUses           RelType = "USES"
+	RelDependsOn      RelType = "DEPENDS_ON"
+	RelSpawns         RelType = "SPAWNS"       // Async launch: goroutine, thread, task
+	RelDelegatesTo    RelType = "DELEGATES_TO" // Function passed as argument
+	RelInvokesProcess RelType = "INVOKES_PROCESS"
 
 	// Cross-repo relationship types (for future cross-repo analysis).
 	RelCrossRepoImports    RelType = "CROSS_REPO_IMPORTS"    // Package import resolved to another indexed repo
@@ -81,7 +82,7 @@ const (
 var AllRelTypes = []RelType{
 	RelContains, RelCalls, RelImports, RelExtends, RelImplements,
 	RelHasMethod, RelHasProperty, RelOverrides, RelMemberOf, RelStepInProcess,
-	RelDefines, RelAccesses, RelUses, RelDependsOn, RelSpawns, RelDelegatesTo,
+	RelDefines, RelAccesses, RelUses, RelDependsOn, RelSpawns, RelDelegatesTo, RelInvokesProcess,
 	RelCrossRepoImports, RelCrossRepoCalls, RelCrossRepoDependency, RelSharedType,
 }
 

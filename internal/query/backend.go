@@ -31,6 +31,38 @@ type QueryEmbedFn func(ctx context.Context, text string) ([]float32, error)
 
 const heuristicTestFlow = "Test flow"
 
+const (
+	defaultGraphExploreLimit = 500
+	maxGraphExploreLimit     = 50000
+)
+
+var visualStructuralNodeLabels = map[string]bool{
+	string(graph.LabelFolder):    true,
+	string(graph.LabelCommunity): true,
+}
+
+var visualStructuralRelTypes = map[string]bool{
+	string(graph.RelContains): true,
+	string(graph.RelMemberOf): true,
+}
+
+var graphExploreRelWeights = map[string]float64{
+	string(graph.RelCalls):          120,
+	string(graph.RelInvokesProcess): 115,
+	string(graph.RelStepInProcess):  110,
+	string(graph.RelImports):        95,
+	string(graph.RelUses):           90,
+	string(graph.RelDefines):        80,
+	string(graph.RelAccesses):       75,
+	string(graph.RelHasMethod):      70,
+	string(graph.RelImplements):     68,
+	string(graph.RelExtends):        66,
+	string(graph.RelDependsOn):      60,
+	string(graph.RelSpawns):         58,
+	string(graph.RelDelegatesTo):    56,
+	string(graph.RelOverrides):      54,
+}
+
 // Backend holds the graph and search index for a single repository
 // and exposes the tool implementations.
 type Backend struct {
@@ -828,6 +860,9 @@ func cypherValueToAny(v opencypher.Value) any {
 			m[key] = value
 			return true
 		})
+		if graphExploreTestNode(val) {
+			m[graph.PropIsTest] = true
+		}
 		m["_labels"] = val.GetLabels().Slice()
 		return m
 	case *lpg.Edge:
@@ -1790,6 +1825,417 @@ func (b *Backend) Schema(req service.SchemaRequest) (*service.SchemaResult, erro
 		TotalNodes:           totalNodes,
 		TotalEdges:           totalEdges,
 	}, nil
+}
+
+// GraphExplore returns a bounded, visual graph without going through Cypher.
+func (b *Backend) GraphExplore(req service.GraphExploreRequest) (*service.GraphExploreResult, error) {
+	if b.Graph == nil {
+		return &service.GraphExploreResult{}, nil
+	}
+
+	limit := req.Limit
+	if limit <= 0 {
+		limit = defaultGraphExploreLimit
+	}
+	if limit > maxGraphExploreLimit {
+		limit = maxGraphExploreLimit
+	}
+
+	facets, totalNodes, totalEdges := b.graphExploreFacets()
+	degrees := b.graphExploreDegrees()
+	nodeKinds := stringSet(req.NodeKinds)
+	relationshipTypes := stringSet(req.RelationshipTypes)
+	candidates := b.graphExploreCandidates(req, nodeKinds, relationshipTypes, degrees)
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].score != candidates[j].score {
+			return candidates[i].score > candidates[j].score
+		}
+		return graphExploreEdgeID(candidates[i].edge) < graphExploreEdgeID(candidates[j].edge)
+	})
+
+	truncated := len(candidates) > limit
+	if len(candidates) > limit {
+		candidates = graphExploreBalancedCandidates(candidates, limit, relationshipTypes)
+	}
+	candidates = b.graphExploreDefinitionContext(req, candidates, nodeKinds, relationshipTypes, limit)
+
+	nodesByID := make(map[string]*lpg.Node)
+	relationships := make([]service.GraphExploreRelationship, 0, len(candidates))
+	for _, candidate := range candidates {
+		edge := candidate.edge
+		from := edge.GetFrom()
+		to := edge.GetTo()
+		if from == nil || to == nil {
+			continue
+		}
+		fromID := graph.GetStringProp(from, graph.PropID)
+		toID := graph.GetStringProp(to, graph.PropID)
+		if fromID == "" || toID == "" {
+			continue
+		}
+		nodesByID[fromID] = from
+		nodesByID[toID] = to
+		relationships = append(relationships, graphExploreRelationship(edge, candidate.typ, fromID, toID))
+	}
+
+	nodes := make([]service.GraphExploreNode, 0, len(nodesByID))
+	for _, node := range nodesByID {
+		nodes = append(nodes, graphExploreNode(node))
+	}
+	sort.Slice(nodes, func(i, j int) bool { return nodes[i].ID < nodes[j].ID })
+
+	return &service.GraphExploreResult{
+		Nodes:         nodes,
+		Relationships: relationships,
+		Facets:        facets,
+		Stats: service.GraphExploreStats{
+			TotalNodes:            totalNodes,
+			TotalEdges:            totalEdges,
+			ReturnedNodes:         len(nodes),
+			ReturnedRelationships: len(relationships),
+			Limit:                 limit,
+			Truncated:             truncated,
+		},
+	}, nil
+}
+
+type graphExploreCandidate struct {
+	edge     *lpg.Edge
+	typ      string
+	score    float64
+	required bool
+}
+
+func (b *Backend) graphExploreDefinitionContext(req service.GraphExploreRequest, candidates []graphExploreCandidate, nodeKinds, relationshipTypes map[string]bool, limit int) []graphExploreCandidate {
+	if b.Graph == nil || limit <= 0 || !nodeKinds[string(graph.LabelFile)] || (len(relationshipTypes) > 0 && !relationshipTypes[string(graph.RelDefines)]) {
+		return candidates
+	}
+
+	selectedEdges := make(map[*lpg.Edge]bool, len(candidates))
+	selectedNodes := make(map[*lpg.Node]bool)
+	for _, candidate := range candidates {
+		selectedEdges[candidate.edge] = true
+		if from := candidate.edge.GetFrom(); from != nil {
+			selectedNodes[from] = true
+		}
+		if to := candidate.edge.GetTo(); to != nil {
+			selectedNodes[to] = true
+		}
+	}
+
+	for node := range selectedNodes {
+		if node.HasLabel(string(graph.LabelFile)) || !graphExploreNodeHasAnyLabel(node, nodeKinds) {
+			continue
+		}
+		for _, edge := range graph.GetIncomingEdges(node, graph.RelDefines) {
+			from := edge.GetFrom()
+			if from == nil || !from.HasLabel(string(graph.LabelFile)) {
+				continue
+			}
+			if graph.GetStringProp(from, graph.PropFilePath) != graph.GetStringProp(node, graph.PropFilePath) {
+				continue
+			}
+			if !graphExploreEdgeAllowed(edge, string(graph.RelDefines), nodeKinds, relationshipTypes, req.IncludeStructural, req.ExcludeTests) {
+				continue
+			}
+			if selectedEdges[edge] {
+				for i := range candidates {
+					if candidates[i].edge == edge {
+						candidates[i].required = true
+						break
+					}
+				}
+				continue
+			}
+			selectedEdges[edge] = true
+			candidates = append(candidates, graphExploreCandidate{edge: edge, typ: string(graph.RelDefines), score: graphExploreEdgeScore(edge, string(graph.RelDefines), nil), required: true})
+		}
+	}
+
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].required != candidates[j].required {
+			return candidates[i].required
+		}
+		if candidates[i].score != candidates[j].score {
+			return candidates[i].score > candidates[j].score
+		}
+		return graphExploreEdgeID(candidates[i].edge) < graphExploreEdgeID(candidates[j].edge)
+	})
+	if len(candidates) > limit {
+		return candidates[:limit]
+	}
+	return candidates
+}
+
+func graphExploreBalancedCandidates(candidates []graphExploreCandidate, limit int, relationshipTypes map[string]bool) []graphExploreCandidate {
+	if limit <= 0 || len(candidates) <= limit || len(relationshipTypes) <= 1 {
+		return candidates[:min(len(candidates), limit)]
+	}
+
+	perTypeLimit := max(1, (limit+len(relationshipTypes)-1)/len(relationshipTypes))
+	selected := make([]graphExploreCandidate, 0, limit)
+	selectedIndexes := make(map[int]bool, limit)
+	selectedByType := make(map[string]int, len(relationshipTypes))
+
+	for i, candidate := range candidates {
+		if len(selected) >= limit {
+			break
+		}
+		if selectedByType[candidate.typ] >= perTypeLimit {
+			continue
+		}
+		selected = append(selected, candidate)
+		selectedIndexes[i] = true
+		selectedByType[candidate.typ]++
+	}
+
+	for i, candidate := range candidates {
+		if len(selected) >= limit {
+			break
+		}
+		if selectedIndexes[i] {
+			continue
+		}
+		selected = append(selected, candidate)
+	}
+
+	return selected
+}
+
+func (b *Backend) graphExploreCandidates(req service.GraphExploreRequest, nodeKinds, relationshipTypes map[string]bool, degrees map[*lpg.Node]int) []graphExploreCandidate {
+	if req.FocusNode != "" {
+		return b.focusedGraphExploreCandidates(req, nodeKinds, relationshipTypes, degrees)
+	}
+
+	candidates := make([]graphExploreCandidate, 0)
+	for edges := b.Graph.GetEdges(); edges.Next(); {
+		edge := edges.Edge()
+		typ, ok := graphExploreEdgeType(edge)
+		if !ok || !graphExploreEdgeAllowed(edge, typ, nodeKinds, relationshipTypes, req.IncludeStructural, req.ExcludeTests) {
+			continue
+		}
+		candidates = append(candidates, graphExploreCandidate{edge: edge, typ: typ, score: graphExploreEdgeScore(edge, typ, degrees)})
+	}
+	return candidates
+}
+
+func (b *Backend) focusedGraphExploreCandidates(req service.GraphExploreRequest, nodeKinds, relationshipTypes map[string]bool, degrees map[*lpg.Node]int) []graphExploreCandidate {
+	focus := graph.FindNodeByID(b.Graph, req.FocusNode)
+	if focus == nil {
+		return nil
+	}
+	depth := req.Depth
+	if depth <= 0 {
+		depth = 1
+	}
+
+	visitedNodes := map[*lpg.Node]int{focus: 0}
+	seenEdges := make(map[*lpg.Edge]bool)
+	candidates := make([]graphExploreCandidate, 0)
+	queue := []*lpg.Node{focus}
+	for len(queue) > 0 {
+		node := queue[0]
+		queue = queue[1:]
+		currentDepth := visitedNodes[node]
+		if currentDepth >= depth {
+			continue
+		}
+		for _, dir := range []lpg.EdgeDir{lpg.OutgoingEdge, lpg.IncomingEdge} {
+			for edges := node.GetEdges(dir); edges.Next(); {
+				edge := edges.Edge()
+				typ, ok := graphExploreEdgeType(edge)
+				if !ok || !graphExploreEdgeAllowed(edge, typ, nodeKinds, relationshipTypes, req.IncludeStructural, req.ExcludeTests) {
+					continue
+				}
+				if !seenEdges[edge] {
+					seenEdges[edge] = true
+					candidates = append(candidates, graphExploreCandidate{edge: edge, typ: typ, score: graphExploreEdgeScore(edge, typ, degrees)})
+				}
+				neighbor := edge.GetTo()
+				if dir == lpg.IncomingEdge {
+					neighbor = edge.GetFrom()
+				}
+				if neighbor == nil {
+					continue
+				}
+				if _, seen := visitedNodes[neighbor]; seen {
+					continue
+				}
+				visitedNodes[neighbor] = currentDepth + 1
+				queue = append(queue, neighbor)
+			}
+		}
+	}
+	return candidates
+}
+
+func (b *Backend) graphExploreFacets() (service.GraphExploreFacets, int, int) {
+	schema, err := b.Schema(service.SchemaRequest{})
+	if err != nil || schema == nil {
+		return service.GraphExploreFacets{}, 0, 0
+	}
+	return service.GraphExploreFacets{
+		NodeLabels:           schema.NodeLabels,
+		RelTypes:             schema.RelTypes,
+		RelationshipPatterns: schema.RelationshipPatterns,
+	}, schema.TotalNodes, schema.TotalEdges
+}
+
+func (b *Backend) graphExploreDegrees() map[*lpg.Node]int {
+	degrees := make(map[*lpg.Node]int)
+	for edges := b.Graph.GetEdges(); edges.Next(); {
+		edge := edges.Edge()
+		if edge.GetFrom() != nil {
+			degrees[edge.GetFrom()]++
+		}
+		if edge.GetTo() != nil {
+			degrees[edge.GetTo()]++
+		}
+	}
+	return degrees
+}
+
+func graphExploreEdgeAllowed(edge *lpg.Edge, typ string, nodeKinds, relationshipTypes map[string]bool, includeStructural, excludeTests bool) bool {
+	if len(relationshipTypes) > 0 && !relationshipTypes[typ] {
+		return false
+	}
+	if !includeStructural && visualStructuralRelTypes[typ] {
+		return false
+	}
+	from := edge.GetFrom()
+	to := edge.GetTo()
+	if from == nil || to == nil {
+		return false
+	}
+	if !includeStructural && (graphExploreStructuralNode(from) || graphExploreStructuralNode(to)) {
+		return false
+	}
+	if excludeTests && (graphExploreTestNode(from) || graphExploreTestNode(to)) {
+		return false
+	}
+	if len(nodeKinds) == 0 {
+		return true
+	}
+	return graphExploreNodeHasAnyLabel(from, nodeKinds) || graphExploreNodeHasAnyLabel(to, nodeKinds)
+}
+
+func graphExploreEdgeScore(edge *lpg.Edge, typ string, degrees map[*lpg.Node]int) float64 {
+	score := graphExploreRelWeights[typ]
+	if score == 0 {
+		score = 40
+	}
+	score += graphExploreNodeScore(edge.GetFrom(), degrees) + graphExploreNodeScore(edge.GetTo(), degrees)
+	return score
+}
+
+func graphExploreNodeScore(node *lpg.Node, degrees map[*lpg.Node]int) float64 {
+	if node == nil {
+		return 0
+	}
+	score := math.Log1p(float64(degrees[node])) * 8
+	if graph.GetBoolProp(node, graph.PropIsExported) {
+		score += 6
+	}
+	score += math.Log1p(graph.GetFloat64Prop(node, graph.PropImportance)) * 8
+	score += math.Log1p(float64(graph.GetIntProp(node, graph.PropCallerCount))) * 5
+	score += math.Log1p(float64(graph.GetIntProp(node, graph.PropStepCount))) * 4
+	return score
+}
+
+func graphExploreNode(node *lpg.Node) service.GraphExploreNode {
+	return service.GraphExploreNode{
+		ID:         graph.GetStringProp(node, graph.PropID),
+		Labels:     node.GetLabels().Slice(),
+		Properties: graphExploreNodeProperties(node),
+	}
+}
+
+func graphExploreRelationship(edge *lpg.Edge, typ, fromID, toID string) service.GraphExploreRelationship {
+	return service.GraphExploreRelationship{
+		ID:         graphExploreEdgeID(edge),
+		Type:       typ,
+		From:       fromID,
+		To:         toID,
+		Properties: graphExploreEdgeProperties(edge),
+	}
+}
+
+func graphExploreNodeProperties(node *lpg.Node) map[string]any {
+	props := make(map[string]any)
+	node.ForEachProperty(func(key string, value any) bool {
+		props[key] = value
+		return true
+	})
+	return props
+}
+
+func graphExploreEdgeProperties(edge *lpg.Edge) map[string]any {
+	props := make(map[string]any)
+	edge.ForEachProperty(func(key string, value any) bool {
+		props[key] = value
+		return true
+	})
+	return props
+}
+
+func graphExploreEdgeID(edge *lpg.Edge) string {
+	if id, ok := edge.GetProperty(graph.PropID); ok {
+		if s, ok := id.(string); ok && s != "" {
+			return s
+		}
+	}
+	fromID, toID := "", ""
+	if edge.GetFrom() != nil {
+		fromID = graph.GetStringProp(edge.GetFrom(), graph.PropID)
+	}
+	if edge.GetTo() != nil {
+		toID = graph.GetStringProp(edge.GetTo(), graph.PropID)
+	}
+	typ, _ := graphExploreEdgeType(edge)
+	return fromID + ":" + typ + ":" + toID
+}
+
+func graphExploreEdgeType(edge *lpg.Edge) (string, bool) {
+	typ, err := graph.GetEdgeRelType(edge)
+	if err != nil || typ == "" {
+		return "", false
+	}
+	return string(typ), true
+}
+
+func graphExploreStructuralNode(node *lpg.Node) bool {
+	for _, label := range node.GetLabels().Slice() {
+		if visualStructuralNodeLabels[label] {
+			return true
+		}
+	}
+	return false
+}
+
+func graphExploreTestNode(node *lpg.Node) bool {
+	if graph.GetBoolProp(node, graph.PropIsTest) {
+		return true
+	}
+	return isTestFile(graph.GetStringProp(node, graph.PropFilePath))
+}
+
+func graphExploreNodeHasAnyLabel(node *lpg.Node, labels map[string]bool) bool {
+	for _, label := range node.GetLabels().Slice() {
+		if labels[label] {
+			return true
+		}
+	}
+	return false
+}
+
+func stringSet(values []string) map[string]bool {
+	set := make(map[string]bool, len(values))
+	for _, value := range values {
+		if value != "" {
+			set[value] = true
+		}
+	}
+	return set
 }
 
 type relationshipPatternKey struct {

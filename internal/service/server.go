@@ -732,6 +732,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc(RouteQuery, s.handleQuery)
 	mux.HandleFunc(RouteContext, s.handleContext)
 	mux.HandleFunc(RouteCypher, s.handleCypher)
+	mux.HandleFunc(RouteGraphExplore, s.handleGraphExplore)
 	mux.HandleFunc(RouteImpact, s.handleImpact)
 	mux.HandleFunc(RouteCat, s.handleCat)
 	mux.HandleFunc(RouteTree, s.handleTree)

@@ -248,6 +248,19 @@ func (mc *MemoryClient) Cypher(req CypherRequest) (*CypherResult, error) {
 	return res, nil
 }
 
+// GraphExplore returns a bounded visual graph for interactive exploration.
+func (mc *MemoryClient) GraphExplore(req GraphExploreRequest) (*GraphExploreResult, error) {
+	be, err := mc.getBackend(req.Repo)
+	if err != nil {
+		return nil, err
+	}
+	res, err := be.GraphExplore(req)
+	if err != nil {
+		return nil, fmt.Errorf("memory client: graph explore %q: %w", req.Repo, err)
+	}
+	return res, nil
+}
+
 // Impact computes blast radius analysis.
 func (mc *MemoryClient) Impact(req ImpactRequest) (*ImpactResult, error) {
 	be, err := mc.getBackend(req.Repo)

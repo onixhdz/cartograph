@@ -214,6 +214,46 @@ func (s *Server) handleCypher(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, result)
 }
 
+func (s *Server) handleGraphExplore(w http.ResponseWriter, r *http.Request) {
+	s.resetIdleTimer(r.Context())
+	if !requirePOST(w, r) {
+		return
+	}
+	var req GraphExploreRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Repo == "" {
+		writeError(w, http.StatusBadRequest, "missing repo")
+		return
+	}
+
+	repo, err := s.ResolveRepoName(req.Repo)
+	if err != nil {
+		writeError(w, ErrCodeRepoNotFound, err.Error())
+		return
+	}
+	req.Repo = repo
+
+	backend, err := s.GetBackend(req.Repo)
+	if err != nil {
+		writeError(w, ErrCodeIncompatible, err.Error())
+		return
+	}
+	if backend == nil {
+		writeError(w, ErrCodeRepoNotFound, fmt.Sprintf("repository %q not indexed", req.Repo))
+		return
+	}
+
+	result, err := backend.GraphExplore(req)
+	if err != nil {
+		writeError(w, ErrCodeInternal, err.Error())
+		return
+	}
+	writeJSON(w, result)
+}
+
 func (s *Server) handleImpact(w http.ResponseWriter, r *http.Request) {
 	s.resetIdleTimer(r.Context())
 	if !requirePOST(w, r) {

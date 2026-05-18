@@ -146,6 +146,165 @@ func TestSchema_RelationshipPatterns(t *testing.T) {
 	}
 }
 
+func TestGraphExplore_DefaultExcludesStructuralGraph(t *testing.T) {
+	g := buildTestGraph()
+	folder := graph.AddFolderNode(g, graph.FolderProps{BaseNodeProps: graph.BaseNodeProps{ID: "folder:.", Name: "."}, FilePath: "."})
+	file := graph.FindNodeByID(g, "file:main.go")
+	graph.AddEdge(g, folder, file, graph.RelContains, nil)
+	b := &Backend{Graph: g}
+
+	result, err := b.GraphExplore(service.GraphExploreRequest{Repo: "test", Limit: 20})
+	if err != nil {
+		t.Fatalf("GraphExplore: %v", err)
+	}
+	for _, node := range result.Nodes {
+		for _, label := range node.Labels {
+			if label == string(graph.LabelFolder) || label == string(graph.LabelCommunity) {
+				t.Fatalf("unexpected structural node %q with labels %v", node.ID, node.Labels)
+			}
+		}
+	}
+	for _, relationship := range result.Relationships {
+		if relationship.Type == string(graph.RelContains) || relationship.Type == string(graph.RelMemberOf) {
+			t.Fatalf("unexpected structural relationship %s", relationship.Type)
+		}
+	}
+}
+
+func TestGraphExplore_FiltersAndLimit(t *testing.T) {
+	b := &Backend{Graph: buildTestGraph()}
+
+	result, err := b.GraphExplore(service.GraphExploreRequest{Repo: "test", NodeKinds: []string{"Function"}, RelationshipTypes: []string{"CALLS"}, Limit: 1})
+	if err != nil {
+		t.Fatalf("GraphExplore: %v", err)
+	}
+	if len(result.Relationships) != 1 {
+		t.Fatalf("relationships = %d, want 1", len(result.Relationships))
+	}
+	if result.Relationships[0].Type != string(graph.RelCalls) {
+		t.Fatalf("relationship type = %s, want CALLS", result.Relationships[0].Type)
+	}
+	if !result.Stats.Truncated {
+		t.Fatal("expected truncated result")
+	}
+}
+
+func TestGraphExplore_KeepsFileDefinitionContext(t *testing.T) {
+	g := lpg.NewGraph()
+	aclFile := graph.AddFileNode(g, graph.FileProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "file:api/acl.go", Name: "acl.go"},
+		FilePath:      "api/acl.go",
+		Language:      "go",
+	})
+	clientFile := graph.AddFileNode(g, graph.FileProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "file:api/client.go", Name: "client.go"},
+		FilePath:      "api/client.go",
+		Language:      "go",
+	})
+	aclGet := graph.AddSymbolNode(g, graph.LabelMethod, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "method:api/acl.go:Get", Name: "Get"},
+		FilePath:      "api/acl.go",
+	})
+	clientGet := graph.AddSymbolNode(g, graph.LabelMethod, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "method:api/client.go:Get", Name: "Get"},
+		FilePath:      "api/client.go",
+	})
+	graph.AddEdge(g, aclFile, aclGet, graph.RelDefines, nil)
+	graph.AddEdge(g, clientFile, clientGet, graph.RelDefines, nil)
+	graph.AddEdge(g, aclGet, clientGet, graph.RelCalls, nil)
+	graph.AddEdge(g, clientGet, aclGet, graph.RelCalls, nil)
+	b := &Backend{Graph: g}
+
+	result, err := b.GraphExplore(service.GraphExploreRequest{
+		Repo:              "test",
+		NodeKinds:         []string{"File", "Method"},
+		RelationshipTypes: []string{"CALLS", "DEFINES"},
+		Limit:             2,
+	})
+	if err != nil {
+		t.Fatalf("GraphExplore: %v", err)
+	}
+
+	foundFile := false
+	foundDefinition := false
+	for _, node := range result.Nodes {
+		if node.ID == "file:api/acl.go" {
+			foundFile = true
+		}
+	}
+	for _, relationship := range result.Relationships {
+		if relationship.Type == string(graph.RelDefines) && relationship.From == "file:api/acl.go" && relationship.To == "method:api/acl.go:Get" {
+			foundDefinition = true
+		}
+	}
+	if !foundFile || !foundDefinition {
+		t.Fatalf("expected api/acl.go definition context, foundFile=%v foundDefinition=%v nodes=%+v relationships=%+v", foundFile, foundDefinition, result.Nodes, result.Relationships)
+	}
+	if len(result.Relationships) > 2 {
+		t.Fatalf("relationships = %d, want at most 2", len(result.Relationships))
+	}
+}
+
+func TestGraphExplore_ClampsLargeLimit(t *testing.T) {
+	b := &Backend{Graph: buildTestGraph()}
+
+	result, err := b.GraphExplore(service.GraphExploreRequest{Repo: "test", Limit: maxGraphExploreLimit + 1})
+	if err != nil {
+		t.Fatalf("GraphExplore: %v", err)
+	}
+	if result.Stats.Limit != maxGraphExploreLimit {
+		t.Fatalf("limit = %d, want %d", result.Stats.Limit, maxGraphExploreLimit)
+	}
+}
+
+func TestGraphExplore_FocusNode(t *testing.T) {
+	b := &Backend{Graph: buildTestGraph()}
+
+	result, err := b.GraphExplore(service.GraphExploreRequest{Repo: "test", FocusNode: "func:main", RelationshipTypes: []string{"CALLS"}, Depth: 1, Limit: 10})
+	if err != nil {
+		t.Fatalf("GraphExplore: %v", err)
+	}
+	if len(result.Relationships) != 1 {
+		t.Fatalf("relationships = %d, want 1", len(result.Relationships))
+	}
+	if result.Relationships[0].From != "func:main" || result.Relationships[0].To != "func:handleRequest" {
+		t.Fatalf("unexpected focused relationship: %+v", result.Relationships[0])
+	}
+}
+
+func TestGraphExplore_ExcludeTests(t *testing.T) {
+	g := buildTestGraph()
+	prod := graph.FindNodeByID(g, "func:main")
+	testByPath := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "func:mainTestByPath", Name: "TestMainByPath"},
+		FilePath:      "main_test.go",
+	})
+	testByProp := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "func:mainTestByProp", Name: "TestMainByProp"},
+		FilePath:      "helpers.go",
+	})
+	testByProp.SetProperty(graph.PropIsTest, true)
+	graph.AddEdge(g, prod, testByPath, graph.RelCalls, nil)
+	graph.AddEdge(g, prod, testByProp, graph.RelCalls, nil)
+	b := &Backend{Graph: g}
+
+	result, err := b.GraphExplore(service.GraphExploreRequest{Repo: "test", RelationshipTypes: []string{"CALLS"}, Limit: 20, ExcludeTests: true})
+	if err != nil {
+		t.Fatalf("GraphExplore: %v", err)
+	}
+
+	for _, relationship := range result.Relationships {
+		if relationship.To == "func:mainTestByPath" || relationship.To == "func:mainTestByProp" {
+			t.Fatalf("unexpected test relationship: %+v", relationship)
+		}
+	}
+	for _, node := range result.Nodes {
+		if node.ID == "func:mainTestByPath" || node.ID == "func:mainTestByProp" {
+			t.Fatalf("unexpected test node: %+v", node)
+		}
+	}
+}
+
 func TestQuery_ProcessMembership(t *testing.T) {
 	b := &Backend{Graph: buildTestGraph()}
 
@@ -1751,6 +1910,23 @@ func TestCypherValueToAny_Node(t *testing.T) {
 	}
 	if m["_labels"] == nil {
 		t.Error("expected _labels in node map")
+	}
+}
+
+func TestCypherValueToAny_NodeMarksTestFile(t *testing.T) {
+	g := lpg.NewGraph()
+	n := graph.AddFileNode(g, graph.FileProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "file:alloc_runner_test.go", Name: "alloc_runner_test.go"},
+		FilePath:      "alloc_runner_test.go",
+	})
+
+	result := cypherValueToAny(opencypher.RValue{Value: n})
+	m, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map, got %T", result)
+	}
+	if m[graph.PropIsTest] != true {
+		t.Fatalf("expected isTest=true, got %v", m[graph.PropIsTest])
 	}
 }
 

@@ -65,6 +65,8 @@ const (
 	RouteContext = APIPrefix + "/context"
 	// RouteCypher is the endpoint for raw Cypher queries.
 	RouteCypher = APIPrefix + "/cypher"
+	// RouteGraphExplore is the endpoint for structured graph exploration.
+	RouteGraphExplore = APIPrefix + "/graph/explore"
 	// RouteImpact is the endpoint for blast radius analysis.
 	RouteImpact = APIPrefix + "/impact"
 	// RouteCat is the endpoint to retrieve file source content.
@@ -95,6 +97,7 @@ const (
 	MethodQuery              = "query"
 	MethodContext            = "context"
 	MethodCypher             = "cypher"
+	MethodGraphExplore       = "graph_explore"
 	MethodImpact             = "impact"
 	MethodCat                = "cat"
 	MethodTree               = "tree"
@@ -111,7 +114,7 @@ const (
 
 // AllMethods lists every valid method name.
 var AllMethods = []string{
-	MethodQuery, MethodContext, MethodCypher, MethodImpact,
+	MethodQuery, MethodContext, MethodCypher, MethodGraphExplore, MethodImpact,
 	MethodCat, MethodTree, MethodList, MethodReload, MethodStatus, MethodShutdown,
 	MethodSchema, MethodEmbed, MethodEmbedStatus, MethodPluginIngest, MethodPluginIngestStatus,
 }
@@ -121,6 +124,7 @@ var MethodToRoute = map[string]string{
 	MethodQuery:              RouteQuery,
 	MethodContext:            RouteContext,
 	MethodCypher:             RouteCypher,
+	MethodGraphExplore:       RouteGraphExplore,
 	MethodImpact:             RouteImpact,
 	MethodCat:                RouteCat,
 	MethodTree:               RouteTree,
@@ -262,6 +266,55 @@ type CypherResult struct {
 	Rows    []map[string]any `json:"rows"`
 }
 
+// GraphExploreRequest is the JSON body for POST /api/graph/explore.
+type GraphExploreRequest struct {
+	Repo              string   `json:"repo"`
+	NodeKinds         []string `json:"nodeKinds,omitempty"`
+	RelationshipTypes []string `json:"relationshipTypes,omitempty"`
+	Limit             int      `json:"limit,omitempty"`
+	FocusNode         string   `json:"focusNode,omitempty"`
+	Depth             int      `json:"depth,omitempty"`
+	IncludeStructural bool     `json:"includeStructural,omitempty"`
+	ExcludeTests      bool     `json:"excludeTests,omitempty"`
+}
+
+// GraphExploreResult is a bounded, visual graph payload for the graph explorer.
+type GraphExploreResult struct {
+	Nodes         []GraphExploreNode         `json:"nodes"`
+	Relationships []GraphExploreRelationship `json:"relationships"`
+	Facets        GraphExploreFacets         `json:"facets"`
+	Stats         GraphExploreStats          `json:"stats"`
+}
+
+type GraphExploreNode struct {
+	ID         string         `json:"id"`
+	Labels     []string       `json:"labels"`
+	Properties map[string]any `json:"properties"`
+}
+
+type GraphExploreRelationship struct {
+	ID         string         `json:"id"`
+	Type       string         `json:"type"`
+	From       string         `json:"from"`
+	To         string         `json:"to"`
+	Properties map[string]any `json:"properties,omitempty"`
+}
+
+type GraphExploreFacets struct {
+	NodeLabels           []NodeLabelSummary           `json:"nodeLabels"`
+	RelTypes             []RelTypeSummary             `json:"relTypes"`
+	RelationshipPatterns []RelationshipPatternSummary `json:"relationshipPatterns"`
+}
+
+type GraphExploreStats struct {
+	TotalNodes            int  `json:"totalNodes"`
+	TotalEdges            int  `json:"totalEdges"`
+	ReturnedNodes         int  `json:"returnedNodes"`
+	ReturnedRelationships int  `json:"returnedRelationships"`
+	Limit                 int  `json:"limit"`
+	Truncated             bool `json:"truncated"`
+}
+
 // ImpactRequest is the JSON body for POST /api/impact.
 type ImpactRequest struct {
 	Repo         string `json:"repo"`
@@ -356,6 +409,7 @@ type ToolBackend interface {
 	Query(QueryRequest) (*QueryResult, error)
 	Context(ContextRequest) (*ContextResult, error)
 	Cypher(CypherRequest) (*CypherResult, error)
+	GraphExplore(GraphExploreRequest) (*GraphExploreResult, error)
 	Impact(ImpactRequest) (*ImpactResult, error)
 	Schema(SchemaRequest) (*SchemaResult, error)
 }

@@ -49,6 +49,13 @@ func (stubBackend) Cypher(req CypherRequest) (*CypherResult, error) {
 	}, nil
 }
 
+func (stubBackend) GraphExplore(req GraphExploreRequest) (*GraphExploreResult, error) {
+	return &GraphExploreResult{
+		Nodes:         []GraphExploreNode{},
+		Relationships: []GraphExploreRelationship{},
+	}, nil
+}
+
 func (stubBackend) Impact(req ImpactRequest) (*ImpactResult, error) {
 	return &ImpactResult{
 		Target:   SymbolMatch{},
@@ -298,6 +305,18 @@ func TestHandleCypherBlocksWrite(t *testing.T) {
 		if resp.Error.Code != ErrCodeQueryBlocked {
 			t.Errorf("query %q: wrong error code %d", q, resp.Error.Code)
 		}
+	}
+}
+
+func TestHandleGraphExplore(t *testing.T) {
+	s := newTestServer()
+	body := jsonBody(t, GraphExploreRequest{Repo: "testrepo", NodeKinds: []string{"Function"}, RelationshipTypes: []string{"CALLS"}, Limit: 10})
+	req := httptest.NewRequestWithContext(context.Background(), "POST", RouteGraphExplore, body)
+	rec := httptest.NewRecorder()
+	s.handleGraphExplore(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: %d, body: %s", rec.Code, rec.Body.String())
 	}
 }
 

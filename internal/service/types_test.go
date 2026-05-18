@@ -100,6 +100,7 @@ func TestAllMethodsComplete(t *testing.T) {
 		MethodQuery:              true,
 		MethodContext:            true,
 		MethodCypher:             true,
+		MethodGraphExplore:       true,
 		MethodImpact:             true,
 		MethodCat:                true,
 		MethodTree:               true,
