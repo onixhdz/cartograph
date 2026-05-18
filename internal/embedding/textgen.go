@@ -32,6 +32,7 @@ var EmbeddableLabels = []graph.NodeLabel{
 	graph.LabelInterface,
 	graph.LabelStruct,
 	graph.LabelConstructor,
+	graph.LabelCodeElement,
 }
 
 // Embedding priority tiers. Lower value = higher priority.
@@ -84,6 +85,9 @@ func ShouldEmbed(node *lpg.Node, g *lpg.Graph) bool {
 		node.HasLabel(string(graph.LabelStruct)) {
 		return true
 	}
+	if node.HasLabel(string(graph.LabelCodeElement)) && isStructuralCodeElement(node) {
+		return true
+	}
 
 	// Doc comments are where semantic search adds value over BM25.
 	hasDoc := graph.GetStringProp(node, graph.PropDescription) != ""
@@ -113,6 +117,15 @@ func ShouldEmbed(node *lpg.Node, g *lpg.Graph) bool {
 	}
 
 	return false
+}
+
+func isStructuralCodeElement(node *lpg.Node) bool {
+	switch graph.GetStringProp(node, graph.PropKind) {
+	case graph.KindEvent, graph.KindError:
+		return true
+	default:
+		return false
+	}
 }
 
 // GenerateEmbeddingText produces the text fed to the embedding model,
@@ -171,6 +184,8 @@ func generateSymbolText(node *lpg.Node, g *lpg.Graph, label string) string {
 	signature := graph.GetStringProp(node, graph.PropSignature)
 	description := graph.GetStringProp(node, graph.PropDescription)
 	content := graph.GetStringProp(node, graph.PropContent)
+	kind := graph.GetStringProp(node, graph.PropKind)
+	annotations := graph.GetStringProp(node, graph.PropAnnotations)
 
 	var b strings.Builder
 	b.Grow(512)
@@ -184,9 +199,21 @@ func generateSymbolText(node *lpg.Node, g *lpg.Graph, label string) string {
 	b.WriteString(filePath)
 	b.WriteByte('\n')
 
+	if kind != "" {
+		b.WriteString("Kind: ")
+		b.WriteString(kind)
+		b.WriteByte('\n')
+	}
+
 	if pkg := packageFromPath(filePath); pkg != "" {
 		b.WriteString("Package: ")
 		b.WriteString(pkg)
+		b.WriteByte('\n')
+	}
+
+	if annotations != "" {
+		b.WriteString("Annotations: ")
+		b.WriteString(annotations)
 		b.WriteByte('\n')
 	}
 
@@ -197,6 +224,17 @@ func generateSymbolText(node *lpg.Node, g *lpg.Graph, label string) string {
 	}
 
 	if g != nil {
+		owners := ownerNames(node)
+		if len(owners) > 0 {
+			b.WriteString("Owner: ")
+			b.WriteString(owners[0])
+			b.WriteByte('\n')
+			b.WriteString("Qualified: ")
+			b.WriteString(owners[0])
+			b.WriteByte('.')
+			b.WriteString(name)
+			b.WriteByte('\n')
+		}
 		writeGraphContext(&b, node, label)
 		writeProcessContext(&b, node)
 		writePackageDoc(&b, node)
@@ -303,11 +341,7 @@ func writeGraphContext(b *strings.Builder, node *lpg.Node, label string) {
 	}
 
 	if label == string(graph.LabelMethod) || label == string(graph.LabelConstructor) {
-		parents := collectTargetNames(node, graph.RelMemberOf, lpg.OutgoingEdge)
-		if len(parents) == 0 {
-			// Try incoming HAS_METHOD.
-			parents = collectTargetNames(node, graph.RelHasMethod, lpg.IncomingEdge)
-		}
+		parents := ownerNames(node)
 		if len(parents) > 0 {
 			b.WriteString("Member of: ")
 			b.WriteString(parents[0])
@@ -338,6 +372,13 @@ func writeGraphContext(b *strings.Builder, node *lpg.Node, label string) {
 			b.WriteString(joinMax(methods, 8))
 			b.WriteByte('\n')
 		}
+	}
+
+	writes := collectTargetNames(node, graph.RelAccesses, lpg.OutgoingEdge)
+	if len(writes) > 0 {
+		b.WriteString("Writes state: ")
+		b.WriteString(joinMax(writes, 8))
+		b.WriteByte('\n')
 	}
 }
 
@@ -452,6 +493,16 @@ func writeProseSummary(b *strings.Builder, node *lpg.Node, _ *lpg.Graph, label s
 		parts = append(parts, "orchestrates "+strconv.Itoa(len(callees))+" downstream functions")
 	}
 
+	annotations := graph.GetStringProp(node, graph.PropAnnotations)
+	if annotations != "" {
+		parts = append(parts, "gated or annotated by "+strings.ReplaceAll(annotations, ",", ", "))
+	}
+
+	writes := collectTargetNames(node, graph.RelAccesses, lpg.OutgoingEdge)
+	if len(writes) > 0 {
+		parts = append(parts, "writes state "+joinMax(writes, 4))
+	}
+
 	callers := graph.GetNeighbors(node, lpg.IncomingEdge, graph.RelCalls)
 	if len(callers) >= 5 {
 		parts = append(parts, "called from "+strconv.Itoa(len(callers))+" call sites")
@@ -559,6 +610,35 @@ func collectTargetNames(node *lpg.Node, rel graph.RelType, dir lpg.EdgeDir) []st
 		}
 	}
 	return names
+}
+
+func ownerNames(node *lpg.Node) []string {
+	var owners []string
+	seen := map[string]bool{}
+	for edges := node.GetEdges(lpg.IncomingEdge); edges.Next(); {
+		edge := edges.Edge()
+		rt, err := graph.GetEdgeRelType(edge)
+		if err != nil {
+			continue
+		}
+		if rt != graph.RelHasMethod && rt != graph.RelHasProperty && rt != graph.RelContains {
+			continue
+		}
+		owner := edge.GetFrom()
+		if owner.HasLabel(string(graph.LabelFile)) || owner.HasLabel(string(graph.LabelFolder)) {
+			continue
+		}
+		name := graph.GetStringProp(owner, graph.PropName)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		owners = append(owners, name)
+	}
+	if len(owners) == 0 {
+		owners = collectTargetNames(node, graph.RelMemberOf, lpg.OutgoingEdge)
+	}
+	return owners
 }
 
 // collectContainedSymbols returns names of code symbols contained by

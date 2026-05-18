@@ -125,6 +125,274 @@ func TestExtractFile_Go_Calls(t *testing.T) {
 	}
 }
 
+const solidityTestSource = `// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+
+interface IMinter {
+    function mint(address to, uint256 amount) external;
+}
+
+library Amounts {
+    function double(uint256 value) internal pure returns (uint256) {
+        return value * 2;
+    }
+}
+
+contract StableToken is ERC20, IMinter {
+    event Minted(address indexed to, uint256 amount);
+    error Unauthorized(address caller);
+
+    struct Cap {
+        uint256 value;
+    }
+
+    enum Status {
+        Active,
+        Paused
+    }
+
+    uint256 public cap;
+    address private admin;
+    uint256 public constant VERSION = 1;
+
+    modifier onlyAdmin() {
+        if (msg.sender != admin) revert Unauthorized(msg.sender);
+        _;
+    }
+
+    constructor(address owner) ERC20("Stable", "STBL") {
+        admin = owner;
+    }
+
+    function mint(address to, uint256 amount) external onlyAdmin {
+        _mint(to, amount);
+        emit Minted(to, amount);
+    }
+
+    receive() external payable {}
+}
+`
+
+func TestExtractFile_Solidity_SymbolsAndRelationships(t *testing.T) {
+	result, err := ExtractFile("/tmp/StableToken.sol", []byte(solidityTestSource), langSolidity)
+	if err != nil {
+		t.Fatalf("ExtractFile failed: %v", err)
+	}
+
+	symbolKey := func(owner, name string) string { return owner + "/" + name }
+	keyToLabel := make(map[string]graph.NodeLabel)
+	keyToOwner := make(map[string]string)
+	keyToKind := make(map[string]string)
+	nameCounts := make(map[string]int)
+	idsByOwnerName := make(map[string]string)
+	for _, sym := range result.Symbols {
+		key := symbolKey(sym.OwnerName, sym.Name)
+		keyToLabel[key] = sym.Label
+		keyToOwner[key] = sym.OwnerName
+		keyToKind[key] = sym.Kind
+		nameCounts[sym.Name]++
+		idsByOwnerName[key] = sym.ID
+		if sym.Language != langSolidity {
+			t.Errorf("symbol %q language = %q, want solidity", sym.Name, sym.Language)
+		}
+	}
+
+	expected := map[string]graph.NodeLabel{
+		symbolKey("", "IMinter"):                 graph.LabelInterface,
+		symbolKey("IMinter", "mint"):             graph.LabelMethod,
+		symbolKey("", "Amounts"):                 graph.LabelClass,
+		symbolKey("Amounts", "double"):           graph.LabelMethod,
+		symbolKey("", "StableToken"):             graph.LabelClass,
+		symbolKey("StableToken", "Minted"):       graph.LabelCodeElement,
+		symbolKey("StableToken", "Unauthorized"): graph.LabelCodeElement,
+		symbolKey("StableToken", "Cap"):          graph.LabelStruct,
+		symbolKey("StableToken", "Status"):       graph.LabelEnum,
+		symbolKey("StableToken", "cap"):          graph.LabelProperty,
+		symbolKey("StableToken", "admin"):        graph.LabelProperty,
+		symbolKey("StableToken", "VERSION"):      graph.LabelConst,
+		symbolKey("StableToken", "onlyAdmin"):    graph.LabelMethod,
+		symbolKey("StableToken", "constructor"):  graph.LabelConstructor,
+		symbolKey("StableToken", "mint"):         graph.LabelMethod,
+		symbolKey("StableToken", "receive"):      graph.LabelMethod,
+	}
+	for key, label := range expected {
+		got, ok := keyToLabel[key]
+		if !ok {
+			t.Fatalf("expected symbol %q not found; got labels: %v", key, keyToLabel)
+		}
+		if got != label {
+			t.Errorf("symbol %q label = %q, want %q", key, got, label)
+		}
+	}
+	if nameCounts["mint"] != 2 {
+		t.Errorf("mint count = %d, want 2 (interface and contract)", nameCounts["mint"])
+	}
+
+	for name, owner := range map[string]string{
+		"double":       "Amounts",
+		"mint":         "StableToken",
+		"onlyAdmin":    "StableToken",
+		"constructor":  "StableToken",
+		"receive":      "StableToken",
+		"cap":          "StableToken",
+		"admin":        "StableToken",
+		"VERSION":      "StableToken",
+		"Minted":       "StableToken",
+		"Unauthorized": "StableToken",
+		"Cap":          "StableToken",
+		"Status":       "StableToken",
+	} {
+		if got := keyToOwner[symbolKey(owner, name)]; got != owner {
+			t.Errorf("symbol %q owner = %q, want %q", name, got, owner)
+		}
+	}
+	if idsByOwnerName[symbolKey("StableToken", "mint")] == idsByOwnerName[symbolKey("IMinter", "mint")] {
+		t.Error("same-name interface and contract methods should have distinct IDs")
+	}
+	for key, wantKind := range map[string]string{
+		symbolKey("StableToken", "Minted"):       graph.KindEvent,
+		symbolKey("StableToken", "Unauthorized"): graph.KindError,
+	} {
+		if got := keyToKind[key]; got != wantKind {
+			t.Errorf("symbol %q kind = %q, want %q", key, got, wantKind)
+		}
+	}
+
+	if len(result.Imports) != 1 || result.Imports[0].Source != "@openzeppelin/contracts/token/ERC20/ERC20.sol" {
+		t.Fatalf("imports = %+v, want OpenZeppelin import", result.Imports)
+	}
+
+	heritage := make(map[string]bool)
+	for _, h := range result.Heritage {
+		heritage[h.ClassName+"->"+h.ParentName] = true
+	}
+	for _, want := range []string{"StableToken->ERC20", "StableToken->IMinter"} {
+		if !heritage[want] {
+			t.Errorf("missing heritage %s; got %v", want, heritage)
+		}
+	}
+
+	calls := make(map[string]bool)
+	for _, c := range result.Calls {
+		calls[c.CalleeName] = true
+	}
+	for _, want := range []string{"ERC20", "_mint"} {
+		if !calls[want] {
+			t.Errorf("missing call %q; got %v", want, calls)
+		}
+	}
+	for _, unwanted := range []string{"Unauthorized", "Minted", "onlyAdmin"} {
+		if calls[unwanted] {
+			t.Errorf("unexpected core call %q from modifier/emit/revert syntax; got %v", unwanted, calls)
+		}
+	}
+
+	assignments := make(map[string]bool)
+	for _, a := range result.Assignments {
+		assignments[a.PropertyName] = true
+	}
+	if !assignments["admin"] {
+		t.Errorf("missing assignment to admin; got %v", assignments)
+	}
+}
+
+func TestExtractFile_Solidity_OverloadedMethodsGetDistinctIDs(t *testing.T) {
+	src := []byte(`
+pragma solidity ^0.8.20;
+
+contract Allowances {
+    function _approve(address owner, address spender, uint256 value) internal {}
+    function _approve(address owner, address spender, uint256 value, bool emitEvent) internal {}
+}
+`)
+	result, err := ExtractFile("/tmp/Allowances.sol", src, langSolidity)
+	if err != nil {
+		t.Fatalf("ExtractFile failed: %v", err)
+	}
+
+	var overloadIDs []string
+	for _, sym := range result.Symbols {
+		if sym.OwnerName == "Allowances" && sym.Name == "_approve" {
+			overloadIDs = append(overloadIDs, sym.ID)
+		}
+	}
+	if len(overloadIDs) != 2 {
+		t.Fatalf("found %d _approve overloads, want 2; symbols: %+v", len(overloadIDs), result.Symbols)
+	}
+	if overloadIDs[0] == overloadIDs[1] {
+		t.Fatalf("overloaded _approve methods share ID %q", overloadIDs[0])
+	}
+}
+
+func TestExtractFile_Solidity_OverloadedEventsAndErrorsGetDistinctIDs(t *testing.T) {
+	src := []byte(`
+pragma solidity ^0.8.20;
+
+contract Transfers {
+    event Transfer(address indexed to);
+    event Transfer(address indexed from, address indexed to, uint256 value);
+    error Transfer(address account);
+}
+`)
+	result, err := ExtractFile("/tmp/Transfers.sol", src, langSolidity)
+	if err != nil {
+		t.Fatalf("ExtractFile failed: %v", err)
+	}
+
+	ids := make(map[string]bool)
+	var transfers []ExtractedSymbol
+	for _, sym := range result.Symbols {
+		if sym.OwnerName == "Transfers" && sym.Name == "Transfer" && sym.Label == graph.LabelCodeElement {
+			transfers = append(transfers, sym)
+			ids[sym.ID] = true
+		}
+	}
+	if len(transfers) != 3 {
+		t.Fatalf("found %d Transfer code elements, want 3; symbols: %+v", len(transfers), result.Symbols)
+	}
+	if len(ids) != len(transfers) {
+		t.Fatalf("overloaded/same-name Transfer code elements have duplicate IDs: %+v", transfers)
+	}
+
+	kinds := make(map[string]int)
+	for _, sym := range transfers {
+		kinds[sym.Kind]++
+	}
+	if kinds[graph.KindEvent] != 2 || kinds[graph.KindError] != 1 {
+		t.Fatalf("Transfer kinds = %v, want 2 events and 1 error", kinds)
+	}
+}
+
+func TestExtractFile_Solidity_ModifiersPopulateAnnotations(t *testing.T) {
+	src := []byte(`
+pragma solidity ^0.8.20;
+
+contract Vault {
+    modifier onlyRole(bytes32 role) { _; }
+    modifier nonReentrant() { _; }
+
+    function mint(address to, uint256 amount) external onlyRole(MINTER_ROLE) nonReentrant {
+    }
+}
+`)
+	result, err := ExtractFile("/tmp/Vault.sol", src, langSolidity)
+	if err != nil {
+		t.Fatalf("ExtractFile failed: %v", err)
+	}
+
+	for _, sym := range result.Symbols {
+		if sym.OwnerName == "Vault" && sym.Name == "mint" {
+			if sym.Annotations != "onlyRole,nonReentrant" {
+				t.Fatalf("mint annotations = %q, want onlyRole,nonReentrant", sym.Annotations)
+			}
+			return
+		}
+	}
+	t.Fatal("expected Vault.mint method")
+}
+
 func TestExtractFile_Go_Spawns(t *testing.T) {
 	src := `package main
 
@@ -749,7 +1017,7 @@ func TestExtractFile_DataFormatSkipped(t *testing.T) {
 
 func TestCanExtract(t *testing.T) {
 	// Languages with hand-crafted queries should return true.
-	for _, lang := range []string{"go", "python", "typescript", "javascript", "java", "rust", "cpp", "c", "ruby", "php", "kotlin", "swift", "csharp"} {
+	for _, lang := range []string{"go", "python", "typescript", "javascript", "java", "rust", "cpp", "c", "ruby", "php", "kotlin", "swift", "csharp", langSolidity} {
 		if !CanExtract(lang) {
 			t.Errorf("CanExtract(%q) = false, want true (has custom query)", lang)
 		}
@@ -781,6 +1049,7 @@ func TestLanguageCapabilities(t *testing.T) {
 	}{
 		{lang: "go", wantNative: true, wantFallbackGrammar: true, wantParse: true, wantCustomQueries: true, wantExtract: true},
 		{lang: "scala", wantNative: true, wantFallbackGrammar: true, wantParse: true, wantCustomQueries: true, wantExtract: true},
+		{lang: langSolidity, wantNative: false, wantFallbackGrammar: true, wantParse: true, wantCustomQueries: true, wantExtract: true},
 		{lang: "yaml", wantNative: false, wantFallbackGrammar: true, wantParse: true, wantCustomQueries: false, wantExtract: false},
 		{lang: "hcl", wantNative: false, wantFallbackGrammar: true, wantParse: true, wantCustomQueries: false, wantExtract: false},
 		{lang: "sql", wantNative: false, wantFallbackGrammar: true, wantParse: true, wantCustomQueries: false, wantExtract: false},

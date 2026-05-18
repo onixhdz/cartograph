@@ -493,11 +493,19 @@ func newServerBackendFactory(s *service.Server) service.BackendFactory {
 		if !ok {
 			return nil
 		}
+		var (
+			embedDir string
+			embedFn  query.QueryEmbedFn
+		)
+		if s.HasCompleteEmbeddings(repo) {
+			embedDir = s.GetRepoDir(repo)
+			embedFn = s.QueryEmbed
+		}
 		return &query.Backend{
 			Graph:    g,
 			Index:    idx,
-			EmbedDir: s.GetRepoDir(repo),
-			EmbedFn:  s.QueryEmbed,
+			EmbedDir: embedDir,
+			EmbedFn:  embedFn,
 			Entities: s.GetPluginEntities(repo),
 		}
 	}

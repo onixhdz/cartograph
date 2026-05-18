@@ -616,11 +616,12 @@ func Walk(root *Node, visit func(*Node, int) WalkAction) WalkAction {
 }
 
 type languageSpec struct {
-	name       string
-	extensions []string
-	filenames  []string
-	aliases    []string
-	build      func() *treesitter.Language
+	name          string
+	extensions    []string
+	filenames     []string
+	aliases       []string
+	build         func() *treesitter.Language
+	buildFallback func() *gotreesitter.Language
 }
 
 var languageSpecs = []languageSpec{
@@ -638,6 +639,13 @@ var languageSpecs = []languageSpec{
 	{name: "csharp", extensions: []string{".cs"}, aliases: []string{"c_sharp"}, build: func() *treesitter.Language { return treesitter.NewLanguage(treecsharp.Language()) }},
 	{name: "scala", extensions: []string{".scala", ".sc"}, build: func() *treesitter.Language { return treesitter.NewLanguage(treescala.Language()) }},
 	{name: "swift", extensions: []string{".swift"}, build: func() *treesitter.Language { return treesitter.NewLanguage(treeswift.Language()) }},
+	{name: "solidity", extensions: []string{".sol"}, buildFallback: func() *gotreesitter.Language {
+		entry := gtsgrammars.DetectLanguageByName("solidity")
+		if entry == nil {
+			return nil
+		}
+		return entry.Language()
+	}},
 }
 
 var (
@@ -652,7 +660,16 @@ func initRegistry() {
 	byExt = make(map[string]*Language)
 	byFilename = make(map[string]*Language)
 	for _, spec := range languageSpecs {
-		lang := &Language{name: spec.name, native: spec.build()}
+		lang := &Language{name: spec.name}
+		if spec.buildFallback != nil {
+			lang.fallback = spec.buildFallback()
+			lang.usesFallback = true
+		} else if spec.build != nil {
+			lang.native = spec.build()
+		}
+		if lang.native == nil && lang.fallback == nil {
+			continue
+		}
 		byName[spec.name] = lang
 		for _, alias := range spec.aliases {
 			byName[alias] = lang

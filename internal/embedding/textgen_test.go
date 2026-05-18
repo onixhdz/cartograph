@@ -111,6 +111,63 @@ func TestGenerateEmbeddingText_Method(t *testing.T) {
 	}
 }
 
+func TestGenerateEmbeddingText_OwnerAnnotationsAndStateWrites(t *testing.T) {
+	g := lpg.NewGraph()
+	contract := graph.AddSymbolNode(g, graph.LabelClass, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "class:Vault", Name: "Vault"},
+		FilePath:      "contracts/Vault.sol",
+	})
+	method := graph.AddSymbolNode(g, graph.LabelMethod, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "method:Vault.mint", Name: "mint"},
+		FilePath:      "contracts/Vault.sol",
+		Content:       "function mint(address to, uint256 amount) external onlyRole(MINTER_ROLE) { totalSupply += amount; }",
+		Signature:     "function mint(address to, uint256 amount) external onlyRole(MINTER_ROLE)",
+		Annotations:   "onlyRole",
+	})
+	totalSupply := graph.AddSymbolNode(g, graph.LabelProperty, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "prop:Vault.totalSupply", Name: "totalSupply"},
+		FilePath:      "contracts/Vault.sol",
+	})
+	graph.AddEdge(g, contract, method, graph.RelHasMethod, nil)
+	graph.AddEdge(g, contract, totalSupply, graph.RelHasProperty, nil)
+	graph.AddEdge(g, method, totalSupply, graph.RelAccesses, map[string]any{graph.PropAccessKind: "write"})
+
+	text := GenerateEmbeddingText(method, g)
+	for _, want := range []string{
+		"Owner: Vault",
+		"Qualified: Vault.mint",
+		"Annotations: onlyRole",
+		"Writes state: totalSupply",
+		"gated or annotated by onlyRole",
+		"writes state totalSupply",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("expected %q in output, got:\n%s", want, text)
+		}
+	}
+}
+
+func TestGenerateEmbeddingText_CodeElementKind(t *testing.T) {
+	g := lpg.NewGraph()
+	event := graph.AddSymbolNode(g, graph.LabelCodeElement, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "e1", Name: "Minted"},
+		FilePath:      "contracts/Token.sol",
+		Content:       "event Minted(address indexed to, uint256 amount);",
+	})
+	event.SetProperty(graph.PropKind, graph.KindEvent)
+
+	text := GenerateEmbeddingText(event, g)
+	for _, want := range []string{
+		"CodeElement: Minted",
+		"Kind: event",
+		"event Minted",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("expected %q in output, got:\n%s", want, text)
+		}
+	}
+}
+
 func TestGenerateEmbeddingText_Class(t *testing.T) {
 	g, _, _, class, _ := quickGraph(t)
 
@@ -150,11 +207,16 @@ func TestGenerateEmbeddingText_File(t *testing.T) {
 
 func TestGenerateEmbeddingText_NoGraph(t *testing.T) {
 	g := lpg.NewGraph()
+	class := graph.AddSymbolNode(g, graph.LabelClass, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "c1", Name: "Worker"},
+		FilePath:      "worker.go",
+	})
 	fn := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
 		BaseNodeProps: graph.BaseNodeProps{ID: "fn1", Name: "doWork"},
 		FilePath:      "worker.go",
 		Content:       "func doWork() {}",
 	})
+	graph.AddEdge(g, class, fn, graph.RelHasMethod, nil)
 
 	// Pass nil graph — should still produce text without graph context.
 	text := GenerateEmbeddingText(fn, nil)
@@ -165,7 +227,8 @@ func TestGenerateEmbeddingText_NoGraph(t *testing.T) {
 	if !strings.Contains(text, "func doWork()") {
 		t.Errorf("expected code snippet, got:\n%s", text)
 	}
-	if strings.Contains(text, "Calls:") || strings.Contains(text, "Called by:") {
+	if strings.Contains(text, "Calls:") || strings.Contains(text, "Called by:") ||
+		strings.Contains(text, "Owner:") || strings.Contains(text, "Qualified:") {
 		t.Errorf("should not have graph context when g is nil, got:\n%s", text)
 	}
 }
@@ -318,6 +381,23 @@ func TestShouldEmbed(t *testing.T) {
 	})
 	if !ShouldEmbed(strct, g) {
 		t.Error("struct: want true (always embed)")
+	}
+
+	// Meaningful generic code elements are selected by kind, not language.
+	event := graph.AddSymbolNode(g, graph.LabelCodeElement, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "e1", Name: "Minted"},
+		FilePath:      "token.sol",
+	})
+	event.SetProperty(graph.PropKind, graph.KindEvent)
+	if !ShouldEmbed(event, g) {
+		t.Error("code element event: want true")
+	}
+	genericElement := graph.AddSymbolNode(g, graph.LabelCodeElement, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "ce1", Name: "Region"},
+		FilePath:      "server.go",
+	})
+	if ShouldEmbed(genericElement, g) {
+		t.Error("generic code element without structural kind: want false")
 	}
 
 	// Unexported function with high connectivity (3+ edges) — should embed.
