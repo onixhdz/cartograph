@@ -163,7 +163,7 @@ TOTAL                         262/366(72%) 233/366(64%) 45/46(98%)
 ## Improvement History
 
 ```
-Phase   Change                          KW     INT    Criteria
+Step    Change                          KW     INT    Criteria
 ─────────────────────────────────────────────────────────────────
 1       Initial (jina-code, nomad only) 56%    27%    14/21 FAIL
 2       Textgen enrichment (Role,       68%    43%    16/20
@@ -342,13 +342,13 @@ areas are:
 
 Aim for a mix of:
 - Public entry points (easy for search to find)
-- Internal implementation details (harder — tests the depth of results)
+- Internal code paths (harder — tests the depth of results)
 - Cross-package calls (tests whether the graph captures relationships)
 
 ### 3. Research ground-truth symbols
 
-For each investigation, you need 7–9 symbols that represent the real
-implementation. Every symbol **must** be verified against the actual source.
+For each investigation, you need 7–9 symbols that represent the real behavior.
+Every symbol **must** be verified against the actual source.
 Use a combination of cartograph queries and explore agents.
 
 #### Method A — Cartograph research loop (query → context → source)
