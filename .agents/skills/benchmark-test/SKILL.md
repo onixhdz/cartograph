@@ -139,7 +139,7 @@ python3 .agents/skills/benchmark-test/score.py /tmp/bat-steampipe.txt \
 | 5K-20K nodes  | `-l 10` | Moderate dilution                                       |
 | > 20K nodes   | `-l 15` | Large codebases need more slots to surface deep symbols |
 
-## Current Baseline (2026-05-05, Scala export fix + Rust mdBook battery)
+## Current Baseline (2026-05-18, Solidity core support + OSS batteries)
 
 ```
 Project              Lang    Nodes    KW          INT         Criteria
@@ -151,8 +151,10 @@ nomad                Go      37587    26/41 (63%) 17/41 (41%) 4/5
 gatling              Scala   11863    27/40 (67%) 23/40 (57%) 5/5
 gatling-usecases     Scala   11863    31/36 (86%) 25/36 (69%) 6/6
 mdbook               Rust    2375     26/43 (60%) 22/43 (51%) 5/5
+openzeppelin         Solidity 6784    30/44 (68%) 39/44 (88%) 5/5
+dss                  Solidity 1513    35/43 (81%) 29/43 (67%) 5/5
 ──────────────────────────────────────────────────────────────────────
-TOTAL                         197/279(70%) 165/279(59%) 35/36(97%)
+TOTAL                         262/366(72%) 233/366(64%) 45/46(98%)
 ```
 
 **Model:** bge-small (384d, 24MB)
@@ -161,7 +163,7 @@ TOTAL                         197/279(70%) 165/279(59%) 35/36(97%)
 ## Improvement History
 
 ```
-Phase   Change                          KW     INT    Criteria
+Step    Change                          KW     INT    Criteria
 ─────────────────────────────────────────────────────────────────
 1       Initial (jina-code, nomad only) 56%    27%    14/21 FAIL
 2       Textgen enrichment (Role,       68%    43%    16/20
@@ -340,13 +342,13 @@ areas are:
 
 Aim for a mix of:
 - Public entry points (easy for search to find)
-- Internal implementation details (harder — tests the depth of results)
+- Internal code paths (harder — tests the depth of results)
 - Cross-package calls (tests whether the graph captures relationships)
 
 ### 3. Research ground-truth symbols
 
-For each investigation, you need 7–9 symbols that represent the real
-implementation. Every symbol **must** be verified against the actual source.
+For each investigation, you need 7–9 symbols that represent the real behavior.
+Every symbol **must** be verified against the actual source.
 Use a combination of cartograph queries and explore agents.
 
 #### Method A — Cartograph research loop (query → context → source)

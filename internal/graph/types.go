@@ -187,6 +187,7 @@ const (
 	PropType           = "type"
 	PropConfidence     = "confidence"
 	PropReason         = "reason"
+	PropKind           = "kind"
 	PropStep           = "step"
 	PropParameterCount = "parameterCount"
 	PropReturnType     = "returnType"
@@ -202,6 +203,11 @@ const (
 	// PropRepoName identifies which repository a node belongs to.
 	// Used for cross-repo analysis to disambiguate nodes from different repos.
 	PropRepoName = "repoName"
+)
+
+const (
+	KindEvent = "event"
+	KindError = "error"
 )
 
 // EdgeLabel is the single relationship label used in the lpg graph.

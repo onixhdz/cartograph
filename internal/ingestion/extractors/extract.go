@@ -19,6 +19,8 @@ const langPython = "python"
 
 const langCPP = "cpp"
 
+const langSolidity = "solidity"
+
 const modifierOverride = "override"
 
 const modifierFinal = "final"
@@ -27,7 +29,9 @@ const modifierVirtual = "virtual"
 
 // Visibility modifier keywords used in export detection.
 const (
+	visPublic    = "public"
 	visPrivate   = "private"
+	visInternal  = "internal"
 	visProtected = "protected"
 )
 
@@ -37,6 +41,7 @@ type ExtractedSymbol struct {
 	ID             string          // Unique node ID
 	Name           string          // Symbol name
 	Label          graph.NodeLabel // Function, Class, Method, etc.
+	Kind           string          // More specific kind for generic labels (e.g., event, error)
 	FilePath       string          // Absolute file path
 	StartLine      int             // 0-based
 	EndLine        int             // 0-based
@@ -409,6 +414,15 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 			receiverName := capTexts["call.receiver"]
 			for i, callee := range names {
 				if !isValidSymbolName(callee) {
+					if i >= len(nodes) {
+						continue
+					}
+					callee = firstIdentifierText(nodes[i], source, lang)
+					if !isValidSymbolName(callee) {
+						continue
+					}
+				}
+				if language == langSolidity && i < len(nodes) && !includeSolidityCall(callee, nodes[i], source, lang) {
 					continue
 				}
 				line := 0
@@ -518,6 +532,7 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 		if label == "" {
 			continue
 		}
+		kind := classifyDefinitionKind(caps)
 
 		defNode := definitionNode(caps)
 
@@ -528,11 +543,10 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 			content = string(source[start:end])
 		}
 
-		// Extract enclosing class/struct name BEFORE generating the ID
-		// so that same-name methods in the same file (e.g., AnalyzeCmd.Run
-		// and ListCmd.Run in cmd/root.go) get distinct node IDs.
+		// Extract enclosing class/struct name BEFORE generating the ID so
+		// same-name members in the same file can be distinguished.
 		var ownerName string
-		if label == graph.LabelMethod || label == graph.LabelProperty || label == graph.LabelConstructor {
+		if canHaveOwner(label) {
 			ownerName = findEnclosingClassName(defNode, source, lang)
 			// Fallback: extract from receiver parameter (e.g., Go method
 			// declarations where methods are at file scope, not nested
@@ -550,10 +564,18 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 			}
 		}
 
+		var parameterCount int
+		var returnType string
+		var signature string
+		if label == graph.LabelFunction || label == graph.LabelMethod || label == graph.LabelConstructor {
+			parameterCount, returnType = extractMethodSignature(defNode, source, lang)
+			signature = extractSignature(defNode, source, lang)
+		}
 		sym := ExtractedSymbol{
 			ID:          generateID(string(label), filePath, nameText, ownerName),
 			Name:        nameText,
 			Label:       label,
+			Kind:        kind,
 			FilePath:    filePath,
 			StartLine:   int(defNode.StartPoint().Row),
 			EndLine:     int(defNode.EndPoint().Row),
@@ -565,12 +587,9 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 			Annotations: extractAnnotations(defNode, source, lang, language),
 		}
 
-		// Extract method signature (parameter count, return type) for
-		// functions, methods, and constructors.
-		if label == graph.LabelFunction || label == graph.LabelMethod || label == graph.LabelConstructor {
-			sym.ParameterCount, sym.ReturnType = extractMethodSignature(defNode, source, lang)
-			sym.Signature = extractSignature(defNode, source, lang)
-		}
+		sym.ParameterCount = parameterCount
+		sym.ReturnType = returnType
+		sym.Signature = signature
 
 		result.Symbols = append(result.Symbols, sym)
 	}
@@ -614,6 +633,7 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 	result.Symbols = append(result.Symbols, extractPrimaryConstructorParams(result.Symbols, rootNode, source, filePath, lang, language)...)
 
 	result.Symbols = append(result.Symbols, extractInterfaceMethodSpecs(rootNode, source, filePath, lang, language)...)
+	result.Symbols = disambiguateDuplicateSymbolIDs(result.Symbols)
 
 	// Grammar-agnostic type inference: extract variable types, parameter types,
 	// constructor bindings, pattern matching types, comment-based types, and
@@ -712,6 +732,11 @@ func deduplicateSymbols(syms []ExtractedSymbol) []ExtractedSymbol {
 			if syms[existing].Label == graph.LabelFunction && s.Label == graph.LabelMethod {
 				best[k] = i
 			}
+			// Const is more specific than Property when grammars expose constants
+			// as specialized state/field declarations.
+			if syms[existing].Label == graph.LabelProperty && s.Label == graph.LabelConst {
+				best[k] = i
+			}
 			// Otherwise keep the first (more specific) one.
 		} else {
 			best[k] = i
@@ -732,10 +757,53 @@ func deduplicateSymbols(syms []ExtractedSymbol) []ExtractedSymbol {
 	return deduped
 }
 
+func disambiguateDuplicateSymbolIDs(syms []ExtractedSymbol) []ExtractedSymbol {
+	groups := make(map[string][]int)
+	for i, sym := range syms {
+		key := string(sym.Label) + "\x00" + sym.FilePath + "\x00" + sym.OwnerName + "\x00" + sym.Name
+		groups[key] = append(groups[key], i)
+	}
+
+	for _, indexes := range groups {
+		if len(indexes) < 2 {
+			continue
+		}
+		for _, idx := range indexes {
+			sym := syms[idx]
+			disambiguator := symbolIDDisambiguator(sym)
+			if disambiguator == "" {
+				disambiguator = fmt.Sprintf("%d:%d", sym.StartLine, sym.EndLine)
+			}
+			syms[idx].ID = generateID(string(sym.Label), sym.FilePath, sym.Name, sym.OwnerName, disambiguator)
+		}
+	}
+
+	return syms
+}
+
+func symbolIDDisambiguator(sym ExtractedSymbol) string {
+	if sym.Signature != "" {
+		return sym.Signature
+	}
+	if sym.Kind != "" || sym.Content != "" {
+		return sym.Kind + "\x00" + sym.Content
+	}
+	return ""
+}
+
 // isGenericLabel returns true for catch-all labels that should yield to
 // more specific ones.
 func isGenericLabel(l graph.NodeLabel) bool {
 	return l == graph.LabelTypeAlias || l == graph.LabelCodeElement
+}
+
+func canHaveOwner(label graph.NodeLabel) bool {
+	return label != graph.LabelClass &&
+		label != graph.LabelInterface &&
+		label != graph.LabelModule &&
+		label != graph.LabelNamespace &&
+		label != graph.LabelTrait &&
+		label != graph.LabelImpl
 }
 
 // classifyDefinition maps tree-sitter capture names to graph.NodeLabel.
@@ -785,6 +853,8 @@ func classifyDefinition(caps map[string]*ts.Node) graph.NodeLabel {
 			return graph.LabelAnnotation
 		case "definition.constructor":
 			return graph.LabelConstructor
+		case "definition.event", "definition.error":
+			return graph.LabelCodeElement
 		case "definition.template":
 			return graph.LabelTemplate
 		case "definition.constant":
@@ -797,6 +867,18 @@ func classifyDefinition(caps map[string]*ts.Node) graph.NodeLabel {
 		}
 	}
 	return fallback
+}
+
+func classifyDefinitionKind(caps map[string]*ts.Node) string {
+	for name := range caps {
+		switch name {
+		case "definition.event":
+			return graph.KindEvent
+		case "definition.error":
+			return graph.KindError
+		}
+	}
+	return ""
 }
 
 // definitionNode returns the best AST node for line range information.
@@ -876,15 +958,15 @@ func detectExported(defNode *ts.Node, name, language string, lang *ts.Language, 
 		return true
 	case "kotlin":
 		// Kotlin: default visibility is public. Check for private/internal/protected.
-		return !hasVisibilityModifier(defNode, lang, source, visPrivate, "internal", visProtected)
+		return !hasVisibilityModifier(defNode, lang, source, visPrivate, visInternal, visProtected)
 	case "typescript", "javascript":
 		// TS/JS: check if enclosed in export_statement.
 		return hasAncestorType(defNode, lang, "export_statement")
 	case "java":
 		// Java: check for 'public' modifier in sibling modifiers node.
-		return hasSiblingModifier(defNode, lang, source, "public")
+		return hasSiblingModifier(defNode, lang, source, visPublic)
 	case "csharp":
-		return hasSiblingModifier(defNode, lang, source, "public")
+		return hasSiblingModifier(defNode, lang, source, visPublic)
 	case "rust":
 		// Rust: check for visibility_modifier starting with "pub".
 		return hasSiblingNodeType(defNode, lang, "visibility_modifier")
@@ -896,12 +978,16 @@ func detectExported(defNode *ts.Node, name, language string, lang *ts.Language, 
 		return !hasVisibilityModifier(defNode, lang, source, visPrivate, visProtected)
 	case "swift":
 		// Swift: default is internal; check for public/open.
-		return hasVisibilityModifier(defNode, lang, source, "public", "open")
+		return hasVisibilityModifier(defNode, lang, source, visPublic, "open")
 	case "scala":
 		// Scala: default visibility is public. Bare private/protected means
 		// non-exported, but private[scope]/protected[scope] means accessible
 		// within that scope (package/object) — treat as exported.
 		return !hasScalaBareVisibility(defNode, lang, source)
+	case langSolidity:
+		// Solidity contract-like declarations, events, and errors are addressable
+		// ABI/source concepts. Members marked private/internal are not exported.
+		return !hasVisibilityModifier(defNode, lang, source, visPrivate, visInternal)
 	default:
 		return true
 	}
@@ -1229,7 +1315,7 @@ func extractAnnotations(defNode *ts.Node, source []byte, lang *ts.Language, lang
 	for i, j := 0, len(annotations)-1; i < j; i, j = i+1, j-1 {
 		annotations[i], annotations[j] = annotations[j], annotations[i]
 	}
-	annotations = appendMissingModifierAnnotations(annotations, defNode, source, language)
+	annotations = appendMissingModifierAnnotations(annotations, defNode, source, lang, language)
 
 	return strings.Join(annotations, ",")
 }
@@ -1270,28 +1356,106 @@ func collectDirectAnnotationNames(node *ts.Node, source []byte, lang *ts.Languag
 	return names
 }
 
-func appendMissingModifierAnnotations(existing []string, defNode *ts.Node, source []byte, language string) []string {
-	if language != langCPP || defNode == nil {
+func appendMissingModifierAnnotations(existing []string, defNode *ts.Node, source []byte, lang *ts.Language, language string) []string {
+	if defNode == nil {
 		return existing
 	}
 
-	text := safeNodeText(defNode, source)
-	if text == "" {
-		return existing
-	}
 	seen := make(map[string]bool, len(existing))
 	for _, name := range existing {
 		seen[name] = true
 	}
-	for _, kw := range []string{modifierVirtual, modifierOverride, modifierFinal} {
-		if seen[kw] {
-			continue
+	switch language {
+	case langCPP:
+		text := safeNodeText(defNode, source)
+		if text == "" {
+			return existing
 		}
-		if containsModifierToken(text, kw) {
-			existing = append(existing, kw)
+		for _, kw := range []string{modifierVirtual, modifierOverride, modifierFinal} {
+			if seen[kw] {
+				continue
+			}
+			if containsModifierToken(text, kw) {
+				existing = append(existing, kw)
+			}
 		}
+	case langSolidity:
+		for _, name := range collectSolidityModifierInvocations(defNode, source, lang) {
+			if name == "" || seen[name] {
+				continue
+			}
+			seen[name] = true
+			existing = append(existing, name)
+		}
+	default:
+		return existing
 	}
 	return existing
+}
+
+func collectSolidityModifierInvocations(defNode *ts.Node, source []byte, lang *ts.Language) []string {
+	var names []string
+	ts.Walk(defNode, func(node *ts.Node, depth int) ts.WalkAction {
+		if node == nil {
+			return ts.WalkContinue
+		}
+		ntype := strings.ToLower(node.Type(lang))
+		if depth > 0 && (ntype == "function_body" || ntype == "block") {
+			return ts.WalkSkipChildren
+		}
+		if ntype != "modifier_invocation" {
+			return ts.WalkContinue
+		}
+		if name := firstIdentifierText(node, source, nil); name != "" && isValidSymbolName(name) {
+			names = append(names, name)
+		}
+		return ts.WalkSkipChildren
+	})
+	if len(names) == 0 {
+		names = append(names, collectSolidityModifierNamesFromSignature(extractSignature(defNode, source, lang))...)
+	}
+	return names
+}
+
+func collectSolidityModifierNamesFromSignature(signature string) []string {
+	if signature == "" {
+		return nil
+	}
+	start := strings.Index(signature, ")")
+	if start < 0 || start+1 >= len(signature) {
+		return nil
+	}
+	tail := signature[start+1:]
+	tail = solidityReturnsPattern.ReplaceAllString(tail, " ")
+	var names []string
+	seen := map[string]bool{}
+	for _, match := range solidityModifierNamePattern.FindAllStringSubmatch(tail, -1) {
+		name := match[1]
+		if seen[name] || solidityNonModifierSignatureTokens[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	return names
+}
+
+var (
+	solidityReturnsPattern      = regexp.MustCompile(`returns\s*\([^)]*\)`)
+	solidityModifierNamePattern = regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*)\s*(\(|$|\s)`)
+)
+
+var solidityNonModifierSignatureTokens = map[string]bool{
+	"public":   true,
+	"external": true,
+	"internal": true,
+	"private":  true,
+	"view":     true,
+	"pure":     true,
+	"payable":  true,
+	"virtual":  true,
+	"override": true,
+	"returns":  true,
 }
 
 func containsModifierToken(text, keyword string) bool {
@@ -1735,6 +1899,48 @@ func findEnclosingClassName(node *ts.Node, source []byte, lang *ts.Language) str
 	return ""
 }
 
+func includeSolidityCall(callee string, nameNode *ts.Node, source []byte, lang *ts.Language) bool {
+	modifierInvocation := findAncestorExact(nameNode, lang, "modifier_invocation", 6)
+	if modifierInvocation == nil {
+		return true
+	}
+	constructor := findAncestorExact(modifierInvocation, lang, "constructor_definition", 8)
+	if constructor == nil {
+		return false
+	}
+	contract := findAncestorExact(constructor, lang, "contract_declaration", 12)
+	return solidityContractInherits(contract, callee, source, lang)
+}
+
+func solidityContractInherits(contract *ts.Node, parentName string, source []byte, lang *ts.Language) bool {
+	if contract == nil || parentName == "" {
+		return false
+	}
+	for i := range contract.ChildCount() {
+		child := contract.Child(i)
+		if child == nil || child.Type(lang) != "inheritance_specifier" {
+			continue
+		}
+		ancestor := child.ChildByFieldName("ancestor", lang)
+		if ancestor == nil {
+			ancestor = child
+		}
+		if lastIdentifier(ancestor, source, lang) == parentName {
+			return true
+		}
+	}
+	return false
+}
+
+func findAncestorExact(node *ts.Node, lang *ts.Language, nodeType string, maxDepth int) *ts.Node {
+	for current, depth := node.Parent(), 0; current != nil && depth < maxDepth; current, depth = current.Parent(), depth+1 {
+		if current.Type(lang) == nodeType {
+			return current
+		}
+	}
+	return nil
+}
+
 // extractReceiverType extracts the receiver type from a method declaration's
 // receiver field (e.g., func (b *BboltStore) SaveGraph() → "BboltStore").
 func extractReceiverType(defNode *ts.Node, source []byte, lang *ts.Language) string {
@@ -1759,12 +1965,24 @@ func extractReceiverType(defNode *ts.Node, source []byte, lang *ts.Language) str
 
 // generateID creates a deterministic unique ID for a symbol.
 // Includes ownerName in the hash when present to distinguish same-name methods.
-func generateID(label, filePath, name, ownerName string) string {
-	key := label + ":" + filePath + ":" + name
+func generateID(label, filePath, name, ownerName string, disambiguators ...string) string {
+	var key strings.Builder
+	key.WriteString(label)
+	key.WriteByte(':')
+	key.WriteString(filePath)
+	key.WriteByte(':')
 	if ownerName != "" {
-		key = label + ":" + filePath + ":" + ownerName + "." + name
+		key.WriteString(ownerName)
+		key.WriteByte('.')
 	}
-	h := sha256.Sum256([]byte(key))
+	key.WriteString(name)
+	for _, disambiguator := range disambiguators {
+		if disambiguator != "" {
+			key.WriteByte(':')
+			key.WriteString(disambiguator)
+		}
+	}
+	h := sha256.Sum256([]byte(key.String()))
 	return hex.EncodeToString(h[:12])
 }
 

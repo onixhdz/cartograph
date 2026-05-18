@@ -142,6 +142,71 @@ func TestResolveImports_ReturnsCorrectCount(t *testing.T) {
 	}
 }
 
+func TestResolveImports_SolidityRelativeImportWithoutExtension(t *testing.T) {
+	g := lpg.NewGraph()
+	graph.AddFileNode(g, graph.FileProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "file:contracts/Vault.sol", Name: "Vault.sol"},
+		FilePath:      "contracts/Vault.sol",
+		Language:      "solidity",
+	})
+	graph.AddFileNode(g, graph.FileProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "file:contracts/Token.sol", Name: "Token.sol"},
+		FilePath:      "contracts/Token.sol",
+		Language:      "solidity",
+	})
+
+	count := ResolveImports(g, []ImportInfo{{
+		FromNodeID: "file:contracts/Vault.sol",
+		ImportPath: "./Token",
+		IsRelative: true,
+		Language:   "solidity",
+	}})
+	if count != 1 {
+		t.Fatalf("expected 1 resolved Solidity import, got %d", count)
+	}
+
+	vault := graph.FindNodeByID(g, "file:contracts/Vault.sol")
+	edges := graph.GetOutgoingEdges(vault, graph.RelImports)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 IMPORTS edge, got %d", len(edges))
+	}
+	if got := graph.GetStringProp(edges[0].GetTo(), graph.PropFilePath); got != "contracts/Token.sol" {
+		t.Fatalf("IMPORTS target = %q, want contracts/Token.sol", got)
+	}
+}
+
+func TestResolveImports_SolidityAbsoluteImportWithoutExtension(t *testing.T) {
+	g := lpg.NewGraph()
+	graph.AddFileNode(g, graph.FileProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "file:contracts/Vault.sol", Name: "Vault.sol"},
+		FilePath:      "contracts/Vault.sol",
+		Language:      "solidity",
+	})
+	graph.AddFileNode(g, graph.FileProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "file:contracts/libs/Token.sol", Name: "Token.sol"},
+		FilePath:      "contracts/libs/Token.sol",
+		Language:      "solidity",
+	})
+
+	count := ResolveImports(g, []ImportInfo{{
+		FromNodeID: "file:contracts/Vault.sol",
+		ImportPath: "libs/Token",
+		Language:   "solidity",
+	}})
+	if count != 1 {
+		t.Fatalf("expected 1 resolved Solidity import, got %d", count)
+	}
+
+	vault := graph.FindNodeByID(g, "file:contracts/Vault.sol")
+	edges := graph.GetOutgoingEdges(vault, graph.RelImports)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 IMPORTS edge, got %d", len(edges))
+	}
+	if got := graph.GetStringProp(edges[0].GetTo(), graph.PropFilePath); got != "contracts/libs/Token.sol" {
+		t.Fatalf("IMPORTS target = %q, want contracts/libs/Token.sol", got)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Go import resolver tests
 // ---------------------------------------------------------------------------

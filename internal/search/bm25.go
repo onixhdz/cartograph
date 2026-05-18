@@ -34,6 +34,7 @@ var searchableLabels = []graph.NodeLabel{
 	graph.LabelTypeAlias,
 	graph.LabelProperty,
 	graph.LabelConstructor,
+	graph.LabelCodeElement,
 	graph.LabelDelegate,
 	graph.LabelRecord,
 	graph.LabelMacro,
@@ -51,6 +52,7 @@ type IndexDoc struct {
 	Content     string `json:"content,omitempty"`
 	Signature   string `json:"signature,omitempty"`
 	Description string `json:"description,omitempty"`
+	Annotations string `json:"annotations,omitempty"`
 }
 
 // Index wraps a Bleve index for searching graph nodes.
@@ -74,6 +76,7 @@ func NewIndex(path string) (*Index, error) {
 	docMapping.AddFieldMappingsAt("content", textField)
 	docMapping.AddFieldMappingsAt("signature", textField)
 	docMapping.AddFieldMappingsAt("description", textField)
+	docMapping.AddFieldMappingsAt("annotations", textField)
 
 	kwField := bleve.NewKeywordFieldMapping()
 	docMapping.AddFieldMappingsAt("id", kwField)
@@ -112,6 +115,7 @@ func NewMemoryIndex() (*Index, error) {
 	docMapping.AddFieldMappingsAt("content", textField)
 	docMapping.AddFieldMappingsAt("signature", textField)
 	docMapping.AddFieldMappingsAt("description", textField)
+	docMapping.AddFieldMappingsAt("annotations", textField)
 
 	kwField := bleve.NewKeywordFieldMapping()
 	docMapping.AddFieldMappingsAt("id", kwField)
@@ -164,14 +168,16 @@ func (ix *Index) IndexGraph(g *lpg.Graph) (int, error) {
 			}
 		}
 
+		ownerNames := symbolOwnerNames(n)
 		doc := IndexDoc{
 			ID:          id,
-			Name:        expandedName(graph.GetStringProp(n, graph.PropName), graph.GetStringProp(n, graph.PropFilePath)),
+			Name:        expandedName(graph.GetStringProp(n, graph.PropName), graph.GetStringProp(n, graph.PropFilePath), ownerNames...),
 			Label:       label,
 			FilePath:    graph.GetStringProp(n, graph.PropFilePath),
 			Content:     content,
 			Signature:   expandedSignature(graph.GetStringProp(n, graph.PropSignature)),
 			Description: graph.GetStringProp(n, graph.PropDescription),
+			Annotations: expandedSignature(graph.GetStringProp(n, graph.PropAnnotations)),
 		}
 
 		if err := batch.Index(id, doc); err != nil {
@@ -310,6 +316,10 @@ func (ix *Index) SearchMulti(rawQuery string, limit int) ([]SearchResult, error)
 	if err != nil {
 		return nil, err
 	}
+	annotationHits, err := searchField(contentQuery, "annotations")
+	if err != nil {
+		return nil, err
+	}
 
 	// FilePath field: search with cleaned query so file names/paths matching
 	// concept terms (e.g., "parser", "handler", "extract") are discoverable.
@@ -324,10 +334,10 @@ func (ix *Index) SearchMulti(rawQuery string, limit int) ([]SearchResult, error)
 	// Field weights — different profiles for NL vs identifier queries.
 	// Each weight applies to the corresponding hits list below.
 	type fieldWeights struct {
-		name, content, nameCleaned, signature, filePath, desc float64
+		name, content, nameCleaned, signature, annotations, filePath, desc float64
 	}
-	identifierWeights := fieldWeights{name: 3.0, content: 1.0, nameCleaned: 1.5, signature: 1.0, filePath: 0.5, desc: 1.5}
-	naturalLanguageWeights := fieldWeights{name: 1.5, content: 2.0, nameCleaned: 1.5, signature: 1.5, filePath: 1.0, desc: 2.0}
+	identifierWeights := fieldWeights{name: 3.0, content: 1.0, nameCleaned: 1.5, signature: 1.0, annotations: 1.25, filePath: 0.5, desc: 1.5}
+	naturalLanguageWeights := fieldWeights{name: 1.5, content: 2.0, nameCleaned: 1.5, signature: 1.5, annotations: 1.5, filePath: 1.0, desc: 2.0}
 	w := identifierWeights
 	if isNaturalLanguage {
 		w = naturalLanguageWeights
@@ -342,6 +352,7 @@ func (ix *Index) SearchMulti(rawQuery string, limit int) ([]SearchResult, error)
 	for _, opt := range []RankedList{
 		{Results: nameHitsCleaned, Weight: w.nameCleaned},
 		{Results: signatureHits, Weight: w.signature},
+		{Results: annotationHits, Weight: w.annotations},
 		{Results: filePathHits, Weight: w.filePath},
 		{Results: descHits, Weight: w.desc},
 	} {
@@ -512,8 +523,24 @@ func buildFileChildNames(g *lpg.Graph) map[string]string {
 
 // expandedName produces an enriched name string for indexing by combining
 // the raw name, its camelCase expansion, and the file basename.
-func expandedName(name, filePath string) string {
+func expandedName(name, filePath string, ownerNames ...string) string {
 	parts := []string{name}
+	seen := map[string]bool{name: true}
+
+	for _, owner := range ownerNames {
+		if owner == "" {
+			continue
+		}
+		qualified := owner + "." + name
+		if !seen[qualified] {
+			seen[qualified] = true
+			parts = append(parts, qualified)
+		}
+		if !seen[owner] {
+			seen[owner] = true
+			parts = append(parts, owner)
+		}
+	}
 
 	expanded := expandCamelCase(name)
 	if expanded != name {
@@ -524,7 +551,6 @@ func expandedName(name, filePath string) string {
 	// parser" or "ingestion pipeline" match the right symbols. This also
 	// helps the file basename and parent directory cases.
 	if filePath != "" {
-		seen := map[string]bool{name: true}
 		segments := strings.SplitSeq(filePath, "/")
 		for seg := range segments {
 			if dot := strings.LastIndex(seg, "."); dot > 0 {
@@ -544,6 +570,47 @@ func expandedName(name, filePath string) string {
 	}
 
 	return strings.Join(parts, " ")
+}
+
+func symbolOwnerNames(node *lpg.Node) []string {
+	var owners []string
+	seen := map[string]bool{}
+	addOwner := func(owner *lpg.Node) {
+		if owner == nil || owner.HasLabel(string(graph.LabelFile)) || owner.HasLabel(string(graph.LabelFolder)) {
+			return
+		}
+		name := graph.GetStringProp(owner, graph.PropName)
+		if name == "" || seen[name] {
+			return
+		}
+		seen[name] = true
+		owners = append(owners, name)
+	}
+
+	for edges := node.GetEdges(lpg.IncomingEdge); edges.Next(); {
+		edge := edges.Edge()
+		rt, err := graph.GetEdgeRelType(edge)
+		if err != nil {
+			continue
+		}
+		if rt != graph.RelHasMethod && rt != graph.RelHasProperty && rt != graph.RelContains {
+			continue
+		}
+		addOwner(edge.GetFrom())
+	}
+	if len(owners) > 0 {
+		return owners
+	}
+
+	for edges := node.GetEdges(lpg.OutgoingEdge); edges.Next(); {
+		edge := edges.Edge()
+		rt, err := graph.GetEdgeRelType(edge)
+		if err != nil || rt != graph.RelMemberOf {
+			continue
+		}
+		addOwner(edge.GetTo())
+	}
+	return owners
 }
 
 func expandedSignature(signature string) string {
