@@ -424,7 +424,11 @@ func (p *Pipeline) Run() error {
 			if writerNode == nil {
 				continue
 			}
-			graph.AddEdge(p.Graph, writerNode, propNodes[0], graph.RelAccesses, map[string]any{
+			propNode := resolveAssignmentTarget(propNodes, writerNode)
+			if propNode == nil {
+				continue
+			}
+			graph.AddEdge(p.Graph, writerNode, propNode, graph.RelAccesses, map[string]any{
 				graph.PropAccessKind: "write",
 			})
 		}
@@ -653,6 +657,46 @@ func selectOwnerNode(candidates []*lpg.Node, memberFilePath string) *lpg.Node {
 	}
 
 	return candidates[0]
+}
+
+func resolveAssignmentTarget(candidates []*lpg.Node, writerNode *lpg.Node) *lpg.Node {
+	if len(candidates) == 0 {
+		return nil
+	}
+	if writerNode == nil || len(candidates) == 1 {
+		return candidates[0]
+	}
+
+	writerOwner := ownerViaIncomingEdge(writerNode, graph.RelHasMethod)
+	if writerOwner != nil {
+		for _, candidate := range candidates {
+			if ownerViaIncomingEdge(candidate, graph.RelHasProperty) == writerOwner {
+				return candidate
+			}
+		}
+	}
+
+	writerFilePath := graph.GetStringProp(writerNode, graph.PropFilePath)
+	if writerFilePath != "" {
+		for _, candidate := range candidates {
+			if graph.GetStringProp(candidate, graph.PropFilePath) == writerFilePath {
+				return candidate
+			}
+		}
+	}
+
+	return candidates[0]
+}
+
+func ownerViaIncomingEdge(node *lpg.Node, relType graph.RelType) *lpg.Node {
+	for edges := node.GetEdges(lpg.IncomingEdge); edges.Next(); {
+		edge := edges.Edge()
+		got, err := graph.GetEdgeRelType(edge)
+		if err == nil && got == relType {
+			return edge.GetFrom()
+		}
+	}
+	return nil
 }
 
 // symbolRange holds the ID and line span of a symbol node for fast

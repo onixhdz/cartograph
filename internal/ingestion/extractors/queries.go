@@ -470,7 +470,5 @@ const solidityQueries = "(contract_declaration name: (identifier) @name) @defini
 	"(call_expression . (expression (identifier) @call.name)) @call\n" +
 	"(call_expression . (_ (member_expression property: (identifier) @call.name))) @call\n" +
 	"(modifier_invocation (identifier) @call.name) @call\n" +
-	"(emit_statement . (_) @call.name) @call\n" +
-	"(revert_statement . (_) @call.name) @call\n" +
 	"(assignment_expression (expression (identifier) @assignment.property) (_)) @assignment\n" +
 	"(assignment_expression (expression (member_expression property: (identifier) @assignment.property)) (_)) @assignment\n"

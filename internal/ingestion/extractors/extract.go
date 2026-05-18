@@ -19,6 +19,8 @@ const langPython = "python"
 
 const langCPP = "cpp"
 
+const langSolidity = "solidity"
+
 const modifierOverride = "override"
 
 const modifierFinal = "final"
@@ -419,6 +421,9 @@ func extractFileWithCache(filePath string, source []byte, language string, cache
 					if !isValidSymbolName(callee) {
 						continue
 					}
+				}
+				if language == langSolidity && i < len(nodes) && !includeSolidityCall(callee, nodes[i], source, lang) {
+					continue
 				}
 				line := 0
 				if i < len(nodes) {
@@ -979,7 +984,7 @@ func detectExported(defNode *ts.Node, name, language string, lang *ts.Language, 
 		// non-exported, but private[scope]/protected[scope] means accessible
 		// within that scope (package/object) — treat as exported.
 		return !hasScalaBareVisibility(defNode, lang, source)
-	case "solidity":
+	case langSolidity:
 		// Solidity contract-like declarations, events, and errors are addressable
 		// ABI/source concepts. Members marked private/internal are not exported.
 		return !hasVisibilityModifier(defNode, lang, source, visPrivate, visInternal)
@@ -1310,7 +1315,7 @@ func extractAnnotations(defNode *ts.Node, source []byte, lang *ts.Language, lang
 	for i, j := 0, len(annotations)-1; i < j; i, j = i+1, j-1 {
 		annotations[i], annotations[j] = annotations[j], annotations[i]
 	}
-	annotations = appendMissingModifierAnnotations(annotations, defNode, source, language)
+	annotations = appendMissingModifierAnnotations(annotations, defNode, source, lang, language)
 
 	return strings.Join(annotations, ",")
 }
@@ -1351,31 +1356,106 @@ func collectDirectAnnotationNames(node *ts.Node, source []byte, lang *ts.Languag
 	return names
 }
 
-func appendMissingModifierAnnotations(existing []string, defNode *ts.Node, source []byte, language string) []string {
+func appendMissingModifierAnnotations(existing []string, defNode *ts.Node, source []byte, lang *ts.Language, language string) []string {
 	if defNode == nil {
 		return existing
 	}
-	if language != langCPP {
-		return existing
-	}
 
-	text := safeNodeText(defNode, source)
-	if text == "" {
-		return existing
-	}
 	seen := make(map[string]bool, len(existing))
 	for _, name := range existing {
 		seen[name] = true
 	}
-	for _, kw := range []string{modifierVirtual, modifierOverride, modifierFinal} {
-		if seen[kw] {
-			continue
+	switch language {
+	case langCPP:
+		text := safeNodeText(defNode, source)
+		if text == "" {
+			return existing
 		}
-		if containsModifierToken(text, kw) {
-			existing = append(existing, kw)
+		for _, kw := range []string{modifierVirtual, modifierOverride, modifierFinal} {
+			if seen[kw] {
+				continue
+			}
+			if containsModifierToken(text, kw) {
+				existing = append(existing, kw)
+			}
 		}
+	case langSolidity:
+		for _, name := range collectSolidityModifierInvocations(defNode, source, lang) {
+			if name == "" || seen[name] {
+				continue
+			}
+			seen[name] = true
+			existing = append(existing, name)
+		}
+	default:
+		return existing
 	}
 	return existing
+}
+
+func collectSolidityModifierInvocations(defNode *ts.Node, source []byte, lang *ts.Language) []string {
+	var names []string
+	ts.Walk(defNode, func(node *ts.Node, depth int) ts.WalkAction {
+		if node == nil {
+			return ts.WalkContinue
+		}
+		ntype := strings.ToLower(node.Type(lang))
+		if depth > 0 && (ntype == "function_body" || ntype == "block") {
+			return ts.WalkSkipChildren
+		}
+		if ntype != "modifier_invocation" {
+			return ts.WalkContinue
+		}
+		if name := firstIdentifierText(node, source, nil); name != "" && isValidSymbolName(name) {
+			names = append(names, name)
+		}
+		return ts.WalkSkipChildren
+	})
+	if len(names) == 0 {
+		names = append(names, collectSolidityModifierNamesFromSignature(extractSignature(defNode, source, lang))...)
+	}
+	return names
+}
+
+func collectSolidityModifierNamesFromSignature(signature string) []string {
+	if signature == "" {
+		return nil
+	}
+	start := strings.Index(signature, ")")
+	if start < 0 || start+1 >= len(signature) {
+		return nil
+	}
+	tail := signature[start+1:]
+	tail = solidityReturnsPattern.ReplaceAllString(tail, " ")
+	var names []string
+	seen := map[string]bool{}
+	for _, match := range solidityModifierNamePattern.FindAllStringSubmatch(tail, -1) {
+		name := match[1]
+		if seen[name] || solidityNonModifierSignatureTokens[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	return names
+}
+
+var (
+	solidityReturnsPattern      = regexp.MustCompile(`returns\s*\([^)]*\)`)
+	solidityModifierNamePattern = regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*)\s*(\(|$|\s)`)
+)
+
+var solidityNonModifierSignatureTokens = map[string]bool{
+	"public":   true,
+	"external": true,
+	"internal": true,
+	"private":  true,
+	"view":     true,
+	"pure":     true,
+	"payable":  true,
+	"virtual":  true,
+	"override": true,
+	"returns":  true,
 }
 
 func containsModifierToken(text, keyword string) bool {
@@ -1817,6 +1897,48 @@ func findEnclosingClassName(node *ts.Node, source []byte, lang *ts.Language) str
 		current = current.Parent()
 	}
 	return ""
+}
+
+func includeSolidityCall(callee string, nameNode *ts.Node, source []byte, lang *ts.Language) bool {
+	modifierInvocation := findAncestorExact(nameNode, lang, "modifier_invocation", 6)
+	if modifierInvocation == nil {
+		return true
+	}
+	constructor := findAncestorExact(modifierInvocation, lang, "constructor_definition", 8)
+	if constructor == nil {
+		return false
+	}
+	contract := findAncestorExact(constructor, lang, "contract_declaration", 12)
+	return solidityContractInherits(contract, callee, source, lang)
+}
+
+func solidityContractInherits(contract *ts.Node, parentName string, source []byte, lang *ts.Language) bool {
+	if contract == nil || parentName == "" {
+		return false
+	}
+	for i := range contract.ChildCount() {
+		child := contract.Child(i)
+		if child == nil || child.Type(lang) != "inheritance_specifier" {
+			continue
+		}
+		ancestor := child.ChildByFieldName("ancestor", lang)
+		if ancestor == nil {
+			ancestor = child
+		}
+		if lastIdentifier(ancestor, source, lang) == parentName {
+			return true
+		}
+	}
+	return false
+}
+
+func findAncestorExact(node *ts.Node, lang *ts.Language, nodeType string, maxDepth int) *ts.Node {
+	for current, depth := node.Parent(), 0; current != nil && depth < maxDepth; current, depth = current.Parent(), depth+1 {
+		if current.Type(lang) == nodeType {
+			return current
+		}
+	}
+	return nil
 }
 
 // extractReceiverType extracts the receiver type from a method declaration's

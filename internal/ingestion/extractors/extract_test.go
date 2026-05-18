@@ -11,8 +11,6 @@ import (
 	"github.com/realxen/cartograph/internal/graph"
 )
 
-const langSolidity = "solidity"
-
 const testSymServer = "Server"
 
 // goTestSource is a minimal Go source file for testing extraction.
@@ -280,9 +278,14 @@ func TestExtractFile_Solidity_SymbolsAndRelationships(t *testing.T) {
 	for _, c := range result.Calls {
 		calls[c.CalleeName] = true
 	}
-	for _, want := range []string{"ERC20", "Unauthorized", "_mint", "Minted", "onlyAdmin"} {
+	for _, want := range []string{"ERC20", "_mint"} {
 		if !calls[want] {
 			t.Errorf("missing call %q; got %v", want, calls)
+		}
+	}
+	for _, unwanted := range []string{"Unauthorized", "Minted", "onlyAdmin"} {
+		if calls[unwanted] {
+			t.Errorf("unexpected core call %q from modifier/emit/revert syntax; got %v", unwanted, calls)
 		}
 	}
 
@@ -360,6 +363,34 @@ contract Transfers {
 	if kinds[graph.KindEvent] != 2 || kinds[graph.KindError] != 1 {
 		t.Fatalf("Transfer kinds = %v, want 2 events and 1 error", kinds)
 	}
+}
+
+func TestExtractFile_Solidity_ModifiersPopulateAnnotations(t *testing.T) {
+	src := []byte(`
+pragma solidity ^0.8.20;
+
+contract Vault {
+    modifier onlyRole(bytes32 role) { _; }
+    modifier nonReentrant() { _; }
+
+    function mint(address to, uint256 amount) external onlyRole(MINTER_ROLE) nonReentrant {
+    }
+}
+`)
+	result, err := ExtractFile("/tmp/Vault.sol", src, langSolidity)
+	if err != nil {
+		t.Fatalf("ExtractFile failed: %v", err)
+	}
+
+	for _, sym := range result.Symbols {
+		if sym.OwnerName == "Vault" && sym.Name == "mint" {
+			if sym.Annotations != "onlyRole,nonReentrant" {
+				t.Fatalf("mint annotations = %q, want onlyRole,nonReentrant", sym.Annotations)
+			}
+			return
+		}
+	}
+	t.Fatal("expected Vault.mint method")
 }
 
 func TestExtractFile_Go_Spawns(t *testing.T) {
