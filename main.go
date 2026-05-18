@@ -96,11 +96,19 @@ func newMemoryBackendFactory(mc *service.MemoryClient) service.BackendFactory {
 		if !ok {
 			return nil
 		}
+		var (
+			embedDir string
+			embedFn  query.QueryEmbedFn
+		)
+		if mc.HasCompleteEmbeddings(repo) {
+			embedDir = mc.GetRepoDir(repo)
+			embedFn = mc.QueryEmbed
+		}
 		return &query.Backend{
 			Graph:    g,
 			Index:    idx,
-			EmbedDir: mc.GetRepoDir(repo),
-			EmbedFn:  mc.QueryEmbed,
+			EmbedDir: embedDir,
+			EmbedFn:  embedFn,
 		}
 	}
 }

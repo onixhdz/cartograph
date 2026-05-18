@@ -2,10 +2,13 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/realxen/cartograph/internal/search"
 	"github.com/realxen/cartograph/internal/service"
@@ -160,6 +163,104 @@ func TestServerMCPClient_Cypher(t *testing.T) {
 	}
 	if len(result.Rows) == 0 {
 		t.Error("expected at least one row from cypher query")
+	}
+}
+
+func TestServerHTTPClient_ConcurrentMixedReadCommands(t *testing.T) {
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "cartograph")
+	if err := os.MkdirAll(dataDir, 0o750); err != nil {
+		t.Fatalf("mkdir data dir: %v", err)
+	}
+
+	socketPath := filepath.Join(dataDir, "test-mixed.sock")
+	lf := service.NewLockfile(dataDir)
+	t.Cleanup(func() { _ = lf.Release() })
+
+	if err := lf.Acquire(socketPath, "unix"); err != nil {
+		t.Fatalf("acquire lockfile: %v", err)
+	}
+
+	srv, err := service.NewServer(socketPath, lf, dataDir)
+	if err != nil {
+		t.Fatalf("new server: %v", err)
+	}
+	srv.SetBackendFactory(newServerBackendFactory(srv))
+
+	g := testutil.SampleGraph()
+	idx, err := search.NewMemoryIndex()
+	if err != nil {
+		t.Fatalf("new search index: %v", err)
+	}
+	if _, err := idx.IndexGraph(g); err != nil {
+		t.Fatalf("index graph: %v", err)
+	}
+	srv.LoadGraphDirect("testrepo", g, idx)
+	srv.SetIdleTimeout(0)
+	if err := srv.Start(); err != nil {
+		t.Fatalf("start server: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Stop(context.Background()) })
+
+	client := service.NewAutoClient(srv.Addr)
+	ops := []func() error{
+		func() error {
+			_, err := client.Query(service.QueryRequest{Repo: "testrepo", Text: "main helper", Limit: 5})
+			if err != nil {
+				return fmt.Errorf("query: %w", err)
+			}
+			return nil
+		},
+		func() error {
+			_, err := client.Schema(service.SchemaRequest{Repo: "testrepo"})
+			if err != nil {
+				return fmt.Errorf("schema: %w", err)
+			}
+			return nil
+		},
+		func() error {
+			_, err := client.Tree(service.TreeRequest{Repo: "testrepo"})
+			if err != nil {
+				return fmt.Errorf("tree: %w", err)
+			}
+			return nil
+		},
+		func() error {
+			_, err := client.Cypher(service.CypherRequest{Repo: "testrepo", Query: "MATCH (n) RETURN count(n) AS cnt"})
+			if err != nil {
+				return fmt.Errorf("cypher: %w", err)
+			}
+			return nil
+		},
+	}
+
+	errCh := make(chan error, 64)
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+	for range 16 {
+		for _, op := range ops {
+			wg.Go(func() {
+				if err := op(); err != nil {
+					errCh <- err
+				}
+			})
+		}
+	}
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("mixed concurrent read commands did not complete within 10s")
+	}
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			t.Fatalf("mixed concurrent read command failed: %v", err)
+		}
 	}
 }
 

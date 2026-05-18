@@ -19,6 +19,7 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/realxen/cartograph/internal/sysutil"
@@ -151,6 +152,7 @@ type Provider struct {
 	dims     int
 	maxSeq   int
 	modelTmp string
+	next     atomic.Uint64
 }
 
 // New creates a native CGO provider with default settings.
@@ -235,8 +237,19 @@ func (p *Provider) Embed(ctx context.Context, texts []string) ([][]float32, erro
 	nWorkers := len(p.workers)
 	results := make([][]float32, len(texts))
 
-	// Fast path: single text or single worker
-	if len(texts) == 1 || nWorkers == 1 {
+	// Rotate single-query embeddings across workers so concurrent service
+	// queries do not serialize behind worker 0.
+	if len(texts) == 1 {
+		workerIdx := int(p.next.Add(1)-1) % nWorkers
+		vec, err := p.workers[workerIdx].embedText(texts[0], p.dims)
+		if err != nil {
+			return nil, err
+		}
+		results[0] = vec
+		return results, nil
+	}
+
+	if nWorkers == 1 {
 		for i, text := range texts {
 			vec, err := p.workers[0].embedText(text, p.dims)
 			if err != nil {
