@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"time"
 
 	bolt "go.etcd.io/bbolt"
 )
@@ -31,6 +32,19 @@ func NewEmbeddingStore(path string) (*EmbeddingStore, error) {
 		return nil, fmt.Errorf("embedding store: open %s: %w", path, err)
 	}
 	return newEmbeddingStore(db, true)
+}
+
+// NewReadOnlyEmbeddingStore opens an existing embeddings database for
+// concurrent query-time reads without taking BoltDB's exclusive writer lock.
+func NewReadOnlyEmbeddingStore(path string) (*EmbeddingStore, error) {
+	db, err := bolt.Open(path, 0o600, &bolt.Options{
+		ReadOnly: true,
+		Timeout:  5 * time.Second,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("embedding store: open read-only %s: %w", path, err)
+	}
+	return &EmbeddingStore{db: db, ownsDB: true}, nil
 }
 
 // NewEmbeddingStoreFromDB creates an EmbeddingStore reusing an existing

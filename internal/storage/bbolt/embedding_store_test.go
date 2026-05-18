@@ -1,9 +1,11 @@
 package bbolt
 
 import (
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -169,6 +171,46 @@ func TestEmbeddingStore_Scan(t *testing.T) {
 	if len(collected) != 3 {
 		t.Errorf("scan: got %d entries, want 3", len(collected))
 	}
+}
+
+func TestReadOnlyEmbeddingStore_AllowsConcurrentScans(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "embed.db")
+	s, err := NewEmbeddingStore(path)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	for i := range 100 {
+		if err := s.Put(fmt.Sprintf("node-%d", i), []float32{float32(i)}); err != nil {
+			t.Fatalf("put: %v", err)
+		}
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Go(func() {
+			ro, err := NewReadOnlyEmbeddingStore(path)
+			if err != nil {
+				t.Errorf("new read-only: %v", err)
+				return
+			}
+			defer ro.Close()
+			count := 0
+			if err := ro.Scan(func(_ string, _ []float32) bool {
+				count++
+				return true
+			}); err != nil {
+				t.Errorf("scan: %v", err)
+				return
+			}
+			if count != 100 {
+				t.Errorf("count: got %d, want 100", count)
+			}
+		})
+	}
+	wg.Wait()
 }
 
 func TestEmbeddingStore_Scan_StopEarly(t *testing.T) {

@@ -381,6 +381,70 @@ func TestSearchMulti_SignatureMatch(t *testing.T) {
 	}
 }
 
+func TestSearchMulti_OwnerQualifiedNameAndAnnotations(t *testing.T) {
+	ix, err := NewMemoryIndex()
+	if err != nil {
+		t.Fatalf("NewMemoryIndex: %v", err)
+	}
+	defer ix.Close()
+
+	g := lpg.NewGraph()
+	contract := graph.AddSymbolNode(g, graph.LabelClass, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "class:Vault", Name: "Vault"},
+		FilePath:      "contracts/Vault.sol",
+	})
+	method := graph.AddSymbolNode(g, graph.LabelMethod, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "method:Vault.mint", Name: "mint"},
+		FilePath:      "contracts/Vault.sol",
+		Signature:     "function mint(address to, uint256 amount) external onlyRole(MINTER_ROLE)",
+		Annotations:   "onlyRole",
+	})
+	graph.AddEdge(g, contract, method, graph.RelHasMethod, nil)
+
+	if _, err := ix.IndexGraph(g); err != nil {
+		t.Fatalf("IndexGraph: %v", err)
+	}
+
+	results, err := ix.SearchMulti("Vault mint onlyRole", 5)
+	if err != nil {
+		t.Fatalf("SearchMulti: %v", err)
+	}
+	if len(results) == 0 || results[0].ID != "method:Vault.mint" {
+		t.Fatalf("expected owner-qualified annotated method first, got %+v", results)
+	}
+}
+
+func TestSearchMulti_OwnerQualifiedNameUsesMemberOfFallback(t *testing.T) {
+	ix, err := NewMemoryIndex()
+	if err != nil {
+		t.Fatalf("NewMemoryIndex: %v", err)
+	}
+	defer ix.Close()
+
+	g := lpg.NewGraph()
+	module := graph.AddSymbolNode(g, graph.LabelModule, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "module:Ledger", Name: "Ledger"},
+		FilePath:      "ledger.go",
+	})
+	fn := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "fn:commit", Name: "commit"},
+		FilePath:      "ledger.go",
+	})
+	graph.AddEdge(g, fn, module, graph.RelMemberOf, nil)
+
+	if _, err := ix.IndexGraph(g); err != nil {
+		t.Fatalf("IndexGraph: %v", err)
+	}
+
+	results, err := ix.SearchMulti("Ledger commit", 5)
+	if err != nil {
+		t.Fatalf("SearchMulti: %v", err)
+	}
+	if len(results) == 0 || results[0].ID != "fn:commit" {
+		t.Fatalf("expected MEMBER_OF-qualified function first, got %+v", results)
+	}
+}
+
 func TestSearchMulti_NameBoost(t *testing.T) {
 	ix, err := NewMemoryIndex()
 	if err != nil {

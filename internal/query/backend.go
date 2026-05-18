@@ -485,7 +485,7 @@ func (b *Backend) vectorSupplement(bm25Defs []service.SymbolMatch, queryText str
 		return nil
 	}
 
-	embStore, err := bbolt.NewEmbeddingStore(embPath)
+	embStore, err := bbolt.NewReadOnlyEmbeddingStore(embPath)
 	if err != nil {
 		return nil
 	}

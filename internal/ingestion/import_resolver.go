@@ -821,7 +821,7 @@ func resolveRelativeImport(_ *lpg.Graph, imp ImportInfo, idx *filePathIndex) *lp
 	}
 
 	// Try common extensions.
-	extensions := []string{".go", ".ts", ".tsx", ".js", ".jsx", ".py", ".java", ".rs", ".rb", ".php", ".cs", ".kt", ".swift"}
+	extensions := []string{".go", ".ts", ".tsx", ".js", ".jsx", ".py", ".java", ".rs", ".rb", ".php", ".cs", ".kt", ".swift", ".sol"}
 	if node := idx.lookupWithExtensions(resolved, extensions); node != nil {
 		return node
 	}
@@ -840,7 +840,7 @@ func resolveRelativeImport(_ *lpg.Graph, imp ImportInfo, idx *filePathIndex) *lp
 // against file paths and symbol names in the graph.
 func resolveAbsoluteImport(_ *lpg.Graph, imp ImportInfo, idx *filePathIndex) *lpg.Node {
 	// Try suffix match against the import path.
-	allExts := []string{".go", ".ts", ".tsx", ".js", ".jsx", ".py", ".java", ".rs", ".rb", ".php", ".cs", ".kt", ".swift"}
+	allExts := []string{".go", ".ts", ".tsx", ".js", ".jsx", ".py", ".java", ".rs", ".rb", ".php", ".cs", ".kt", ".swift", ".sol"}
 
 	for _, ext := range allExts {
 		if n := idx.lookupSuffix(imp.ImportPath + ext); n != nil {

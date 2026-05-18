@@ -5,6 +5,13 @@ import ts "github.com/realxen/cartograph/internal/treesitter"
 // HasNativeSupport reports whether the language is available via the native
 // tree-sitter bindings path.
 func HasNativeSupport(language string) bool {
+	lang := ts.DetectLanguageByName(language)
+	return lang != nil && !lang.UsesFallback()
+}
+
+// HasRegisteredSupport reports whether the language is explicitly registered
+// for normal ingestion, regardless of parser runtime.
+func HasRegisteredSupport(language string) bool {
 	return ts.DetectLanguageByName(language) != nil
 }
 
@@ -23,7 +30,7 @@ func HasCustomQueries(language string) bool {
 // CanParse reports whether the given language name resolves to any registered
 // tree-sitter grammar.
 func CanParse(language string) bool {
-	return HasNativeSupport(language) || HasFallbackGrammar(language)
+	return HasRegisteredSupport(language) || HasFallbackGrammar(language)
 }
 
 // CanExtract reports whether the language should enter extraction at all.
@@ -60,6 +67,7 @@ var LanguageQueries = map[string]string{
 	"swift":      swiftQueries,
 	"csharp":     csQueries,
 	"scala":      scalaQueries,
+	"solidity":   solidityQueries,
 }
 
 const goQueries = "(function_declaration name: (identifier) @name) @definition.function\n" +
@@ -440,3 +448,27 @@ const csQueries = "(class_declaration name: (identifier) @name) @definition.clas
 	"(invocation_expression function: (member_access_expression name: (identifier) @_fn (#match? @_fn \"^(Run|StartNew|QueueUserWorkItem)$\"))) @spawn\n" +
 	// C# delegate: identifier passed as method argument
 	"(invocation_expression arguments: (argument_list (argument (identifier) @delegate.target))) @delegate\n"
+
+const solidityQueries = "(contract_declaration name: (identifier) @name) @definition.class\n" +
+	"(interface_declaration name: (identifier) @name) @definition.interface\n" +
+	"(library_declaration name: (identifier) @name) @definition.class\n" +
+	"(function_definition name: (identifier) @name) @definition.function\n" +
+	"(constructor_definition \"constructor\" @name) @definition.constructor\n" +
+	"(fallback_receive_definition \"receive\" @name) @definition.method\n" +
+	"(fallback_receive_definition \"fallback\" @name) @definition.method\n" +
+	"(modifier_definition name: (identifier) @name) @definition.method\n" +
+	"(event_definition name: (identifier) @name) @definition.event\n" +
+	"(error_declaration name: (identifier) @name) @definition.error\n" +
+	"(struct_declaration name: (identifier) @name) @definition.struct\n" +
+	"(enum_declaration name: (identifier) @name) @definition.enum\n" +
+	"(state_variable_declaration \"constant\" name: (identifier) @name) @definition.constant\n" +
+	"(state_variable_declaration name: (identifier) @name) @definition.property\n" +
+	"(constant_variable_declaration name: (identifier) @name) @definition.constant\n" +
+	"(import_directive source: (string) @import.source) @import\n" +
+	"(contract_declaration name: (identifier) @heritage.class (inheritance_specifier ancestor: (_) @heritage.extends)) @heritage\n" +
+	"(interface_declaration name: (identifier) @heritage.class (inheritance_specifier ancestor: (_) @heritage.implements)) @heritage.impl\n" +
+	"(call_expression . (expression (identifier) @call.name)) @call\n" +
+	"(call_expression . (_ (member_expression property: (identifier) @call.name))) @call\n" +
+	"(modifier_invocation (identifier) @call.name) @call\n" +
+	"(assignment_expression (expression (identifier) @assignment.property) (_)) @assignment\n" +
+	"(assignment_expression (expression (member_expression property: (identifier) @assignment.property)) (_)) @assignment\n"

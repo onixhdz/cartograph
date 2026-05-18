@@ -736,3 +736,55 @@ func TestPipeline_AddSymbolsToGraphPrefersOwnerInSameFile(t *testing.T) {
 		t.Fatalf("expected owner class:pkg2:service, got %q", gotOwnerID)
 	}
 }
+
+func TestPipeline_SolidityAssignmentsPreferEnclosingContractState(t *testing.T) {
+	dir := testutil.TempDir(t, map[string]string{
+		"Ledger.sol": `pragma solidity ^0.8.20;
+
+contract Alpha {
+    uint256 public cap;
+}
+
+contract Beta {
+    uint256 public cap;
+
+    function set(uint256 value) external {
+        cap = value;
+    }
+}
+`,
+	})
+
+	p := NewPipeline(dir, PipelineOptions{})
+	if err := p.Run(); err != nil {
+		t.Fatalf("Pipeline.Run() error: %v", err)
+	}
+
+	g := p.GetGraph()
+	var betaSet *lpg.Node
+	for _, method := range graph.FindNodesByNameAndLabel(g, "set", graph.LabelMethod) {
+		owners := graph.GetNeighbors(method, lpg.IncomingEdge, graph.RelHasMethod)
+		if len(owners) == 1 && graph.GetStringProp(owners[0], graph.PropName) == "Beta" {
+			betaSet = method
+			break
+		}
+	}
+	if betaSet == nil {
+		t.Fatal("expected Beta.set method node")
+	}
+
+	targets := graph.GetNeighbors(betaSet, lpg.OutgoingEdge, graph.RelAccesses)
+	if len(targets) != 1 {
+		t.Fatalf("Beta.set ACCESS targets = %d, want 1", len(targets))
+	}
+	if got := graph.GetStringProp(targets[0], graph.PropName); got != "cap" {
+		t.Fatalf("ACCESS target name = %q, want cap", got)
+	}
+	owners := graph.GetNeighbors(targets[0], lpg.IncomingEdge, graph.RelHasProperty)
+	if len(owners) != 1 {
+		t.Fatalf("cap owner count = %d, want 1", len(owners))
+	}
+	if got := graph.GetStringProp(owners[0], graph.PropName); got != "Beta" {
+		t.Fatalf("ACCESS target owner = %q, want Beta", got)
+	}
+}

@@ -104,6 +104,7 @@ func TestParseBundle_PatternProperties(t *testing.T) {
 	sqlInj := findPattern(parsed.patterns, testCapecSQLInjection)
 	if sqlInj == nil {
 		t.Fatal("CAPEC-66 not found")
+		return
 	}
 
 	if sqlInj.name != "SQL Injection" {
@@ -130,6 +131,7 @@ func TestParseBundle_CrossRefs(t *testing.T) {
 	sqlInj := findPattern(parsed.patterns, testCapecSQLInjection)
 	if sqlInj == nil {
 		t.Fatal("CAPEC-66 not found")
+		return
 	}
 
 	if sqlInj.relatedCWEs != "CWE-89,CWE-20" {
@@ -148,6 +150,7 @@ func TestParseBundle_HTMLStripping(t *testing.T) {
 	meta := findPattern(parsed.patterns, testCapecCategoryMeta)
 	if meta == nil {
 		t.Fatal("CAPEC-152 not found")
+		return
 	}
 
 	want := "An adversary exploits injection flaws to send hostile data to an interpreter."
@@ -159,6 +162,7 @@ func TestParseBundle_HTMLStripping(t *testing.T) {
 	sqlInj := findPattern(parsed.patterns, testCapecSQLInjection)
 	if sqlInj == nil {
 		t.Fatal("CAPEC-66 not found")
+		return
 	}
 
 	// Should not contain any HTML tags.
@@ -181,6 +185,7 @@ func TestParseBundle_EmbeddedRefs(t *testing.T) {
 	sqlInj := findPattern(parsed.patterns, testCapecSQLInjection)
 	if sqlInj == nil {
 		t.Fatal("CAPEC-66 not found")
+		return
 	}
 
 	if len(sqlInj.childOfRefs) != 1 {
