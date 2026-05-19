@@ -889,7 +889,7 @@ func TestAnalyzeCmd_MultipleSources(t *testing.T) {
 	}
 }
 
-func TestAnalyzeCmd_ProjectSelectionAutoSplitsLocalProjects(t *testing.T) {
+func TestAnalyzeCmd_RepoSelectionAutoSplitsLocalRepos(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
 	dir := t.TempDir()
@@ -903,7 +903,7 @@ func TestAnalyzeCmd_ProjectSelectionAutoSplitsLocalProjects(t *testing.T) {
 
 	mc := &mockClient{}
 	cli := &CLI{Client: mc}
-	cmd := &AnalyzeCmd{Targets: []string{dir}, Projects: "auto", Embed: "off"}
+	cmd := &AnalyzeCmd{Targets: []string{dir}, Repos: "auto", Embed: "off"}
 
 	out := captureStdout(t, func() {
 		if err := cmd.Run(cli); err != nil {
@@ -911,7 +911,7 @@ func TestAnalyzeCmd_ProjectSelectionAutoSplitsLocalProjects(t *testing.T) {
 		}
 	})
 	if strings.Count(out, "Analyzing ") != 2 {
-		t.Fatalf("expected two selected projects to be analyzed, got output:\n%s", out)
+		t.Fatalf("expected two selected repos to be analyzed, got output:\n%s", out)
 	}
 	reg, err := storage.NewRegistry(DefaultDataDir())
 	if err != nil {
@@ -925,7 +925,7 @@ func TestAnalyzeCmd_ProjectSelectionAutoSplitsLocalProjects(t *testing.T) {
 	}
 }
 
-func TestAnalyzeCmd_ProjectSelectionNoneKeepsContainer(t *testing.T) {
+func TestAnalyzeCmd_RepoSelectionNoneKeepsContainer(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
 	dir := t.TempDir()
@@ -939,7 +939,7 @@ func TestAnalyzeCmd_ProjectSelectionNoneKeepsContainer(t *testing.T) {
 
 	mc := &mockClient{}
 	cli := &CLI{Client: mc}
-	cmd := &AnalyzeCmd{Targets: []string{dir}, Projects: "none", Embed: "off"}
+	cmd := &AnalyzeCmd{Targets: []string{dir}, Repos: "none", Embed: "off"}
 	out := captureStdout(t, func() {
 		if err := cmd.Run(cli); err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -950,7 +950,7 @@ func TestAnalyzeCmd_ProjectSelectionNoneKeepsContainer(t *testing.T) {
 	}
 }
 
-func TestAnalyzeCmd_ProjectSelectionRefusesLinkedContainer(t *testing.T) {
+func TestAnalyzeCmd_RepoSelectionRefusesLinkedContainer(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
 	dir := t.TempDir()
@@ -975,27 +975,27 @@ func TestAnalyzeCmd_ProjectSelectionRefusesLinkedContainer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cmd := &AnalyzeCmd{Targets: []string{dir}, Projects: "auto", Embed: "off"}
+	cmd := &AnalyzeCmd{Targets: []string{dir}, Repos: "auto", Embed: "off"}
 	err = cmd.Run(&CLI{Client: &mockClient{}})
 	if err == nil || !strings.Contains(err.Error(), "already indexed") {
 		t.Fatalf("expected linked container refusal, got %v", err)
 	}
 }
 
-func TestRenderDetectedProjectsAlignsTable(t *testing.T) {
-	candidates := []ingestion.ProjectCandidate{
-		{RelPath: "short", Classification: ingestion.ProjectClassificationPrimary, Recommended: true, Signals: []ingestion.ProjectSignal{ingestion.ProjectSignalGitRoot}},
-		{RelPath: "very/long/project/path", Classification: ingestion.ProjectClassificationPrimary, Recommended: true, Signals: []ingestion.ProjectSignal{ingestion.ProjectSignalManifestOnly, ingestion.ProjectSignalSourceDensity}},
+func TestRenderDetectedReposAlignsTable(t *testing.T) {
+	candidates := []ingestion.RepoCandidate{
+		{RelPath: "short", Classification: ingestion.RepoClassificationPrimary, Recommended: true, Signals: []ingestion.RepoSignal{ingestion.RepoSignalGitRoot}},
+		{RelPath: "very/long/repo/path", Classification: ingestion.RepoClassificationPrimary, Recommended: true, Signals: []ingestion.RepoSignal{ingestion.RepoSignalManifestRoot, ingestion.RepoSignalSourceDensity}},
 	}
 
 	out := captureStdout(t, func() {
-		renderDetectedProjects("/repo", candidates)
+		renderDetectedRepos("/repo", candidates)
 	})
-	if !strings.Contains(out, "PROJECT") || !strings.Contains(out, "STATUS") || !strings.Contains(out, "SIGNALS") {
+	if !strings.Contains(out, "REPO") || !strings.Contains(out, "STATUS") || !strings.Contains(out, "SIGNALS") {
 		t.Fatalf("expected table headers, got:\n%s", out)
 	}
 	for line := range strings.SplitSeq(out, "\n") {
-		if strings.Contains(line, "short") || strings.Contains(line, "very/long/project/path") {
+		if strings.Contains(line, "short") || strings.Contains(line, "very/long/repo/path") {
 			if !regexp.MustCompile(`^  \S+(?:\s{2,})recommended(?:\s{2,})\S+`).MatchString(line) {
 				t.Fatalf("expected aligned table row, got %q in output:\n%s", line, out)
 			}
@@ -1003,38 +1003,38 @@ func TestRenderDetectedProjectsAlignsTable(t *testing.T) {
 	}
 }
 
-func TestRenderDetectedProjectsLimitsPreviewRows(t *testing.T) {
-	candidates := make([]ingestion.ProjectCandidate, detectedProjectsPreviewRows+2)
+func TestRenderDetectedReposLimitsPreviewRows(t *testing.T) {
+	candidates := make([]ingestion.RepoCandidate, detectedReposPreviewRows+2)
 	for i := range candidates {
-		candidates[i] = ingestion.ProjectCandidate{
-			RelPath:        fmt.Sprintf("project-%02d", i),
-			Classification: ingestion.ProjectClassificationPrimary,
+		candidates[i] = ingestion.RepoCandidate{
+			RelPath:        fmt.Sprintf("repo-%02d", i),
+			Classification: ingestion.RepoClassificationPrimary,
 			Recommended:    true,
-			Signals:        []ingestion.ProjectSignal{ingestion.ProjectSignalGitRoot},
+			Signals:        []ingestion.RepoSignal{ingestion.RepoSignalGitRoot},
 		}
 	}
 
 	out := captureStdout(t, func() {
-		renderDetectedProjects("/repo", candidates)
+		renderDetectedRepos("/repo", candidates)
 	})
-	if strings.Contains(out, "project-20") || strings.Contains(out, "project-21") {
+	if strings.Contains(out, "repo-20") || strings.Contains(out, "repo-21") {
 		t.Fatalf("expected preview to hide rows after limit, got:\n%s", out)
 	}
-	if !strings.Contains(out, "... and 2 more projects") {
+	if !strings.Contains(out, "... and 2 more repo candidates") {
 		t.Fatalf("expected truncated count, got:\n%s", out)
 	}
 }
 
-func TestSplitRemoteProjectHashIncludesResolvedBranch(t *testing.T) {
+func TestSplitRemoteRepoHashIncludesResolvedBranch(t *testing.T) {
 	identity := remote.RepoIdentity{Canonical: "github.com/acme/repo"}
-	mainHash := splitRemoteProjectHash(identity, "apps/web", "main")
-	v1Hash := splitRemoteProjectHash(identity, "apps/web", "v1.0.0")
+	mainHash := splitRemoteRepoHash(identity, "apps/web", "main")
+	v1Hash := splitRemoteRepoHash(identity, "apps/web", "v1.0.0")
 	if mainHash == v1Hash {
-		t.Fatal("expected different split project hashes for different branches")
+		t.Fatal("expected different split repo hashes for different branches")
 	}
 
 	qualified := remote.RepoIdentity{Canonical: "github.com/acme/repo@v2.0.0"}
-	if got, want := splitRemoteProjectHash(qualified, "apps/web", "main"), splitRemoteProjectHash(qualified, "apps/web", "v2.0.0"); got != want {
+	if got, want := splitRemoteRepoHash(qualified, "apps/web", "main"), splitRemoteRepoHash(qualified, "apps/web", "v2.0.0"); got != want {
 		t.Fatalf("expected canonical inline ref to remain authoritative, got %s and %s", got, want)
 	}
 }

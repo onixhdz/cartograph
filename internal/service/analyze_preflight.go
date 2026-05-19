@@ -17,28 +17,28 @@ func BuildAnalyzePreflight(req AnalyzePreflightRequest) (*AnalyzePreflightResult
 	if target == "" {
 		target = "."
 	}
-	result, err := ingestion.DetectProjects(target, ingestion.ProjectDetectionOptions{})
+	result, err := ingestion.DetectRepoCandidates(target, ingestion.RepoDetectionOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("detect projects: %w", err)
+		return nil, fmt.Errorf("detect repo candidates: %w", err)
 	}
-	candidates := analyzeProjectCandidates(result.Candidates)
+	candidates := analyzeRepoCandidates(result.Candidates)
 	selected, required, err := analyzePreflightSelection(req.Selection, result.Candidates)
 	if err != nil {
 		return nil, err
 	}
-	res := NewAnalyzePreflightResult(req, candidates, analyzeProjectCandidates(selected), required)
+	res := NewAnalyzePreflightResult(req, candidates, analyzeRepoCandidates(selected), required)
 	res.Target = target
 	return &res, nil
 }
 
-func analyzeProjectCandidates(candidates []ingestion.ProjectCandidate) []AnalyzeProjectCandidate {
-	out := make([]AnalyzeProjectCandidate, 0, len(candidates))
+func analyzeRepoCandidates(candidates []ingestion.RepoCandidate) []AnalyzeRepoCandidate {
+	out := make([]AnalyzeRepoCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
-		out = append(out, AnalyzeProjectCandidate{
+		out = append(out, AnalyzeRepoCandidate{
 			Name:           candidate.Name,
 			Path:           candidate.Path,
 			RelPath:        candidate.RelPath,
-			Signals:        analyzeProjectSignals(candidate.Signals),
+			Signals:        analyzeRepoSignals(candidate.Signals),
 			Classification: string(candidate.Classification),
 			Recommended:    candidate.Recommended,
 			SourceFiles:    candidate.SourceFiles,
@@ -48,7 +48,7 @@ func analyzeProjectCandidates(candidates []ingestion.ProjectCandidate) []Analyze
 	return out
 }
 
-func analyzeProjectSignals(signals []ingestion.ProjectSignal) []string {
+func analyzeRepoSignals(signals []ingestion.RepoSignal) []string {
 	out := make([]string, len(signals))
 	for i, signal := range signals {
 		out[i] = string(signal)
@@ -56,27 +56,24 @@ func analyzeProjectSignals(signals []ingestion.ProjectSignal) []string {
 	return out
 }
 
-func analyzePreflightSelection(selection AnalyzeProjectSelection, candidates []ingestion.ProjectCandidate) ([]ingestion.ProjectCandidate, bool, error) {
+func analyzePreflightSelection(selection AnalyzeRepoSelection, candidates []ingestion.RepoCandidate) ([]ingestion.RepoCandidate, bool, error) {
 	switch selection.Mode {
-	case "", AnalyzeProjectSelectionDefault:
-		return nil, shouldRequireAnalyzeProjectSelection(candidates), nil
-	case AnalyzeProjectSelectionNone:
+	case "", AnalyzeRepoSelectionDefault:
+		return nil, shouldRequireAnalyzeRepoSelection(candidates), nil
+	case AnalyzeRepoSelectionNone:
 		return nil, false, nil
-	case AnalyzeProjectSelectionAuto:
-		selected := recommendedAnalyzeProjects(candidates)
-		if len(selected) == 0 {
-			return nil, false, errors.New("no recommended projects detected")
-		}
+	case AnalyzeRepoSelectionAuto:
+		selected := recommendedAnalyzeRepos(candidates)
 		return selected, false, nil
-	case AnalyzeProjectSelectionManual:
-		selected, err := selectAnalyzeProjectsBySelector(candidates, selection.Selectors)
+	case AnalyzeRepoSelectionManual:
+		selected, err := selectAnalyzeReposBySelector(candidates, selection.Selectors)
 		return selected, false, err
 	default:
-		return nil, false, fmt.Errorf("unsupported project selection mode %q", selection.Mode)
+		return nil, false, fmt.Errorf("unsupported repo selection mode %q", selection.Mode)
 	}
 }
 
-func shouldRequireAnalyzeProjectSelection(candidates []ingestion.ProjectCandidate) bool {
+func shouldRequireAnalyzeRepoSelection(candidates []ingestion.RepoCandidate) bool {
 	count := 0
 	for _, candidate := range candidates {
 		if candidate.Recommended && candidate.RelPath != "" {
@@ -86,8 +83,8 @@ func shouldRequireAnalyzeProjectSelection(candidates []ingestion.ProjectCandidat
 	return count > 1
 }
 
-func recommendedAnalyzeProjects(candidates []ingestion.ProjectCandidate) []ingestion.ProjectCandidate {
-	var selected []ingestion.ProjectCandidate
+func recommendedAnalyzeRepos(candidates []ingestion.RepoCandidate) []ingestion.RepoCandidate {
+	var selected []ingestion.RepoCandidate
 	for _, candidate := range candidates {
 		if candidate.Recommended && candidate.RelPath != "" {
 			selected = append(selected, candidate)
@@ -96,15 +93,15 @@ func recommendedAnalyzeProjects(candidates []ingestion.ProjectCandidate) []inges
 	return selected
 }
 
-func selectAnalyzeProjectsBySelector(candidates []ingestion.ProjectCandidate, selectors []string) ([]ingestion.ProjectCandidate, error) {
-	var selected []ingestion.ProjectCandidate
+func selectAnalyzeReposBySelector(candidates []ingestion.RepoCandidate, selectors []string) ([]ingestion.RepoCandidate, error) {
+	var selected []ingestion.RepoCandidate
 	seen := make(map[string]bool)
 	for _, selector := range selectors {
 		selector = filepath.ToSlash(strings.TrimSpace(selector))
 		if selector == "" {
 			continue
 		}
-		var matches []ingestion.ProjectCandidate
+		var matches []ingestion.RepoCandidate
 		for _, candidate := range candidates {
 			if candidate.Name == selector || candidate.RelPath == selector {
 				matches = append(matches, candidate)
@@ -112,7 +109,7 @@ func selectAnalyzeProjectsBySelector(candidates []ingestion.ProjectCandidate, se
 		}
 		switch len(matches) {
 		case 0:
-			return nil, fmt.Errorf("project selector %q did not match any detected project", selector)
+			return nil, fmt.Errorf("repo selector %q did not match any detected repo candidate", selector)
 		case 1:
 			candidate := matches[0]
 			if !seen[candidate.RelPath] {
@@ -124,11 +121,11 @@ func selectAnalyzeProjectsBySelector(candidates []ingestion.ProjectCandidate, se
 			for i, match := range matches {
 				paths[i] = match.RelPath
 			}
-			return nil, fmt.Errorf("project selector %q is ambiguous; use relative path: %s", selector, strings.Join(paths, ", "))
+			return nil, fmt.Errorf("repo selector %q is ambiguous; use relative path: %s", selector, strings.Join(paths, ", "))
 		}
 	}
 	if len(selected) == 0 {
-		return nil, errors.New("select at least one project")
+		return nil, errors.New("select at least one repo candidate")
 	}
 	return selected, nil
 }

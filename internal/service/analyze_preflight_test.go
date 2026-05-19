@@ -21,13 +21,13 @@ func TestBuildAnalyzePreflightDefaultRequiresSelection(t *testing.T) {
 		t.Fatalf("BuildAnalyzePreflight: %v", err)
 	}
 	if !res.Required {
-		t.Fatal("expected project selection to be required")
+		t.Fatal("expected repo selection to be required")
 	}
 	if len(res.Candidates) == 0 {
 		t.Fatal("expected candidates")
 	}
 	if len(res.Selected) != 0 {
-		t.Fatalf("default preflight should not select projects, got %+v", res.Selected)
+		t.Fatalf("default preflight should not select repos, got %+v", res.Selected)
 	}
 }
 
@@ -43,8 +43,8 @@ func TestBuildAnalyzePreflightAutoSelectsRecommended(t *testing.T) {
 
 	res, err := BuildAnalyzePreflight(AnalyzePreflightRequest{
 		Target: root,
-		Selection: AnalyzeProjectSelection{
-			Mode: AnalyzeProjectSelectionAuto,
+		Selection: AnalyzeRepoSelection{
+			Mode: AnalyzeRepoSelectionAuto,
 		},
 	})
 	if err != nil {

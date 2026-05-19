@@ -9,6 +9,7 @@ import (
 	"github.com/cloudprivacylabs/opencypher"
 
 	"github.com/realxen/cartograph/internal/graph"
+	"github.com/realxen/cartograph/internal/ingestion"
 	"github.com/realxen/cartograph/internal/search"
 	"github.com/realxen/cartograph/internal/service"
 	"github.com/realxen/cartograph/plugin"
@@ -1463,8 +1464,8 @@ func TestIsTestFile(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.path, func(t *testing.T) {
-			if got := isTestFile(tc.path); got != tc.want {
-				t.Errorf("isTestFile(%q) = %v, want %v", tc.path, got, tc.want)
+			if got := ingestion.IsTestFile(tc.path); got != tc.want {
+				t.Errorf("ingestion.IsTestFile(%q) = %v, want %v", tc.path, got, tc.want)
 			}
 		})
 	}

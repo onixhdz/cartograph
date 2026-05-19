@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestDetectProjectsManifestAndWorkspaceCandidates(t *testing.T) {
+func TestDetectRepoCandidatesManifestAndWorkspaceCandidates(t *testing.T) {
 	root := t.TempDir()
 	writeProjectFile(t, root, "package.json", `{"name":"root","workspaces":["apps/api","apps/web"]}`)
 	writeProjectFile(t, root, "apps/api/package.json", `{"name":"backend"}`)
@@ -19,20 +19,20 @@ func TestDetectProjectsManifestAndWorkspaceCandidates(t *testing.T) {
 	writeProjectFile(t, root, "apps/web/index.js", "export function web() {}")
 	writeProjectFile(t, root, "apps/web/view.js", "export function view() {}")
 
-	result, err := DetectProjects(root, ProjectDetectionOptions{})
+	result, err := DetectRepoCandidates(root, RepoDetectionOptions{})
 	if err != nil {
-		t.Fatalf("DetectProjects: %v", err)
+		t.Fatalf("DetectRepoCandidates: %v", err)
 	}
-	api := projectCandidateByRel(t, result.Candidates, "apps/api")
-	if api.Classification != ProjectClassificationPrimary || !api.Recommended {
+	api := repoCandidateByRel(t, result.Candidates, "apps/api")
+	if api.Classification != RepoClassificationPrimary || !api.Recommended {
 		t.Fatalf("api classification = %s recommended=%v", api.Classification, api.Recommended)
 	}
-	if !slices.Contains(api.Signals, ProjectSignalWorkspaceOwned) {
-		t.Fatalf("api signals = %v, want workspace-owned", api.Signals)
+	if !slices.Contains(api.Signals, RepoSignalWorkspaceMember) {
+		t.Fatalf("api signals = %v, want workspace-member", api.Signals)
 	}
 }
 
-func TestDetectProjectsWorkspaceChildrenRecommendedWhenRootIsContainerOnly(t *testing.T) {
+func TestDetectRepoCandidatesWorkspaceChildrenRecommendedWhenRootIsContainerOnly(t *testing.T) {
 	root := t.TempDir()
 	writeProjectFile(t, root, "package.json", `{"name":"root","workspaces":["apps/api","apps/web"]}`)
 	writeProjectFile(t, root, "apps/api/package.json", `{"name":"backend"}`)
@@ -42,19 +42,19 @@ func TestDetectProjectsWorkspaceChildrenRecommendedWhenRootIsContainerOnly(t *te
 	writeProjectFile(t, root, "apps/web/index.js", "export function web() {}")
 	writeProjectFile(t, root, "apps/web/view.js", "export function view() {}")
 
-	result, err := DetectProjects(root, ProjectDetectionOptions{})
+	result, err := DetectRepoCandidates(root, RepoDetectionOptions{})
 	if err != nil {
-		t.Fatalf("DetectProjects: %v", err)
+		t.Fatalf("DetectRepoCandidates: %v", err)
 	}
 	for _, rel := range []string{"apps/api", "apps/web"} {
-		candidate := projectCandidateByRel(t, result.Candidates, rel)
-		if !candidate.Recommended || !slices.Contains(candidate.Signals, ProjectSignalWorkspaceOwned) {
+		candidate := repoCandidateByRel(t, result.Candidates, rel)
+		if !candidate.Recommended || !slices.Contains(candidate.Signals, RepoSignalWorkspaceMember) {
 			t.Fatalf("workspace child %s should be recommended for container-only root: %+v", rel, candidate)
 		}
 	}
 }
 
-func TestDetectProjectsExpandsWorkspaceGlobsAndSkipsExternal(t *testing.T) {
+func TestDetectRepoCandidatesExpandsWorkspaceGlobsAndSkipsExternal(t *testing.T) {
 	root := t.TempDir()
 	writeProjectFile(t, root, "package.json", `{"name":"root","workspaces":["apps/*","apps/deleted","../outside"]}`)
 	writeProjectFile(t, root, "apps/api/package.json", `{"name":"backend"}`)
@@ -63,14 +63,14 @@ func TestDetectProjectsExpandsWorkspaceGlobsAndSkipsExternal(t *testing.T) {
 	writeProjectFile(t, root, "apps/web/package.json", `{"name":"web"}`)
 	writeProjectFile(t, root, "apps/web/index.js", "export function web() {}")
 
-	result, err := DetectProjects(root, ProjectDetectionOptions{})
+	result, err := DetectRepoCandidates(root, RepoDetectionOptions{})
 	if err != nil {
-		t.Fatalf("DetectProjects: %v", err)
+		t.Fatalf("DetectRepoCandidates: %v", err)
 	}
 	for _, rel := range []string{"apps/api", "apps/web"} {
-		candidate := projectCandidateByRel(t, result.Candidates, rel)
-		if !slices.Contains(candidate.Signals, ProjectSignalWorkspaceOwned) || !candidate.Recommended {
-			t.Fatalf("%s signals=%v recommended=%v, want workspace-owned recommended", rel, candidate.Signals, candidate.Recommended)
+		candidate := repoCandidateByRel(t, result.Candidates, rel)
+		if !slices.Contains(candidate.Signals, RepoSignalWorkspaceMember) || !candidate.Recommended {
+			t.Fatalf("%s signals=%v recommended=%v, want workspace-member recommended", rel, candidate.Signals, candidate.Recommended)
 		}
 	}
 	for _, candidate := range result.Candidates {
@@ -86,22 +86,22 @@ func TestDetectProjectsExpandsWorkspaceGlobsAndSkipsExternal(t *testing.T) {
 	}
 }
 
-func TestDetectProjectsConfigOnlyDirectoryNotRecommendedByDensity(t *testing.T) {
+func TestDetectRepoCandidatesConfigOnlyDirectoryNotRecommendedByDensity(t *testing.T) {
 	root := t.TempDir()
 	writeProjectFile(t, root, "packages/config/package.json", `{"name":"config"}`)
 	writeProjectFile(t, root, "packages/config/tsconfig.json", `{}`)
 
-	result, err := DetectProjects(root, ProjectDetectionOptions{})
+	result, err := DetectRepoCandidates(root, RepoDetectionOptions{})
 	if err != nil {
-		t.Fatalf("DetectProjects: %v", err)
+		t.Fatalf("DetectRepoCandidates: %v", err)
 	}
-	candidate := projectCandidateByRel(t, result.Candidates, "packages/config")
-	if candidate.Recommended || candidate.Classification != ProjectClassificationAmbiguous {
+	candidate := repoCandidateByRel(t, result.Candidates, "packages/config")
+	if candidate.Recommended || candidate.Classification != RepoClassificationAmbiguous {
 		t.Fatalf("config-only classification=%s recommended=%v sourceFiles=%d", candidate.Classification, candidate.Recommended, candidate.SourceFiles)
 	}
 }
 
-func TestDetectProjectsRelativeRootIncludesVCSSignals(t *testing.T) {
+func TestDetectRepoCandidatesRelativeRootIncludesVCSSignals(t *testing.T) {
 	base := t.TempDir()
 	root := filepath.Join(base, "repo")
 	writeProjectFile(t, root, "go.mod", "module example.com/repo\n")
@@ -123,12 +123,12 @@ func TestDetectProjectsRelativeRootIncludesVCSSignals(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(cwd) })
 
-	result, err := DetectProjects("repo", ProjectDetectionOptions{})
+	result, err := DetectRepoCandidates("repo", RepoDetectionOptions{})
 	if err != nil {
-		t.Fatalf("DetectProjects: %v", err)
+		t.Fatalf("DetectRepoCandidates: %v", err)
 	}
-	rootCandidate := projectCandidateByRel(t, result.Candidates, "")
-	if !slices.Contains(rootCandidate.Signals, ProjectSignalGitRoot) {
+	rootCandidate := repoCandidateByRel(t, result.Candidates, "")
+	if !slices.Contains(rootCandidate.Signals, RepoSignalGitRoot) {
 		t.Fatalf("root signals = %v, want git-root", rootCandidate.Signals)
 	}
 	for _, candidate := range result.Candidates {
@@ -138,34 +138,34 @@ func TestDetectProjectsRelativeRootIncludesVCSSignals(t *testing.T) {
 	}
 }
 
-func TestDetectProjectsNonLocalWalkerDoesNotScanHostRootForVCS(t *testing.T) {
+func TestDetectRepoCandidatesNonLocalWalkerDoesNotScanHostRootForVCS(t *testing.T) {
 	walker := fakeProjectWalker{results: []WalkResult{{Path: "/go.mod", RelPath: "go.mod", Language: "go"}}}
 	reader := fakeProjectReader{files: map[string]string{"/go.mod": "module example.com/remote\n"}}
 
-	result, err := DetectProjects("/", ProjectDetectionOptions{Walker: walker, Reader: reader})
+	result, err := DetectRepoCandidates("/", RepoDetectionOptions{Walker: walker, Reader: reader})
 	if err != nil {
-		t.Fatalf("DetectProjects: %v", err)
+		t.Fatalf("DetectRepoCandidates: %v", err)
 	}
-	rootCandidate := projectCandidateByRel(t, result.Candidates, "")
-	if slices.Contains(rootCandidate.Signals, ProjectSignalGitRoot) {
+	rootCandidate := repoCandidateByRel(t, result.Candidates, "")
+	if slices.Contains(rootCandidate.Signals, RepoSignalGitRoot) {
 		t.Fatalf("non-local root should not get host git-root signal: %+v", rootCandidate)
 	}
 }
 
-func TestDetectProjectsSolutionWorkspaceUsesProjectDirectories(t *testing.T) {
+func TestDetectRepoCandidatesSolutionWorkspaceUsesProjectDirectories(t *testing.T) {
 	root := t.TempDir()
 	writeProjectFile(t, root, "App.sln", `Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Api", "src\Api\Api.csproj", "{11111111-1111-1111-1111-111111111111}"
 EndProject`)
 	writeProjectFile(t, root, "src/Api/Api.csproj", `<Project Sdk="Microsoft.NET.Sdk"></Project>`)
 	writeProjectFile(t, root, "src/Api/Program.cs", "namespace Api; class Program {}")
 
-	result, err := DetectProjects(root, ProjectDetectionOptions{})
+	result, err := DetectRepoCandidates(root, RepoDetectionOptions{})
 	if err != nil {
-		t.Fatalf("DetectProjects: %v", err)
+		t.Fatalf("DetectRepoCandidates: %v", err)
 	}
-	candidate := projectCandidateByRel(t, result.Candidates, "src/Api")
-	if !candidate.Recommended || !slices.Contains(candidate.Signals, ProjectSignalWorkspaceOwned) {
-		t.Fatalf("src/Api candidate = %+v, want recommended workspace-owned", candidate)
+	candidate := repoCandidateByRel(t, result.Candidates, "src/Api")
+	if !candidate.Recommended || !slices.Contains(candidate.Signals, RepoSignalWorkspaceMember) {
+		t.Fatalf("src/Api candidate = %+v, want recommended workspace-member", candidate)
 	}
 	for _, candidate := range result.Candidates {
 		if strings.HasSuffix(candidate.RelPath, extCSProj) {
@@ -174,30 +174,30 @@ EndProject`)
 	}
 }
 
-func TestDetectProjectsDependencyPathGitRootIsSkipped(t *testing.T) {
+func TestDetectRepoCandidatesDependencyPathGitRootIsSkipped(t *testing.T) {
 	root := t.TempDir()
 	writeProjectFile(t, root, ".gitmodules", "[submodule \"vendor\"]\n\tpath=\"vendor\"\n\turl=https://example.com/vendor.git\n")
 	writeProjectFile(t, root, "go.mod", "module example.com/root\n")
 	writeProjectFile(t, root, "main.go", "package main\nfunc main() {}")
 	writeProjectFile(t, root, "vendor/.git", "gitdir: ../.git/modules/vendor\n")
 
-	result, err := DetectProjects(root, ProjectDetectionOptions{})
+	result, err := DetectRepoCandidates(root, RepoDetectionOptions{})
 	if err != nil {
-		t.Fatalf("DetectProjects: %v", err)
+		t.Fatalf("DetectRepoCandidates: %v", err)
 	}
-	dep := projectCandidateByRel(t, result.Candidates, "vendor")
-	if dep.Classification != ProjectClassificationDependency || dep.Recommended {
+	dep := repoCandidateByRel(t, result.Candidates, "vendor")
+	if dep.Classification != RepoClassificationDependency || dep.Recommended {
 		t.Fatalf("dependency classification = %s recommended=%v", dep.Classification, dep.Recommended)
 	}
-	if !slices.Contains(dep.Signals, ProjectSignalDependencyPath) || !slices.Contains(dep.Signals, ProjectSignalSkipped) {
+	if !slices.Contains(dep.Signals, RepoSignalDependencyPath) || !slices.Contains(dep.Signals, RepoSignalSkipped) {
 		t.Fatalf("dependency signals = %v, want dependency-path and skipped", dep.Signals)
 	}
-	if !slices.Contains(dep.Signals, ProjectSignalWorktree) || !slices.Contains(dep.Signals, ProjectSignalSubmodule) {
+	if !slices.Contains(dep.Signals, RepoSignalWorktree) || !slices.Contains(dep.Signals, RepoSignalSubmodule) {
 		t.Fatalf("dependency signals = %v, want worktree and submodule", dep.Signals)
 	}
 }
 
-func TestDetectProjectsWorktreeGitFileIsGitRoot(t *testing.T) {
+func TestDetectRepoCandidatesWorktreeGitFileIsGitRoot(t *testing.T) {
 	root := t.TempDir()
 	writeProjectFile(t, root, "go.mod", "module example.com/root\n")
 	writeProjectFile(t, root, "main.go", "package main\nfunc main() {}")
@@ -205,41 +205,41 @@ func TestDetectProjectsWorktreeGitFileIsGitRoot(t *testing.T) {
 	writeProjectFile(t, root, "services/worker/go.mod", "module example.com/worker\n")
 	writeProjectFile(t, root, "services/worker/worker.go", "package worker\nfunc Run() {}")
 
-	result, err := DetectProjects(root, ProjectDetectionOptions{})
+	result, err := DetectRepoCandidates(root, RepoDetectionOptions{})
 	if err != nil {
-		t.Fatalf("DetectProjects: %v", err)
+		t.Fatalf("DetectRepoCandidates: %v", err)
 	}
-	candidate := projectCandidateByRel(t, result.Candidates, "services/worker")
-	if !slices.Contains(candidate.Signals, ProjectSignalGitRoot) || !slices.Contains(candidate.Signals, ProjectSignalWorktree) {
+	candidate := repoCandidateByRel(t, result.Candidates, "services/worker")
+	if !slices.Contains(candidate.Signals, RepoSignalGitRoot) || !slices.Contains(candidate.Signals, RepoSignalWorktree) {
 		t.Fatalf("worktree signals = %v, want git-root and worktree", candidate.Signals)
 	}
 }
 
-func TestDetectProjectsNonGitVCSRoot(t *testing.T) {
+func TestDetectRepoCandidatesNonGitVCSRoot(t *testing.T) {
 	root := t.TempDir()
 	writeProjectFile(t, root, "legacy/.hg/requires", "revlogv1\n")
 	writeProjectFile(t, root, "legacy/package.json", `{"name":"legacy"}`)
 	writeProjectFile(t, root, "legacy/index.js", "export function legacy() {}")
 
-	result, err := DetectProjects(root, ProjectDetectionOptions{})
+	result, err := DetectRepoCandidates(root, RepoDetectionOptions{})
 	if err != nil {
-		t.Fatalf("DetectProjects: %v", err)
+		t.Fatalf("DetectRepoCandidates: %v", err)
 	}
-	candidate := projectCandidateByRel(t, result.Candidates, "legacy")
-	if !slices.Contains(candidate.Signals, ProjectSignalNonGitVCSRoot) || candidate.Classification != ProjectClassificationPrimary {
+	candidate := repoCandidateByRel(t, result.Candidates, "legacy")
+	if !slices.Contains(candidate.Signals, RepoSignalNonGitVCSRoot) || candidate.Classification != RepoClassificationPrimary {
 		t.Fatalf("non-git VCS candidate = %+v, want primary non-git-vcs-root", candidate)
 	}
 }
 
-func TestDetectProjectsDependencyPathDoesNotTraverseNestedRepos(t *testing.T) {
+func TestDetectRepoCandidatesDependencyPathDoesNotTraverseNestedRepos(t *testing.T) {
 	root := t.TempDir()
 	writeProjectFile(t, root, "go.mod", "module example.com/root\n")
 	writeProjectFile(t, root, "main.go", "package main\nfunc main() {}")
 	writeProjectFile(t, root, "vendor/deep/lib/.git", "gitdir: ../../.git/modules/vendor/deep/lib\n")
 
-	result, err := DetectProjects(root, ProjectDetectionOptions{})
+	result, err := DetectRepoCandidates(root, RepoDetectionOptions{})
 	if err != nil {
-		t.Fatalf("DetectProjects: %v", err)
+		t.Fatalf("DetectRepoCandidates: %v", err)
 	}
 	for _, candidate := range result.Candidates {
 		if candidate.RelPath == "vendor/deep/lib" {
@@ -248,16 +248,16 @@ func TestDetectProjectsDependencyPathDoesNotTraverseNestedRepos(t *testing.T) {
 	}
 }
 
-func TestDetectProjectsVCSScanHonorsIgnoreFiles(t *testing.T) {
+func TestDetectRepoCandidatesVCSScanHonorsIgnoreFiles(t *testing.T) {
 	root := t.TempDir()
 	writeProjectFile(t, root, ".cartographignore", "sandbox/\n")
 	writeProjectFile(t, root, "go.mod", "module example.com/root\n")
 	writeProjectFile(t, root, "main.go", "package main\nfunc main() {}")
 	writeProjectFile(t, root, "sandbox/nested/.git", "gitdir: ../../.git/modules/sandbox/nested\n")
 
-	result, err := DetectProjects(root, ProjectDetectionOptions{})
+	result, err := DetectRepoCandidates(root, RepoDetectionOptions{})
 	if err != nil {
-		t.Fatalf("DetectProjects: %v", err)
+		t.Fatalf("DetectRepoCandidates: %v", err)
 	}
 	for _, candidate := range result.Candidates {
 		if strings.HasPrefix(candidate.RelPath, "sandbox") {
@@ -266,24 +266,24 @@ func TestDetectProjectsVCSScanHonorsIgnoreFiles(t *testing.T) {
 	}
 }
 
-func TestDetectProjectsVCSScanDoesNotStatEveryFileAsDirectory(t *testing.T) {
+func TestDetectRepoCandidatesVCSScanDoesNotStatEveryFileAsDirectory(t *testing.T) {
 	root := t.TempDir()
 	writeProjectFile(t, root, "go.mod", "module example.com/root\n")
 	writeProjectFile(t, root, "main.go", "package main\nfunc main() {}")
 	writeProjectFile(t, root, "notes/.git", "ordinary file named like git metadata\n")
 
-	result, err := DetectProjects(root, ProjectDetectionOptions{})
+	result, err := DetectRepoCandidates(root, RepoDetectionOptions{})
 	if err != nil {
-		t.Fatalf("DetectProjects: %v", err)
+		t.Fatalf("DetectRepoCandidates: %v", err)
 	}
 	for _, candidate := range result.Candidates {
 		if candidate.RelPath == "notes/.git" {
-			t.Fatalf("file path should not be probed as a project directory: %+v", candidate)
+			t.Fatalf("file path should not be probed as a repo candidate directory: %+v", candidate)
 		}
 	}
 }
 
-func TestDetectProjectsExternalSymlinkNotTraversed(t *testing.T) {
+func TestDetectRepoCandidatesExternalSymlinkNotTraversed(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
 	writeProjectFile(t, root, "go.mod", "module example.com/root\n")
@@ -294,9 +294,9 @@ func TestDetectProjectsExternalSymlinkNotTraversed(t *testing.T) {
 		t.Skipf("symlink unavailable: %v", err)
 	}
 
-	result, err := DetectProjects(root, ProjectDetectionOptions{})
+	result, err := DetectRepoCandidates(root, RepoDetectionOptions{})
 	if err != nil {
-		t.Fatalf("DetectProjects: %v", err)
+		t.Fatalf("DetectRepoCandidates: %v", err)
 	}
 	for _, candidate := range result.Candidates {
 		if candidate.RelPath == "linked" || strings.HasPrefix(candidate.Path, outside) {
@@ -305,25 +305,25 @@ func TestDetectProjectsExternalSymlinkNotTraversed(t *testing.T) {
 	}
 }
 
-func TestDetectProjectsDuplicateNamesKeepDistinctPaths(t *testing.T) {
+func TestDetectRepoCandidatesDuplicateNamesKeepDistinctPaths(t *testing.T) {
 	root := t.TempDir()
 	writeProjectFile(t, root, "apps/portal/package.json", `{"name":"portal"}`)
 	writeProjectFile(t, root, "apps/portal/index.js", "export function portal() {}")
 	writeProjectFile(t, root, "services/portal/package.json", `{"name":"portal"}`)
 	writeProjectFile(t, root, "services/portal/index.js", "export function portal() {}")
 
-	result, err := DetectProjects(root, ProjectDetectionOptions{})
+	result, err := DetectRepoCandidates(root, RepoDetectionOptions{})
 	if err != nil {
-		t.Fatalf("DetectProjects: %v", err)
+		t.Fatalf("DetectRepoCandidates: %v", err)
 	}
-	first := projectCandidateByRel(t, result.Candidates, "apps/portal")
-	second := projectCandidateByRel(t, result.Candidates, "services/portal")
+	first := repoCandidateByRel(t, result.Candidates, "apps/portal")
+	second := repoCandidateByRel(t, result.Candidates, "services/portal")
 	if first.Name != "portal" || second.Name != "portal" || first.RelPath == second.RelPath || first.Path == second.Path {
 		t.Fatalf("duplicate-name candidates should remain path-distinct: first=%+v second=%+v", first, second)
 	}
 }
 
-func TestDetectProjectsNestedHarnessManifestIsNotRecommended(t *testing.T) {
+func TestDetectRepoCandidatesNestedHarnessManifestIsNotRecommended(t *testing.T) {
 	root := t.TempDir()
 	writeProjectFile(t, root, "go.mod", "module example.com/gotreesitter\n")
 	writeProjectFile(t, root, "parser.go", "package gotreesitter\nfunc Parse() {}")
@@ -332,17 +332,17 @@ func TestDetectProjectsNestedHarnessManifestIsNotRecommended(t *testing.T) {
 	writeProjectFile(t, root, "cgo_harness/main.go", "package main\nfunc main() {}")
 	writeProjectFile(t, root, "cgo_harness/harness.go", "package main\nfunc run() {}")
 
-	result, err := DetectProjects(root, ProjectDetectionOptions{})
+	result, err := DetectRepoCandidates(root, RepoDetectionOptions{})
 	if err != nil {
-		t.Fatalf("DetectProjects: %v", err)
+		t.Fatalf("DetectRepoCandidates: %v", err)
 	}
-	harness := projectCandidateByRel(t, result.Candidates, "cgo_harness")
-	if harness.Recommended || harness.Classification != ProjectClassificationAmbiguous {
+	harness := repoCandidateByRel(t, result.Candidates, "cgo_harness")
+	if harness.Recommended || harness.Classification != RepoClassificationAmbiguous {
 		t.Fatalf("nested harness should not be recommended: %+v", harness)
 	}
 }
 
-func TestDetectProjectsNestedClientServerManifestsAreNotRecommended(t *testing.T) {
+func TestDetectRepoCandidatesNestedClientServerManifestsAreNotRecommended(t *testing.T) {
 	root := t.TempDir()
 	writeProjectFile(t, root, "package.json", `{"name":"ctfd-graphql"}`)
 	writeProjectFile(t, root, "index.js", "export function app() {}")
@@ -354,19 +354,19 @@ func TestDetectProjectsNestedClientServerManifestsAreNotRecommended(t *testing.T
 	writeProjectFile(t, root, "server/index.js", "export function server() {}")
 	writeProjectFile(t, root, "server/routes.js", "export function routes() {}")
 
-	result, err := DetectProjects(root, ProjectDetectionOptions{})
+	result, err := DetectRepoCandidates(root, RepoDetectionOptions{})
 	if err != nil {
-		t.Fatalf("DetectProjects: %v", err)
+		t.Fatalf("DetectRepoCandidates: %v", err)
 	}
 	for _, rel := range []string{"client", "server"} {
-		candidate := projectCandidateByRel(t, result.Candidates, rel)
-		if candidate.Recommended || candidate.Classification != ProjectClassificationAmbiguous {
+		candidate := repoCandidateByRel(t, result.Candidates, rel)
+		if candidate.Recommended || candidate.Classification != RepoClassificationAmbiguous {
 			t.Fatalf("nested %s should not be recommended: %+v", rel, candidate)
 		}
 	}
 }
 
-func TestDetectProjectsVendorAssetManifestsAreDependencies(t *testing.T) {
+func TestDetectRepoCandidatesVendorAssetManifestsAreDependencies(t *testing.T) {
 	root := t.TempDir()
 	writeProjectFile(t, root, "package.json", `{"name":"av-ui"}`)
 	writeProjectFile(t, root, "src/app.js", "export function app() {}")
@@ -383,9 +383,9 @@ func TestDetectProjectsVendorAssetManifestsAreDependencies(t *testing.T) {
 		writeProjectFile(t, root, rel+"/plugin.js", "export function plugin() {}")
 	}
 
-	result, err := DetectProjects(root, ProjectDetectionOptions{})
+	result, err := DetectRepoCandidates(root, RepoDetectionOptions{})
 	if err != nil {
-		t.Fatalf("DetectProjects: %v", err)
+		t.Fatalf("DetectRepoCandidates: %v", err)
 	}
 	for _, candidate := range result.Candidates {
 		if strings.Contains(candidate.RelPath, "public/assets/vendors/") && candidate.Recommended {
@@ -394,7 +394,7 @@ func TestDetectProjectsVendorAssetManifestsAreDependencies(t *testing.T) {
 	}
 }
 
-func TestDetectProjectsNestedWorkspaceChildrenNotRecommendedWhenParentIsProject(t *testing.T) {
+func TestDetectRepoCandidatesNestedWorkspaceChildrenNotRecommendedWhenParentIsRepo(t *testing.T) {
 	root := t.TempDir()
 	writeProjectFile(t, root, "package.json", `{"name":"mwtv","workspaces":["apps/api","apps/portal"]}`)
 	writeProjectFile(t, root, "src/app.js", "export function app() {}")
@@ -406,18 +406,18 @@ func TestDetectProjectsNestedWorkspaceChildrenNotRecommendedWhenParentIsProject(
 	writeProjectFile(t, root, "apps/portal/index.js", "export function portal() {}")
 	writeProjectFile(t, root, "apps/portal/view.js", "export function view() {}")
 
-	result, err := DetectProjects(root, ProjectDetectionOptions{})
+	result, err := DetectRepoCandidates(root, RepoDetectionOptions{})
 	if err != nil {
-		t.Fatalf("DetectProjects: %v", err)
+		t.Fatalf("DetectRepoCandidates: %v", err)
 	}
-	rootCandidate := projectCandidateByRel(t, result.Candidates, "")
+	rootCandidate := repoCandidateByRel(t, result.Candidates, "")
 	if !rootCandidate.Recommended {
-		t.Fatalf("root project should be recommended: %+v", rootCandidate)
+		t.Fatalf("root repo should be recommended: %+v", rootCandidate)
 	}
 	for _, rel := range []string{"apps/api", "apps/portal"} {
-		candidate := projectCandidateByRel(t, result.Candidates, rel)
-		if candidate.Recommended || candidate.Classification != ProjectClassificationAmbiguous {
-			t.Fatalf("nested workspace child %s should not be recommended when parent is project: %+v", rel, candidate)
+		candidate := repoCandidateByRel(t, result.Candidates, rel)
+		if candidate.Recommended || candidate.Classification != RepoClassificationAmbiguous {
+			t.Fatalf("nested workspace child %s should not be recommended when parent is repo: %+v", rel, candidate)
 		}
 	}
 }
@@ -441,7 +441,7 @@ func (r fakeProjectReader) ReadFile(path string) ([]byte, error) {
 	return nil, fmt.Errorf("not found: %s", path)
 }
 
-func projectCandidateByRel(t *testing.T, candidates []ProjectCandidate, rel string) ProjectCandidate {
+func repoCandidateByRel(t *testing.T, candidates []RepoCandidate, rel string) RepoCandidate {
 	t.Helper()
 	for _, candidate := range candidates {
 		if candidate.RelPath == rel {
@@ -449,7 +449,7 @@ func projectCandidateByRel(t *testing.T, candidates []ProjectCandidate, rel stri
 		}
 	}
 	t.Fatalf("candidate %q not found in %+v", rel, candidates)
-	return ProjectCandidate{}
+	return RepoCandidate{}
 }
 
 func writeProjectFile(t *testing.T, root, rel, content string) {

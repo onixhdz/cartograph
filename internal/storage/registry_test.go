@@ -680,10 +680,10 @@ func TestNormalizeGitURL(t *testing.T) {
 	}
 }
 
-func TestGitURLToImportPath(t *testing.T) {
-	got := GitURLToImportPath("https://github.com/gorilla/mux.git")
+func TestNormalizeGitURLForImportPath(t *testing.T) {
+	got := NormalizeGitURL("https://github.com/gorilla/mux.git")
 	if got != "github.com/gorilla/mux" {
-		t.Errorf("GitURLToImportPath: got %q, want github.com/gorilla/mux", got)
+		t.Errorf("NormalizeGitURL: got %q, want github.com/gorilla/mux", got)
 	}
 }
 

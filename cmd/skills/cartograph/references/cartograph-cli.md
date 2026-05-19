@@ -23,7 +23,7 @@ Accepts multiple targets in a single command; each is indexed independently.
 - `--embed-endpoint <url>` — Endpoint URL for remote embedding providers (e.g., `https://api.openai.com`)
 - `--embed-api-key <token>` — API key for remote providers (env: `CARTOGRAPH_EMBEDDING_API_KEY`)
 - `--embed-model <name>` — Model alias (e.g., `nomic-code`) or Hugging Face repo ID
-- `--projects <mode|selectors>` — Multi-project selection: `auto`, `none`, or comma-separated names/relative paths
+- `--repos <mode|selectors>` — Repo candidate selection: `auto`, `none`, or comma-separated names/relative paths
 
 **Examples:**
 ```bash
@@ -44,12 +44,12 @@ cartograph analyze hashicorp/nomad@v1.8.0
 cartograph analyze hashicorp/nomad@release/1.7.x
 cartograph analyze github.com/gorilla/mux@v1.8.0
 
-# Split an umbrella folder into recommended child project indexes
-cartograph analyze --projects auto ~/projects
+# Split an umbrella folder into recommended child repo indexes
+cartograph analyze --repos auto ~/repos
 
 # Keep an umbrella folder as one index, or manually select children
-cartograph analyze --projects none ~/projects
-cartograph analyze --projects apps/api,apps/web ~/projects
+cartograph analyze --repos none ~/repos
+cartograph analyze --repos apps/api,apps/web ~/repos
 
 # Host-prefixed URL — auto-expands to https://github.com/org/repo
 cartograph analyze github.com/org/repo

@@ -534,7 +534,7 @@ func (r *Registry) ResolveByImportPath(importPath string) (entry RegistryEntry, 
 		if e.URL == "" {
 			continue
 		}
-		eImport := GitURLToImportPath(e.URL)
+		eImport := NormalizeGitURL(e.URL)
 		if eImport == "" {
 			continue
 		}
@@ -579,11 +579,6 @@ func NormalizeGitURL(rawURL string) string {
 	s = strings.TrimRight(s, "/")
 
 	return s
-}
-
-// GitURLToImportPath converts a Git URL to a language-level import path.
-func GitURLToImportPath(rawURL string) string {
-	return NormalizeGitURL(rawURL)
 }
 
 // repoBasename returns the last component of a slash-separated repo

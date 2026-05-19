@@ -83,7 +83,7 @@ const (
 	RouteEmbed = APIPrefix + "/embed"
 	// RouteEmbedStatus is the endpoint to check embedding progress.
 	RouteEmbedStatus = APIPrefix + "/embed/status"
-	// RouteAnalyzePreflight is the endpoint for analyze project selection preflight.
+	// RouteAnalyzePreflight is the endpoint for analyze repo candidate selection preflight.
 	RouteAnalyzePreflight = APIPrefix + "/analyze/preflight"
 	// RoutePluginIngest is the endpoint to trigger background plugin ingestion.
 	RoutePluginIngest = APIPrefix + "/plugin/ingest"
@@ -109,21 +109,21 @@ const (
 	MethodPluginIngestStatus = "plugin_ingest_status"
 )
 
-type AnalyzeProjectSelectionMode string
+type AnalyzeRepoSelectionMode string
 
 const (
-	AnalyzeProjectSelectionDefault AnalyzeProjectSelectionMode = "default"
-	AnalyzeProjectSelectionAuto    AnalyzeProjectSelectionMode = "auto"
-	AnalyzeProjectSelectionNone    AnalyzeProjectSelectionMode = "none"
-	AnalyzeProjectSelectionManual  AnalyzeProjectSelectionMode = "manual"
+	AnalyzeRepoSelectionDefault AnalyzeRepoSelectionMode = "default"
+	AnalyzeRepoSelectionAuto    AnalyzeRepoSelectionMode = "auto"
+	AnalyzeRepoSelectionNone    AnalyzeRepoSelectionMode = "none"
+	AnalyzeRepoSelectionManual  AnalyzeRepoSelectionMode = "manual"
 )
 
-type AnalyzeProjectSelection struct {
-	Mode      AnalyzeProjectSelectionMode `json:"mode"`
-	Selectors []string                    `json:"selectors,omitempty"`
+type AnalyzeRepoSelection struct {
+	Mode      AnalyzeRepoSelectionMode `json:"mode"`
+	Selectors []string                 `json:"selectors,omitempty"`
 }
 
-type AnalyzeProjectCandidate struct {
+type AnalyzeRepoCandidate struct {
 	Name           string   `json:"name"`
 	Path           string   `json:"path"`
 	RelPath        string   `json:"relPath"`
@@ -135,20 +135,20 @@ type AnalyzeProjectCandidate struct {
 }
 
 type AnalyzePreflightRequest struct {
-	Target    string                  `json:"target"`
-	Selection AnalyzeProjectSelection `json:"selection"`
-	Remote    bool                    `json:"remote,omitempty"`
+	Target    string               `json:"target"`
+	Selection AnalyzeRepoSelection `json:"selection"`
+	Remote    bool                 `json:"remote,omitempty"`
 }
 
 type AnalyzePreflightResult struct {
-	Target     string                    `json:"target"`
-	Candidates []AnalyzeProjectCandidate `json:"candidates,omitempty"`
-	Selected   []AnalyzeProjectCandidate `json:"selected,omitempty"`
-	Required   bool                      `json:"required,omitempty"`
-	Commands   []string                  `json:"commands,omitempty"`
+	Target     string                 `json:"target"`
+	Candidates []AnalyzeRepoCandidate `json:"candidates,omitempty"`
+	Selected   []AnalyzeRepoCandidate `json:"selected,omitempty"`
+	Required   bool                   `json:"required,omitempty"`
+	Commands   []string               `json:"commands,omitempty"`
 }
 
-func NewAnalyzePreflightResult(req AnalyzePreflightRequest, candidates, selected []AnalyzeProjectCandidate, required bool) AnalyzePreflightResult {
+func NewAnalyzePreflightResult(req AnalyzePreflightRequest, candidates, selected []AnalyzeRepoCandidate, required bool) AnalyzePreflightResult {
 	return AnalyzePreflightResult{
 		Target:     req.Target,
 		Candidates: candidates,
@@ -163,8 +163,8 @@ func AnalyzePreflightCommands(target string) []string {
 		target = "."
 	}
 	return []string{
-		"cartograph analyze --projects auto " + target,
-		"cartograph analyze --projects none " + target,
+		"cartograph analyze --repos auto " + target,
+		"cartograph analyze --repos none " + target,
 	}
 }
 

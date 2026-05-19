@@ -39,23 +39,23 @@ import (
 )
 
 const (
-	embedOff                    = "off"
-	embedAsync                  = "async"
-	statusComplete              = "complete"
-	statusFailed                = "failed"
-	statusPending               = "pending"
-	answerYes                   = "yes"
-	detectedProjectsPreviewRows = 20
+	embedOff                 = "off"
+	embedAsync               = "async"
+	statusComplete           = "complete"
+	statusFailed             = "failed"
+	statusPending            = "pending"
+	answerYes                = "yes"
+	detectedReposPreviewRows = 20
 )
 
-var errProjectSelectionCanceled = errors.New("project selection canceled")
+var errRepoSelectionCanceled = errors.New("repo selection canceled")
 
-type projectPromptAction string
+type repoPromptAction string
 
 const (
-	projectPromptAuto   projectPromptAction = "auto"
-	projectPromptChoose projectPromptAction = "choose"
-	projectPromptNone   projectPromptAction = "none"
+	repoPromptAuto   repoPromptAction = "auto"
+	repoPromptChoose repoPromptAction = "choose"
+	repoPromptNone   repoPromptAction = "none"
 )
 
 // finalizeEmbeddingMode clears persisted embedding metadata when the analyze
@@ -251,7 +251,7 @@ type AnalyzeCmd struct {
 	EmbedEndpoint string   `help:"Endpoint URL for remote embedding providers."`
 	EmbedAPIKey   string   `help:"API key for remote embedding providers." env:"CARTOGRAPH_EMBEDDING_API_KEY"`
 	EmbedModel    string   `help:"Model name for remote embedding providers."`
-	Projects      string   `help:"Project selection for multi-project targets: auto, none, or comma-separated names/paths."`
+	Repos         string   `help:"Repo candidate selection for multi-repo targets: auto, none, or comma-separated names/paths."`
 }
 
 func (c *AnalyzeCmd) Run(cli *CLI) error {
@@ -448,9 +448,9 @@ func (c *AnalyzeCmd) runLocal(cli *CLI, target string) error {
 	if err != nil {
 		return fmt.Errorf("resolve path: %w", err)
 	}
-	selected, split, err := c.selectProjects(abs, ingestion.ProjectDetectionOptions{})
+	selected, split, err := c.selectRepos(abs, ingestion.RepoDetectionOptions{})
 	if err != nil {
-		if errors.Is(err, errProjectSelectionCanceled) {
+		if errors.Is(err, errRepoSelectionCanceled) {
 			return nil
 		}
 		return err
@@ -460,7 +460,7 @@ func (c *AnalyzeCmd) runLocal(cli *CLI, target string) error {
 			return err
 		}
 		for _, candidate := range selected {
-			if err := c.runLocalSingle(cli, candidate.Path, candidate.Name, splitLocalProjectHash(candidate.Path), false); err != nil {
+			if err := c.runLocalSingle(cli, candidate.Path, candidate.Name, shortHash(candidate.Path), false); err != nil {
 				return err
 			}
 		}
@@ -745,10 +745,10 @@ func (c *AnalyzeCmd) runRemote(cli *CLI, url string) error {
 }
 
 func (c *AnalyzeCmd) allowRemoteContainerIdempotency(dataDir, repoHash string) bool {
-	if c.Projects == string(service.AnalyzeProjectSelectionNone) {
+	if c.Repos == string(service.AnalyzeRepoSelectionNone) {
 		return true
 	}
-	if c.Projects != "" && c.Projects != string(service.AnalyzeProjectSelectionDefault) {
+	if c.Repos != "" && c.Repos != string(service.AnalyzeRepoSelectionDefault) {
 		return false
 	}
 	reg, err := storage.NewRegistry(dataDir)
@@ -759,75 +759,75 @@ func (c *AnalyzeCmd) allowRemoteContainerIdempotency(dataDir, repoHash string) b
 	return ok && entry.Hash == repoHash
 }
 
-type selectedProject struct {
+type selectedRepo struct {
 	Name    string
 	Path    string
 	RelPath string
 }
 
-func (c *AnalyzeCmd) selectProjects(root string, opts ingestion.ProjectDetectionOptions) ([]selectedProject, bool, error) {
-	mode, selectors, err := parseProjectSelection(c.Projects)
+func (c *AnalyzeCmd) selectRepos(root string, opts ingestion.RepoDetectionOptions) ([]selectedRepo, bool, error) {
+	mode, selectors, err := parseRepoSelection(c.Repos)
 	if err != nil {
 		return nil, false, err
 	}
-	if mode == service.AnalyzeProjectSelectionNone {
+	if mode == service.AnalyzeRepoSelectionNone {
 		return nil, false, nil
 	}
-	result, err := ingestion.DetectProjects(root, opts)
+	result, err := ingestion.DetectRepoCandidates(root, opts)
 	if err != nil {
-		return nil, false, fmt.Errorf("detect projects: %w", err)
+		return nil, false, fmt.Errorf("detect repo candidates: %w", err)
 	}
-	if !shouldSplitProjects(result.Candidates) && mode == service.AnalyzeProjectSelectionDefault {
+	if !shouldSplitRepos(result.Candidates) && mode == service.AnalyzeRepoSelectionDefault {
 		return nil, false, nil
 	}
 	switch mode {
-	case service.AnalyzeProjectSelectionDefault:
+	case service.AnalyzeRepoSelectionDefault:
 		if term.IsTerminal(int(os.Stdin.Fd())) { //nolint:gosec // G115: fd is a small integer
-			return promptDetectedProjects(root, result.Candidates)
+			return promptDetectedRepos(root, result.Candidates)
 		}
-		renderDetectedProjects(root, result.Candidates)
-		return nil, false, fmt.Errorf("multiple projects detected under %s; choose explicitly with --projects auto, --projects <name,path>, or --projects none", root)
-	case service.AnalyzeProjectSelectionAuto:
-		selected := selectedRecommendedProjects(result.Candidates)
+		renderDetectedRepos(root, result.Candidates)
+		return nil, false, fmt.Errorf("multiple repo candidates detected under %s; choose explicitly with --repos auto, --repos <name,path>, or --repos none", root)
+	case service.AnalyzeRepoSelectionAuto:
+		selected := selectedRecommendedRepos(result.Candidates)
 		if len(selected) == 0 {
-			return nil, false, errors.New("no recommended projects detected")
+			return nil, false, nil
 		}
 		return selected, true, nil
-	case service.AnalyzeProjectSelectionManual:
-		selected, err := selectProjectsBySelector(result.Candidates, selectors)
+	case service.AnalyzeRepoSelectionManual:
+		selected, err := selectReposBySelector(result.Candidates, selectors)
 		return selected, err == nil, err
 	default:
-		return nil, false, fmt.Errorf("unsupported project selection mode %q", mode)
+		return nil, false, fmt.Errorf("unsupported repo selection mode %q", mode)
 	}
 }
 
-func (c *AnalyzeCmd) runSelectedMemoryProjects(
+func (c *AnalyzeCmd) runSelectedMemoryRepos(
 	cli *CLI,
 	identity remote.RepoIdentity,
 	dataDir string,
 	result *remote.CloneResult,
-	selected []selectedProject,
+	selected []selectedRepo,
 ) error {
-	for _, project := range selected {
-		projectHash := splitRemoteProjectHash(identity, project.RelPath, result.Branch)
-		projectDir := filepath.Join(dataDir, project.Name, projectHash)
-		if err := c.indexMemoryClone(cli, identity, project.Name, projectHash, projectDir, dataDir, result, project.Path); err != nil {
+	for _, repo := range selected {
+		repoHash := splitRemoteRepoHash(identity, repo.RelPath, result.Branch)
+		repoDir := filepath.Join(dataDir, repo.Name, repoHash)
+		if err := c.indexMemoryClone(cli, identity, repo.Name, repoHash, repoDir, dataDir, result, repo.Path); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func parseProjectSelection(value string) (service.AnalyzeProjectSelectionMode, []string, error) {
+func parseRepoSelection(value string) (service.AnalyzeRepoSelectionMode, []string, error) {
 	value = strings.TrimSpace(value)
-	if value == "" || value == string(service.AnalyzeProjectSelectionDefault) {
-		return service.AnalyzeProjectSelectionDefault, nil, nil
+	if value == "" || value == string(service.AnalyzeRepoSelectionDefault) {
+		return service.AnalyzeRepoSelectionDefault, nil, nil
 	}
-	if value == string(service.AnalyzeProjectSelectionAuto) {
-		return service.AnalyzeProjectSelectionAuto, nil, nil
+	if value == string(service.AnalyzeRepoSelectionAuto) {
+		return service.AnalyzeRepoSelectionAuto, nil, nil
 	}
-	if value == string(service.AnalyzeProjectSelectionNone) {
-		return service.AnalyzeProjectSelectionNone, nil, nil
+	if value == string(service.AnalyzeRepoSelectionNone) {
+		return service.AnalyzeRepoSelectionNone, nil, nil
 	}
 	var selectors []string
 	for part := range strings.SplitSeq(value, ",") {
@@ -837,12 +837,12 @@ func parseProjectSelection(value string) (service.AnalyzeProjectSelectionMode, [
 		}
 	}
 	if len(selectors) == 0 {
-		return "", nil, errors.New("--projects must be auto, none, or comma-separated names/paths")
+		return "", nil, errors.New("--repos must be auto, none, or comma-separated names/paths")
 	}
-	return service.AnalyzeProjectSelectionManual, selectors, nil
+	return service.AnalyzeRepoSelectionManual, selectors, nil
 }
 
-func shouldSplitProjects(candidates []ingestion.ProjectCandidate) bool {
+func shouldSplitRepos(candidates []ingestion.RepoCandidate) bool {
 	count := 0
 	for _, candidate := range candidates {
 		if candidate.Recommended && candidate.RelPath != "" {
@@ -852,11 +852,11 @@ func shouldSplitProjects(candidates []ingestion.ProjectCandidate) bool {
 	return count > 1
 }
 
-func selectedRecommendedProjects(candidates []ingestion.ProjectCandidate) []selectedProject {
-	var selected []selectedProject
+func selectedRecommendedRepos(candidates []ingestion.RepoCandidate) []selectedRepo {
+	var selected []selectedRepo
 	for _, candidate := range candidates {
 		if candidate.Recommended && candidate.RelPath != "" {
-			selected = append(selected, selectedProject{Name: candidate.Name, Path: candidate.Path, RelPath: candidate.RelPath})
+			selected = append(selected, selectedRepo{Name: candidate.Name, Path: candidate.Path, RelPath: candidate.RelPath})
 		}
 	}
 	return selected
@@ -874,15 +874,15 @@ func guardSplitContainerEntry(dataDir, repoName, repoHash string) error {
 	if len(entry.LinkedRepos) > 0 {
 		return fmt.Errorf("container target %q is already indexed as %s and linked to workspaces/repos; remove that entry before split indexing", repoName, repoHash)
 	}
-	fmt.Printf("  Existing container index %s remains separate from split project indexes.\n", repoHash)
+	fmt.Printf("  Existing container index %s remains separate from selected repo candidate indexes.\n", repoHash)
 	return nil
 }
 
-func selectProjectsBySelector(candidates []ingestion.ProjectCandidate, selectors []string) ([]selectedProject, error) {
-	var selected []selectedProject
+func selectReposBySelector(candidates []ingestion.RepoCandidate, selectors []string) ([]selectedRepo, error) {
+	var selected []selectedRepo
 	seen := make(map[string]bool)
 	for _, selector := range selectors {
-		var matches []ingestion.ProjectCandidate
+		var matches []ingestion.RepoCandidate
 		for _, candidate := range candidates {
 			if candidate.Name == selector || candidate.RelPath == selector {
 				matches = append(matches, candidate)
@@ -890,31 +890,31 @@ func selectProjectsBySelector(candidates []ingestion.ProjectCandidate, selectors
 		}
 		switch len(matches) {
 		case 0:
-			return nil, fmt.Errorf("project selector %q did not match any detected project", selector)
+			return nil, fmt.Errorf("repo selector %q did not match any detected repo candidate", selector)
 		case 1:
 			candidate := matches[0]
 			if !seen[candidate.RelPath] {
 				seen[candidate.RelPath] = true
-				selected = append(selected, selectedProject{Name: candidate.Name, Path: candidate.Path, RelPath: candidate.RelPath})
+				selected = append(selected, selectedRepo{Name: candidate.Name, Path: candidate.Path, RelPath: candidate.RelPath})
 			}
 		default:
 			paths := make([]string, len(matches))
 			for i, match := range matches {
 				paths[i] = match.RelPath
 			}
-			return nil, fmt.Errorf("project selector %q is ambiguous; use relative path: %s", selector, strings.Join(paths, ", "))
+			return nil, fmt.Errorf("repo selector %q is ambiguous; use relative path: %s", selector, strings.Join(paths, ", "))
 		}
 	}
 	return selected, nil
 }
 
-func renderDetectedProjects(root string, candidates []ingestion.ProjectCandidate) {
-	fmt.Printf("Multiple projects detected under %s.\n", root)
-	fmt.Println("Detected projects:")
-	projectWidth := len("PROJECT")
+func renderDetectedRepos(root string, candidates []ingestion.RepoCandidate) {
+	fmt.Printf("Multiple repo candidates detected under %s.\n", root)
+	fmt.Println("Detected repo candidates:")
+	repoWidth := len("REPO")
 	statusWidth := len("STATUS")
 	rows := make([]struct {
-		project string
+		repo    string
 		status  string
 		signals string
 	}, 0, len(candidates))
@@ -924,106 +924,106 @@ func renderDetectedProjects(root string, candidates []ingestion.ProjectCandidate
 			continue
 		}
 		total++
-		if len(rows) >= detectedProjectsPreviewRows {
+		if len(rows) >= detectedReposPreviewRows {
 			continue
 		}
 		status := string(candidate.Classification)
 		if candidate.Recommended {
 			status = "recommended"
 		}
-		signals := projectSignalList(candidate.Signals)
+		signals := repoSignalList(candidate.Signals)
 		rows = append(rows, struct {
-			project string
+			repo    string
 			status  string
 			signals string
-		}{project: candidate.RelPath, status: status, signals: signals})
-		projectWidth = max(projectWidth, len(candidate.RelPath))
+		}{repo: candidate.RelPath, status: status, signals: signals})
+		repoWidth = max(repoWidth, len(candidate.RelPath))
 		statusWidth = max(statusWidth, len(status))
 	}
-	fmt.Printf("  %-*s  %-*s  %s\n", projectWidth, "PROJECT", statusWidth, "STATUS", "SIGNALS")
-	fmt.Printf("  %-*s  %-*s  %s\n", projectWidth, strings.Repeat("-", projectWidth), statusWidth, strings.Repeat("-", statusWidth), "-------")
+	fmt.Printf("  %-*s  %-*s  %s\n", repoWidth, "REPO", statusWidth, "STATUS", "SIGNALS")
+	fmt.Printf("  %-*s  %-*s  %s\n", repoWidth, strings.Repeat("-", repoWidth), statusWidth, strings.Repeat("-", statusWidth), "-------")
 	for _, row := range rows {
-		fmt.Printf("  %-*s  %-*s  %s\n", projectWidth, row.project, statusWidth, row.status, row.signals)
+		fmt.Printf("  %-*s  %-*s  %s\n", repoWidth, row.repo, statusWidth, row.status, row.signals)
 	}
 	if total > len(rows) {
-		fmt.Printf("  ... and %d more projects\n", total-len(rows))
+		fmt.Printf("  ... and %d more repo candidates\n", total-len(rows))
 	}
 	fmt.Println("Choose explicitly:")
-	fmt.Printf("  cartograph analyze --projects auto %s\n", root)
-	fmt.Printf("  cartograph analyze --projects none %s\n", root)
+	fmt.Printf("  cartograph analyze --repos auto %s\n", root)
+	fmt.Printf("  cartograph analyze --repos none %s\n", root)
 }
 
-func promptDetectedProjects(root string, candidates []ingestion.ProjectCandidate) ([]selectedProject, bool, error) {
-	recommended := selectedRecommendedProjects(candidates)
+func promptDetectedRepos(root string, candidates []ingestion.RepoCandidate) ([]selectedRepo, bool, error) {
+	recommended := selectedRecommendedRepos(candidates)
 	if len(recommended) == 0 {
-		return nil, false, errors.New("no recommended projects detected")
+		return nil, false, nil
 	}
 
-	action := projectPromptAuto
-	selected := recommendedProjectPaths(recommended)
+	action := repoPromptAuto
+	selected := recommendedRepoPaths(recommended)
 	keymap := huh.NewDefaultKeyMap()
 	keymap.MultiSelect.Prev = key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back"))
 	err := huh.NewForm(
 		huh.NewGroup(
-			huh.NewSelect[projectPromptAction]().
-				Title("Multiple projects detected under "+root).
-				Description(fmt.Sprintf("%d recommended projects found. Choose how to analyze this target.", len(recommended))).
+			huh.NewSelect[repoPromptAction]().
+				Title("Multiple repo candidates detected under "+root).
+				Description(fmt.Sprintf("%d recommended repo candidates found. Choose how to analyze this target.", len(recommended))).
 				Options(
-					huh.NewOption("Auto - analyze recommended projects", projectPromptAuto),
-					huh.NewOption("Pick - choose projects manually", projectPromptChoose),
-					huh.NewOption("None - analyze as one project", projectPromptNone),
+					huh.NewOption("Auto - analyze recommended repo candidates", repoPromptAuto),
+					huh.NewOption("Pick - choose repo candidates manually", repoPromptChoose),
+					huh.NewOption("None - analyze as one repo", repoPromptNone),
 				).
 				Value(&action),
 		),
 		huh.NewGroup(
 			huh.NewMultiSelect[string]().
-				Title("Choose projects under "+root).
-				Description("Esc goes back. Ctrl+A selects all/none. Use / to filter, Space to toggle, Enter to analyze selected projects.").
-				Options(projectChoiceOptions(recommended)...).
+				Title("Choose repo candidates under "+root).
+				Description("Esc goes back. Ctrl+A selects all/none. Use / to filter, Space to toggle, Enter to analyze selected repo candidates.").
+				Options(repoChoiceOptions(recommended)...).
 				Filterable(true).
 				Height(12).
 				Value(&selected),
 		).WithHideFunc(func() bool {
-			return action != projectPromptChoose
+			return action != repoPromptChoose
 		}),
 	).WithKeyMap(keymap).WithHeight(18).Run()
 	if err != nil {
 		if errors.Is(err, huh.ErrUserAborted) {
-			fmt.Println("Project selection canceled.")
-			return nil, false, errProjectSelectionCanceled
+			fmt.Println("Repo selection canceled.")
+			return nil, false, errRepoSelectionCanceled
 		}
 		return nil, false, fmt.Errorf("prompt: %w", err)
 	}
 
 	switch action {
-	case projectPromptAuto:
+	case repoPromptAuto:
 		return recommended, true, nil
-	case projectPromptNone:
+	case repoPromptNone:
 		return nil, false, nil
-	case projectPromptChoose:
-		return selectedProjectsFromPaths(recommended, selected)
+	case repoPromptChoose:
+		return selectedReposFromPaths(recommended, selected)
 	default:
-		return nil, false, fmt.Errorf("unsupported project prompt action %q", action)
+		return nil, false, fmt.Errorf("unsupported repo prompt action %q", action)
 	}
 }
 
-func recommendedProjectPaths(recommended []selectedProject) []string {
+func recommendedRepoPaths(recommended []selectedRepo) []string {
 	paths := make([]string, len(recommended))
-	for i, project := range recommended {
-		paths[i] = project.RelPath
+	for i, repo := range recommended {
+		paths[i] = repo.RelPath
 	}
 	return paths
 }
 
-func projectChoiceOptions(recommended []selectedProject) []huh.Option[string] {
+func repoChoiceOptions(recommended []selectedRepo) []huh.Option[string] {
 	options := make([]huh.Option[string], len(recommended))
-	for i, project := range recommended {
-		options[i] = huh.NewOption(project.RelPath, project.RelPath).Selected(true)
+	for i, repo := range recommended {
+		options[i] = huh.NewOption(repo.RelPath, repo.RelPath).Selected(true)
 	}
 	return options
 }
 
-func selectedProjectsFromPaths(recommended []selectedProject, selected []string) ([]selectedProject, bool, error) {
+func selectedReposFromPaths(recommended []selectedRepo, selected []string) ([]selectedRepo, bool, error) {
 	selectedSet := make(map[string]bool, len(selected))
 	for _, relPath := range selected {
 		if relPath != "" {
@@ -1034,16 +1034,16 @@ func selectedProjectsFromPaths(recommended []selectedProject, selected []string)
 		return nil, false, nil
 	}
 
-	projects := make([]selectedProject, 0, len(selectedSet))
-	for _, project := range recommended {
-		if selectedSet[project.RelPath] {
-			projects = append(projects, project)
+	repos := make([]selectedRepo, 0, len(selectedSet))
+	for _, repo := range recommended {
+		if selectedSet[repo.RelPath] {
+			repos = append(repos, repo)
 		}
 	}
-	return projects, true, nil
+	return repos, true, nil
 }
 
-func projectSignalList(signals []ingestion.ProjectSignal) string {
+func repoSignalList(signals []ingestion.RepoSignal) string {
 	parts := make([]string, len(signals))
 	for i, signal := range signals {
 		parts[i] = string(signal)
@@ -1071,12 +1071,12 @@ func (c *AnalyzeCmd) runCloneToMemory(
 	}
 	spClone.StopWithSuccess(fmt.Sprintf("Cloned %s (commit %s)", result.Branch, result.HeadSHA[:12]))
 
-	projectRoot := "/"
-	projectName := repoName
-	projectHash := repoHash
-	selection, split, err := c.selectProjects(projectRoot, ingestion.ProjectDetectionOptions{Walker: remote.MemFSWalker{FS: result.FS}, Reader: remote.MemFSFileReader{FS: result.FS}})
+	analyzeRoot := "/"
+	selectedRepoName := repoName
+	selectedRepoHash := repoHash
+	selection, split, err := c.selectRepos(analyzeRoot, ingestion.RepoDetectionOptions{Walker: remote.MemFSWalker{FS: result.FS}, Reader: remote.MemFSFileReader{FS: result.FS}})
 	if err != nil {
-		if errors.Is(err, errProjectSelectionCanceled) {
+		if errors.Is(err, errRepoSelectionCanceled) {
 			return nil
 		}
 		return err
@@ -1085,19 +1085,19 @@ func (c *AnalyzeCmd) runCloneToMemory(
 		if err := guardSplitContainerEntry(dataDir, repoName, repoHash); err != nil {
 			return err
 		}
-		return c.runSelectedMemoryProjects(cli, identity, dataDir, result, selection)
+		return c.runSelectedMemoryRepos(cli, identity, dataDir, result, selection)
 	}
 	if split {
 		if err := guardSplitContainerEntry(dataDir, repoName, repoHash); err != nil {
 			return err
 		}
-		projectRoot = selection[0].Path
-		projectName = selection[0].Name
-		projectHash = splitRemoteProjectHash(identity, selection[0].RelPath, result.Branch)
-		repoDir = filepath.Join(dataDir, projectName, projectHash)
+		analyzeRoot = selection[0].Path
+		selectedRepoName = selection[0].Name
+		selectedRepoHash = splitRemoteRepoHash(identity, selection[0].RelPath, result.Branch)
+		repoDir = filepath.Join(dataDir, selectedRepoName, selectedRepoHash)
 	}
 
-	return c.indexMemoryClone(cli, identity, projectName, projectHash, repoDir, dataDir, result, projectRoot)
+	return c.indexMemoryClone(cli, identity, selectedRepoName, selectedRepoHash, repoDir, dataDir, result, analyzeRoot)
 }
 
 func (c *AnalyzeCmd) indexMemoryClone(
@@ -1105,7 +1105,7 @@ func (c *AnalyzeCmd) indexMemoryClone(
 	identity remote.RepoIdentity,
 	repoName, repoHash, repoDir, dataDir string,
 	result *remote.CloneResult,
-	projectRoot string,
+	analyzeRoot string,
 ) error {
 	start := time.Now()
 
@@ -1113,7 +1113,7 @@ func (c *AnalyzeCmd) indexMemoryClone(
 	spPipeline := newSpinner("Walking repository...")
 	spPipeline.Start()
 	pipeline := &ingestion.Pipeline{
-		Root:  projectRoot,
+		Root:  analyzeRoot,
 		Graph: lpg.NewGraph(),
 		Options: ingestion.PipelineOptions{
 			Force:  c.Force,
@@ -1163,7 +1163,7 @@ func (c *AnalyzeCmd) indexMemoryClone(
 		spPersist.StopWithFailure("Failed to init content store")
 		return fmt.Errorf("analyze: init content store: %w", err)
 	}
-	fileCount, err := populateContentBucket(cs, result.FS, projectRoot)
+	fileCount, err := populateContentBucket(cs, result.FS, analyzeRoot)
 	if err != nil {
 		cs.Close()    //nolint:gosec
 		store.Close() //nolint:gosec
@@ -1280,9 +1280,9 @@ func (c *AnalyzeCmd) runCloneToDisk(
 		branch = result.Branch
 	}
 
-	selected, split, err := c.selectProjects(srcDir, ingestion.ProjectDetectionOptions{})
+	selected, split, err := c.selectRepos(srcDir, ingestion.RepoDetectionOptions{})
 	if err != nil {
-		if errors.Is(err, errProjectSelectionCanceled) {
+		if errors.Is(err, errRepoSelectionCanceled) {
 			return nil
 		}
 		return err
@@ -1291,10 +1291,10 @@ func (c *AnalyzeCmd) runCloneToDisk(
 		if err := guardSplitContainerEntry(dataDir, repoName, repoHash); err != nil {
 			return err
 		}
-		for _, project := range selected {
-			projectHash := splitRemoteProjectHash(identity, project.RelPath, branch)
-			projectDir := filepath.Join(dataDir, project.Name, projectHash)
-			if err := c.indexDiskClone(cli, identity, project.Name, projectHash, projectDir, dataDir, project.Path, headSHA, branch); err != nil {
+		for _, repo := range selected {
+			repoHash := splitRemoteRepoHash(identity, repo.RelPath, branch)
+			repoDir := filepath.Join(dataDir, repo.Name, repoHash)
+			if err := c.indexDiskClone(cli, identity, repo.Name, repoHash, repoDir, dataDir, repo.Path, headSHA, branch); err != nil {
 				return err
 			}
 		}
@@ -1665,11 +1665,7 @@ func shortHash(path string) string {
 	return hex.EncodeToString(h[:8])
 }
 
-func splitLocalProjectHash(path string) string {
-	return shortHash(path)
-}
-
-func splitRemoteProjectHash(identity remote.RepoIdentity, relPath, branch string) string {
+func splitRemoteRepoHash(identity remote.RepoIdentity, relPath, branch string) string {
 	canonical := identity.Canonical
 	if !strings.Contains(canonical, "@") && branch != "" {
 		canonical += "@" + branch

@@ -1149,7 +1149,7 @@ func findSymbol(g *lpg.Graph, name, file, uid string) *lpg.Node {
 	var best *lpg.Node
 	for _, n := range candidates {
 		fp := graph.GetStringProp(n, graph.PropFilePath)
-		if !isTestFile(fp) && !isExampleFile(fp) {
+		if !ingestion.IsTestFile(fp) && !ingestion.IsExampleFile(fp) {
 			return n
 		}
 		if best == nil {
@@ -1187,7 +1187,7 @@ func findSymbolByNameOrID(g *lpg.Graph, target, file string) *lpg.Node {
 	var best *lpg.Node
 	for _, n := range candidates {
 		fp := graph.GetStringProp(n, graph.PropFilePath)
-		if !isTestFile(fp) {
+		if !ingestion.IsTestFile(fp) {
 			return n
 		}
 		if best == nil {
@@ -1230,15 +1230,6 @@ func searchByName(g *lpg.Graph, text string, limit int, includeContent bool) []s
 	})
 
 	return results
-}
-
-// isTestFile delegates to ingestion.IsTestFile (all supported languages).
-func isTestFile(path string) bool {
-	return ingestion.IsTestFile(path)
-}
-
-func isExampleFile(path string) bool {
-	return ingestion.IsExampleFile(path)
 }
 
 // isUsageNode returns true if the node belongs to a test or example file.
