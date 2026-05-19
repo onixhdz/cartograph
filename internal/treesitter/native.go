@@ -10,6 +10,7 @@ import (
 	"time"
 
 	treekotlin "github.com/fwcd/tree-sitter-kotlin/bindings/go"
+	treedart "github.com/gortexhq/tree-sitter-dart/bindings/go"
 	treeswift "github.com/gortexhq/tree-sitter-swift/bindings/go"
 	gotreesitter "github.com/odvcencio/gotreesitter"
 	gtsgrammars "github.com/odvcencio/gotreesitter/grammars"
@@ -640,6 +641,7 @@ var languageSpecs = []languageSpec{
 	{name: "csharp", extensions: []string{".cs"}, aliases: []string{"c_sharp"}, build: func() *treesitter.Language { return treesitter.NewLanguage(treecsharp.Language()) }},
 	{name: "scala", extensions: []string{".scala", ".sc"}, build: func() *treesitter.Language { return treesitter.NewLanguage(treescala.Language()) }},
 	{name: "swift", extensions: []string{".swift"}, build: func() *treesitter.Language { return treesitter.NewLanguage(treeswift.Language()) }},
+	{name: "dart", extensions: []string{".dart"}, build: func() *treesitter.Language { return treesitter.NewLanguage(treedart.Language()) }},
 	{name: "solidity", extensions: []string{".sol"}, buildFallback: func() *gotreesitter.Language {
 		entry := gtsgrammars.DetectLanguageByName("solidity")
 		if entry == nil {

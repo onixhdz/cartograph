@@ -66,6 +66,7 @@ var LanguageQueries = map[string]string{
 	"php":        phpQueries,
 	"kotlin":     ktQueries,
 	"swift":      swiftQueries,
+	"dart":       dartQueries,
 	"csharp":     csQueries,
 	"scala":      scalaQueries,
 	"solidity":   solidityQueries,
@@ -414,6 +415,58 @@ const scalaQueries = // Class-like definitions.
 	"(class_definition name: (identifier) @heritage.class (extends_clause (type_identifier) @heritage.extends)) @heritage\n" +
 	"(trait_definition name: (identifier) @heritage.class (extends_clause (type_identifier) @heritage.extends)) @heritage\n" +
 	"(object_definition name: (identifier) @heritage.class (extends_clause (type_identifier) @heritage.extends)) @heritage\n"
+
+const dartQueries = // Class-like declarations.
+"(class_definition name: (identifier) @name) @definition.class\n" +
+	"(mixin_declaration (identifier) @name) @definition.trait\n" +
+	"(extension_declaration name: (identifier) @name) @definition.class\n" +
+	"(enum_declaration name: (identifier) @name) @definition.enum\n" +
+	"(type_alias (type_identifier) @name) @definition.type\n" +
+	// Top-level functions and class/extension methods. Nested functions are
+	// promoted to methods by owner detection when enclosed by a class-like node.
+	"(function_signature name: (identifier) @name) @definition.function\n" +
+	"(getter_signature name: (identifier) @name) @definition.method\n" +
+	"(setter_signature name: (identifier) @name) @definition.method\n" +
+	"(constructor_signature name: (identifier) @name) @definition.constructor\n" +
+	"(constant_constructor_signature (identifier) @name) @definition.constructor\n" +
+	"(factory_constructor_signature (identifier) @name) @definition.constructor\n" +
+	"(factory_constructor_signature (identifier) (identifier) @name) @definition.constructor\n" +
+	"(redirecting_factory_constructor_signature (identifier) @name) @definition.constructor\n" +
+	// Fields, variables, constants, and enum constants.
+	"(declaration (initialized_identifier_list (initialized_identifier (identifier) @name))) @definition.property\n" +
+	"(declaration (static_final_declaration_list (static_final_declaration (identifier) @name))) @definition.constant\n" +
+	"(enum_constant name: (identifier) @name) @definition.const\n" +
+	// Imports, exports, and parts all describe cross-file/library dependencies.
+	"(import_or_export (library_import (import_specification (configurable_uri (uri (string_literal) @import.source))))) @import\n" +
+	"(import_or_export (library_import (import_specification (configurable_uri (uri (string_literal) @import.source)) (identifier) @import.alias))) @import\n" +
+	"(import_or_export (library_export (configurable_uri (uri (string_literal) @import.source)))) @import\n" +
+	"(part_directive (uri (string_literal) @import.source)) @import\n" +
+	// Calls. Dart represents invocations as an identifier/type followed by an
+	// argument selector; member calls add a selector containing the member name.
+	"(_ (identifier) @call.name (selector (argument_part))) @call\n" +
+	"(_ (type_identifier) @call.name (selector (argument_part))) @call\n" +
+	"(_ (identifier) @call.receiver (selector (unconditional_assignable_selector (identifier) @call.name)) (selector (argument_part))) @call\n" +
+	"(_ (type_identifier) @call.receiver (selector (unconditional_assignable_selector (identifier) @call.name)) (selector (argument_part))) @call\n" +
+	// Assignment and field writes.
+	"(assignment_expression left: (assignable_expression (identifier) @assignment.property) right: (_)) @assignment\n" +
+	"(assignment_expression left: (assignable_expression (this) @assignment.receiver (unconditional_assignable_selector (identifier) @assignment.property)) right: (_)) @assignment\n" +
+	"(assignment_expression left: (assignable_expression (identifier) @assignment.receiver (unconditional_assignable_selector (identifier) @assignment.property)) right: (_)) @assignment\n" +
+	// Heritage: extends, implements, and mixins.
+	"(class_definition name: (identifier) @heritage.class superclass: (superclass (type_identifier) @heritage.extends)) @heritage\n" +
+	"(class_definition name: (identifier) @heritage.class superclass: (superclass (type_identifier) (mixins (type_identifier) @heritage.trait))) @heritage\n" +
+	"(class_definition name: (identifier) @heritage.class interfaces: (interfaces (_) @heritage.implements)) @heritage.impl\n" +
+	"(mixin_declaration (identifier) @heritage.class superclass: (superclass (_) @heritage.extends)) @heritage\n" +
+	"(mixin_declaration (identifier) @heritage.class interfaces: (interfaces (_) @heritage.implements)) @heritage.impl\n" +
+	"(extension_declaration name: (identifier) @heritage.class class: (_) @heritage.extends) @heritage\n" +
+	// Async/task-like dispatch and callbacks.
+	"(_ (identifier) @_async (selector (argument_part (arguments (argument (identifier) @spawn.name)))) (#match? @_async \"^(Future|Timer|scheduleMicrotask)$\")) @spawn\n" +
+	"(_ (identifier) @_async (selector (argument_part (arguments (argument (_)) (argument (identifier) @spawn.name)))) (#match? @_async \"^Timer$\")) @spawn\n" +
+	"(_ (identifier) @spawn.receiver (selector (unconditional_assignable_selector (identifier) @_async)) (selector (argument_part (arguments (argument (identifier) @spawn.name)))) (#match? @_async \"^(Future|Timer|scheduleMicrotask)$\")) @spawn\n" +
+	"(_ (identifier) @spawn.receiver (selector (unconditional_assignable_selector (identifier) @_async)) (selector (argument_part (arguments (argument (_)) (argument (identifier) @spawn.name)))) (#match? @_async \"^Timer$\")) @spawn\n" +
+	"(_ (identifier) (selector (argument_part (arguments (argument (identifier) @delegate.target))))) @delegate\n" +
+	"(_ (identifier) (selector (argument_part (arguments (argument (identifier) @delegate.receiver (selector (unconditional_assignable_selector (identifier) @delegate.target))))))) @delegate\n" +
+	"(_ (identifier) (selector (unconditional_assignable_selector (identifier))) (selector (argument_part (arguments (argument (identifier) @delegate.target))))) @delegate\n" +
+	"(_ (identifier) (selector (unconditional_assignable_selector (identifier))) (selector (argument_part (arguments (argument (identifier) @delegate.receiver (selector (unconditional_assignable_selector (identifier) @delegate.target))))))) @delegate\n"
 
 const csQueries = "(class_declaration name: (identifier) @name) @definition.class\n" +
 	"(interface_declaration name: (identifier) @name) @definition.interface\n" +
