@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -19,6 +20,8 @@ import (
 	"time"
 
 	"github.com/alecthomas/kong"
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/huh"
 	"github.com/cloudprivacylabs/lpg/v2"
 	"github.com/go-git/go-billy/v6"
 	"golang.org/x/term"
@@ -36,12 +39,23 @@ import (
 )
 
 const (
-	embedOff       = "off"
-	embedAsync     = "async"
-	statusComplete = "complete"
-	statusFailed   = "failed"
-	statusPending  = "pending"
-	answerYes      = "yes"
+	embedOff                    = "off"
+	embedAsync                  = "async"
+	statusComplete              = "complete"
+	statusFailed                = "failed"
+	statusPending               = "pending"
+	answerYes                   = "yes"
+	detectedProjectsPreviewRows = 20
+)
+
+var errProjectSelectionCanceled = errors.New("project selection canceled")
+
+type projectPromptAction string
+
+const (
+	projectPromptAuto   projectPromptAction = "auto"
+	projectPromptChoose projectPromptAction = "choose"
+	projectPromptNone   projectPromptAction = "none"
 )
 
 // finalizeEmbeddingMode clears persisted embedding metadata when the analyze
@@ -237,6 +251,7 @@ type AnalyzeCmd struct {
 	EmbedEndpoint string   `help:"Endpoint URL for remote embedding providers."`
 	EmbedAPIKey   string   `help:"API key for remote embedding providers." env:"CARTOGRAPH_EMBEDDING_API_KEY"`
 	EmbedModel    string   `help:"Model name for remote embedding providers."`
+	Projects      string   `help:"Project selection for multi-project targets: auto, none, or comma-separated names/paths."`
 }
 
 func (c *AnalyzeCmd) Run(cli *CLI) error {
@@ -433,16 +448,35 @@ func (c *AnalyzeCmd) runLocal(cli *CLI, target string) error {
 	if err != nil {
 		return fmt.Errorf("resolve path: %w", err)
 	}
+	selected, split, err := c.selectProjects(abs, ingestion.ProjectDetectionOptions{})
+	if err != nil {
+		if errors.Is(err, errProjectSelectionCanceled) {
+			return nil
+		}
+		return err
+	}
+	if split {
+		if err := guardSplitContainerEntry(DefaultDataDir(), filepath.Base(abs), shortHash(abs)); err != nil {
+			return err
+		}
+		for _, candidate := range selected {
+			if err := c.runLocalSingle(cli, candidate.Path, candidate.Name, splitLocalProjectHash(candidate.Path), false); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return c.runLocalSingle(cli, abs, filepath.Base(abs), shortHash(abs), true)
+}
 
-	repoName := filepath.Base(abs)
+func (c *AnalyzeCmd) runLocalSingle(cli *CLI, abs, repoName, repoHash string, allowIdempotency bool) error {
 	write(fmt.Sprintf("Analyzing %s\n", abs))
 
 	dataDir := DefaultDataDir()
-	repoHash := shortHash(abs)
 
 	// Check if re-analyzing with changed versions — force cleanup of
 	// stale derived state (search index) if schema or algorithm changed.
-	if !c.Force {
+	if !c.Force && allowIdempotency {
 		if reg, err := storage.NewRegistry(dataDir); err == nil {
 			if prev, ok := reg.Get(repoName); ok && prev.Hash == repoHash {
 				sv, av, _ := prev.Meta.Versions()
@@ -569,12 +603,12 @@ func (c *AnalyzeCmd) runLocal(cli *CLI, target string) error {
 	}); err != nil {
 		return fmt.Errorf("analyze: update registry: %w", err)
 	}
-	if err := finalizeEmbeddingMode(registry, repoName, c.Embed); err != nil {
+	if err := finalizeEmbeddingMode(registry, repoHash, c.Embed); err != nil {
 		return err
 	}
 
 	if cli.Client != nil {
-		_ = cli.Client.Reload(service.ReloadRequest{Repo: repoName})
+		_ = cli.Client.Reload(service.ReloadRequest{Repo: repoHash})
 	}
 
 	// Embedding in sync mode blocks until complete.
@@ -582,9 +616,9 @@ func (c *AnalyzeCmd) runLocal(cli *CLI, target string) error {
 		// Release the search index file lock so the background service
 		// can open it. The MC is no longer needed after this point.
 		if mc, ok := cli.Client.(*service.MemoryClient); ok {
-			mc.ReleaseSearchIndex(repoName)
+			mc.ReleaseSearchIndex(repoHash)
 		}
-		c.requestEmbedding(repoName)
+		c.requestEmbedding(repoHash)
 	}
 
 	fmt.Printf("Done in %s.\n", time.Since(start).Round(time.Millisecond))
@@ -614,7 +648,7 @@ func (c *AnalyzeCmd) runRemote(cli *CLI, url string) error {
 		AuthToken: c.AuthToken,
 	}
 
-	if !c.Force {
+	if !c.Force && c.allowRemoteContainerIdempotency(dataDir, repoHash) {
 		if prev, ok := func() (storage.RegistryEntry, bool) {
 			reg, err := storage.NewRegistry(dataDir)
 			if err != nil {
@@ -639,10 +673,10 @@ func (c *AnalyzeCmd) runRemote(cli *CLI, url string) error {
 						fmt.Println("Graph up to date. Triggering embedding...")
 						if cli.Client != nil {
 							if mc, ok := cli.Client.(*service.MemoryClient); ok {
-								mc.ReleaseSearchIndex(repoName)
+								mc.ReleaseSearchIndex(repoHash)
 							}
 						}
-						c.requestEmbedding(repoName)
+						c.requestEmbedding(repoHash)
 						return nil
 					}
 
@@ -710,6 +744,313 @@ func (c *AnalyzeCmd) runRemote(cli *CLI, url string) error {
 	return c.runCloneToMemory(cli, identity, repoName, repoHash, repoDir, dataDir, cloneOpts)
 }
 
+func (c *AnalyzeCmd) allowRemoteContainerIdempotency(dataDir, repoHash string) bool {
+	if c.Projects == string(service.AnalyzeProjectSelectionNone) {
+		return true
+	}
+	if c.Projects != "" && c.Projects != string(service.AnalyzeProjectSelectionDefault) {
+		return false
+	}
+	reg, err := storage.NewRegistry(dataDir)
+	if err != nil {
+		return false
+	}
+	entry, ok := reg.Get(repoHash)
+	return ok && entry.Hash == repoHash
+}
+
+type selectedProject struct {
+	Name    string
+	Path    string
+	RelPath string
+}
+
+func (c *AnalyzeCmd) selectProjects(root string, opts ingestion.ProjectDetectionOptions) ([]selectedProject, bool, error) {
+	mode, selectors, err := parseProjectSelection(c.Projects)
+	if err != nil {
+		return nil, false, err
+	}
+	if mode == service.AnalyzeProjectSelectionNone {
+		return nil, false, nil
+	}
+	result, err := ingestion.DetectProjects(root, opts)
+	if err != nil {
+		return nil, false, fmt.Errorf("detect projects: %w", err)
+	}
+	if !shouldSplitProjects(result.Candidates) && mode == service.AnalyzeProjectSelectionDefault {
+		return nil, false, nil
+	}
+	switch mode {
+	case service.AnalyzeProjectSelectionDefault:
+		if term.IsTerminal(int(os.Stdin.Fd())) { //nolint:gosec // G115: fd is a small integer
+			return promptDetectedProjects(root, result.Candidates)
+		}
+		renderDetectedProjects(root, result.Candidates)
+		return nil, false, fmt.Errorf("multiple projects detected under %s; choose explicitly with --projects auto, --projects <name,path>, or --projects none", root)
+	case service.AnalyzeProjectSelectionAuto:
+		selected := selectedRecommendedProjects(result.Candidates)
+		if len(selected) == 0 {
+			return nil, false, errors.New("no recommended projects detected")
+		}
+		return selected, true, nil
+	case service.AnalyzeProjectSelectionManual:
+		selected, err := selectProjectsBySelector(result.Candidates, selectors)
+		return selected, err == nil, err
+	default:
+		return nil, false, fmt.Errorf("unsupported project selection mode %q", mode)
+	}
+}
+
+func (c *AnalyzeCmd) runSelectedMemoryProjects(
+	cli *CLI,
+	identity remote.RepoIdentity,
+	dataDir string,
+	result *remote.CloneResult,
+	selected []selectedProject,
+) error {
+	for _, project := range selected {
+		projectHash := splitRemoteProjectHash(identity, project.RelPath, result.Branch)
+		projectDir := filepath.Join(dataDir, project.Name, projectHash)
+		if err := c.indexMemoryClone(cli, identity, project.Name, projectHash, projectDir, dataDir, result, project.Path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func parseProjectSelection(value string) (service.AnalyzeProjectSelectionMode, []string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" || value == string(service.AnalyzeProjectSelectionDefault) {
+		return service.AnalyzeProjectSelectionDefault, nil, nil
+	}
+	if value == string(service.AnalyzeProjectSelectionAuto) {
+		return service.AnalyzeProjectSelectionAuto, nil, nil
+	}
+	if value == string(service.AnalyzeProjectSelectionNone) {
+		return service.AnalyzeProjectSelectionNone, nil, nil
+	}
+	var selectors []string
+	for part := range strings.SplitSeq(value, ",") {
+		selector := filepath.ToSlash(strings.TrimSpace(part))
+		if selector != "" {
+			selectors = append(selectors, selector)
+		}
+	}
+	if len(selectors) == 0 {
+		return "", nil, errors.New("--projects must be auto, none, or comma-separated names/paths")
+	}
+	return service.AnalyzeProjectSelectionManual, selectors, nil
+}
+
+func shouldSplitProjects(candidates []ingestion.ProjectCandidate) bool {
+	count := 0
+	for _, candidate := range candidates {
+		if candidate.Recommended && candidate.RelPath != "" {
+			count++
+		}
+	}
+	return count > 1
+}
+
+func selectedRecommendedProjects(candidates []ingestion.ProjectCandidate) []selectedProject {
+	var selected []selectedProject
+	for _, candidate := range candidates {
+		if candidate.Recommended && candidate.RelPath != "" {
+			selected = append(selected, selectedProject{Name: candidate.Name, Path: candidate.Path, RelPath: candidate.RelPath})
+		}
+	}
+	return selected
+}
+
+func guardSplitContainerEntry(dataDir, repoName, repoHash string) error {
+	registry, err := storage.NewRegistry(dataDir)
+	if err != nil {
+		return fmt.Errorf("open registry: %w", err)
+	}
+	entry, ok := registry.Get(repoHash)
+	if !ok {
+		return nil
+	}
+	if len(entry.LinkedRepos) > 0 {
+		return fmt.Errorf("container target %q is already indexed as %s and linked to workspaces/repos; remove that entry before split indexing", repoName, repoHash)
+	}
+	fmt.Printf("  Existing container index %s remains separate from split project indexes.\n", repoHash)
+	return nil
+}
+
+func selectProjectsBySelector(candidates []ingestion.ProjectCandidate, selectors []string) ([]selectedProject, error) {
+	var selected []selectedProject
+	seen := make(map[string]bool)
+	for _, selector := range selectors {
+		var matches []ingestion.ProjectCandidate
+		for _, candidate := range candidates {
+			if candidate.Name == selector || candidate.RelPath == selector {
+				matches = append(matches, candidate)
+			}
+		}
+		switch len(matches) {
+		case 0:
+			return nil, fmt.Errorf("project selector %q did not match any detected project", selector)
+		case 1:
+			candidate := matches[0]
+			if !seen[candidate.RelPath] {
+				seen[candidate.RelPath] = true
+				selected = append(selected, selectedProject{Name: candidate.Name, Path: candidate.Path, RelPath: candidate.RelPath})
+			}
+		default:
+			paths := make([]string, len(matches))
+			for i, match := range matches {
+				paths[i] = match.RelPath
+			}
+			return nil, fmt.Errorf("project selector %q is ambiguous; use relative path: %s", selector, strings.Join(paths, ", "))
+		}
+	}
+	return selected, nil
+}
+
+func renderDetectedProjects(root string, candidates []ingestion.ProjectCandidate) {
+	fmt.Printf("Multiple projects detected under %s.\n", root)
+	fmt.Println("Detected projects:")
+	projectWidth := len("PROJECT")
+	statusWidth := len("STATUS")
+	rows := make([]struct {
+		project string
+		status  string
+		signals string
+	}, 0, len(candidates))
+	total := 0
+	for _, candidate := range candidates {
+		if candidate.RelPath == "" {
+			continue
+		}
+		total++
+		if len(rows) >= detectedProjectsPreviewRows {
+			continue
+		}
+		status := string(candidate.Classification)
+		if candidate.Recommended {
+			status = "recommended"
+		}
+		signals := projectSignalList(candidate.Signals)
+		rows = append(rows, struct {
+			project string
+			status  string
+			signals string
+		}{project: candidate.RelPath, status: status, signals: signals})
+		projectWidth = max(projectWidth, len(candidate.RelPath))
+		statusWidth = max(statusWidth, len(status))
+	}
+	fmt.Printf("  %-*s  %-*s  %s\n", projectWidth, "PROJECT", statusWidth, "STATUS", "SIGNALS")
+	fmt.Printf("  %-*s  %-*s  %s\n", projectWidth, strings.Repeat("-", projectWidth), statusWidth, strings.Repeat("-", statusWidth), "-------")
+	for _, row := range rows {
+		fmt.Printf("  %-*s  %-*s  %s\n", projectWidth, row.project, statusWidth, row.status, row.signals)
+	}
+	if total > len(rows) {
+		fmt.Printf("  ... and %d more projects\n", total-len(rows))
+	}
+	fmt.Println("Choose explicitly:")
+	fmt.Printf("  cartograph analyze --projects auto %s\n", root)
+	fmt.Printf("  cartograph analyze --projects none %s\n", root)
+}
+
+func promptDetectedProjects(root string, candidates []ingestion.ProjectCandidate) ([]selectedProject, bool, error) {
+	recommended := selectedRecommendedProjects(candidates)
+	if len(recommended) == 0 {
+		return nil, false, errors.New("no recommended projects detected")
+	}
+
+	action := projectPromptAuto
+	selected := recommendedProjectPaths(recommended)
+	keymap := huh.NewDefaultKeyMap()
+	keymap.MultiSelect.Prev = key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back"))
+	err := huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[projectPromptAction]().
+				Title("Multiple projects detected under "+root).
+				Description(fmt.Sprintf("%d recommended projects found. Choose how to analyze this target.", len(recommended))).
+				Options(
+					huh.NewOption("Auto - analyze recommended projects", projectPromptAuto),
+					huh.NewOption("Pick - choose projects manually", projectPromptChoose),
+					huh.NewOption("None - analyze as one project", projectPromptNone),
+				).
+				Value(&action),
+		),
+		huh.NewGroup(
+			huh.NewMultiSelect[string]().
+				Title("Choose projects under "+root).
+				Description("Esc goes back. Ctrl+A selects all/none. Use / to filter, Space to toggle, Enter to analyze selected projects.").
+				Options(projectChoiceOptions(recommended)...).
+				Filterable(true).
+				Height(12).
+				Value(&selected),
+		).WithHideFunc(func() bool {
+			return action != projectPromptChoose
+		}),
+	).WithKeyMap(keymap).WithHeight(18).Run()
+	if err != nil {
+		if errors.Is(err, huh.ErrUserAborted) {
+			fmt.Println("Project selection canceled.")
+			return nil, false, errProjectSelectionCanceled
+		}
+		return nil, false, fmt.Errorf("prompt: %w", err)
+	}
+
+	switch action {
+	case projectPromptAuto:
+		return recommended, true, nil
+	case projectPromptNone:
+		return nil, false, nil
+	case projectPromptChoose:
+		return selectedProjectsFromPaths(recommended, selected)
+	default:
+		return nil, false, fmt.Errorf("unsupported project prompt action %q", action)
+	}
+}
+
+func recommendedProjectPaths(recommended []selectedProject) []string {
+	paths := make([]string, len(recommended))
+	for i, project := range recommended {
+		paths[i] = project.RelPath
+	}
+	return paths
+}
+
+func projectChoiceOptions(recommended []selectedProject) []huh.Option[string] {
+	options := make([]huh.Option[string], len(recommended))
+	for i, project := range recommended {
+		options[i] = huh.NewOption(project.RelPath, project.RelPath).Selected(true)
+	}
+	return options
+}
+
+func selectedProjectsFromPaths(recommended []selectedProject, selected []string) ([]selectedProject, bool, error) {
+	selectedSet := make(map[string]bool, len(selected))
+	for _, relPath := range selected {
+		if relPath != "" {
+			selectedSet[relPath] = true
+		}
+	}
+	if len(selectedSet) == 0 {
+		return nil, false, nil
+	}
+
+	projects := make([]selectedProject, 0, len(selectedSet))
+	for _, project := range recommended {
+		if selectedSet[project.RelPath] {
+			projects = append(projects, project)
+		}
+	}
+	return projects, true, nil
+}
+
+func projectSignalList(signals []ingestion.ProjectSignal) string {
+	parts := make([]string, len(signals))
+	for i, signal := range signals {
+		parts[i] = string(signal)
+	}
+	return strings.Join(parts, ",")
+}
+
 // runCloneToMemory clones into memory, runs the pipeline, then persists
 // graph + content bucket. Source files never touch disk.
 func (c *AnalyzeCmd) runCloneToMemory(
@@ -717,8 +1058,6 @@ func (c *AnalyzeCmd) runCloneToMemory(
 	repoName, repoHash, repoDir, dataDir string,
 	cloneOpts remote.CloneOptions,
 ) error {
-	start := time.Now()
-
 	spClone := newSpinner("Cloning repository into memory...")
 	spClone.Start()
 
@@ -732,11 +1071,49 @@ func (c *AnalyzeCmd) runCloneToMemory(
 	}
 	spClone.StopWithSuccess(fmt.Sprintf("Cloned %s (commit %s)", result.Branch, result.HeadSHA[:12]))
 
+	projectRoot := "/"
+	projectName := repoName
+	projectHash := repoHash
+	selection, split, err := c.selectProjects(projectRoot, ingestion.ProjectDetectionOptions{Walker: remote.MemFSWalker{FS: result.FS}, Reader: remote.MemFSFileReader{FS: result.FS}})
+	if err != nil {
+		if errors.Is(err, errProjectSelectionCanceled) {
+			return nil
+		}
+		return err
+	}
+	if split && len(selection) != 1 {
+		if err := guardSplitContainerEntry(dataDir, repoName, repoHash); err != nil {
+			return err
+		}
+		return c.runSelectedMemoryProjects(cli, identity, dataDir, result, selection)
+	}
+	if split {
+		if err := guardSplitContainerEntry(dataDir, repoName, repoHash); err != nil {
+			return err
+		}
+		projectRoot = selection[0].Path
+		projectName = selection[0].Name
+		projectHash = splitRemoteProjectHash(identity, selection[0].RelPath, result.Branch)
+		repoDir = filepath.Join(dataDir, projectName, projectHash)
+	}
+
+	return c.indexMemoryClone(cli, identity, projectName, projectHash, repoDir, dataDir, result, projectRoot)
+}
+
+func (c *AnalyzeCmd) indexMemoryClone(
+	cli *CLI,
+	identity remote.RepoIdentity,
+	repoName, repoHash, repoDir, dataDir string,
+	result *remote.CloneResult,
+	projectRoot string,
+) error {
+	start := time.Now()
+
 	// "/" is the root because all memfs paths are relative to /.
 	spPipeline := newSpinner("Walking repository...")
 	spPipeline.Start()
 	pipeline := &ingestion.Pipeline{
-		Root:  "/",
+		Root:  projectRoot,
 		Graph: lpg.NewGraph(),
 		Options: ingestion.PipelineOptions{
 			Force:  c.Force,
@@ -786,7 +1163,7 @@ func (c *AnalyzeCmd) runCloneToMemory(
 		spPersist.StopWithFailure("Failed to init content store")
 		return fmt.Errorf("analyze: init content store: %w", err)
 	}
-	fileCount, err := populateContentBucket(cs, result.FS)
+	fileCount, err := populateContentBucket(cs, result.FS, projectRoot)
 	if err != nil {
 		cs.Close()    //nolint:gosec
 		store.Close() //nolint:gosec
@@ -849,20 +1226,20 @@ func (c *AnalyzeCmd) runCloneToMemory(
 	}); err != nil {
 		return fmt.Errorf("analyze: update registry: %w", err)
 	}
-	if err := finalizeEmbeddingMode(registry, repoName, c.Embed); err != nil {
+	if err := finalizeEmbeddingMode(registry, repoHash, c.Embed); err != nil {
 		return err
 	}
 
 	if cli.Client != nil {
-		_ = cli.Client.Reload(service.ReloadRequest{Repo: repoName})
+		_ = cli.Client.Reload(service.ReloadRequest{Repo: repoHash})
 	}
 
 	// Embedding in sync mode blocks until complete.
 	if c.Embed != embedOff {
 		if mc, ok := cli.Client.(*service.MemoryClient); ok {
-			mc.ReleaseSearchIndex(repoName)
+			mc.ReleaseSearchIndex(repoHash)
 		}
-		c.requestEmbedding(repoName)
+		c.requestEmbedding(repoHash)
 	}
 
 	fmt.Printf("Done in %s.\n", time.Since(start).Round(time.Millisecond))
@@ -875,8 +1252,6 @@ func (c *AnalyzeCmd) runCloneToDisk(
 	repoName, repoHash, repoDir, dataDir string,
 	cloneOpts remote.CloneOptions,
 ) error {
-	start := time.Now()
-
 	srcDir := filepath.Join(repoDir, "src")
 	if err := os.MkdirAll(repoDir, 0o750); err != nil {
 		return fmt.Errorf("analyze: create dir: %w", err)
@@ -905,6 +1280,39 @@ func (c *AnalyzeCmd) runCloneToDisk(
 		branch = result.Branch
 	}
 
+	selected, split, err := c.selectProjects(srcDir, ingestion.ProjectDetectionOptions{})
+	if err != nil {
+		if errors.Is(err, errProjectSelectionCanceled) {
+			return nil
+		}
+		return err
+	}
+	if split {
+		if err := guardSplitContainerEntry(dataDir, repoName, repoHash); err != nil {
+			return err
+		}
+		for _, project := range selected {
+			projectHash := splitRemoteProjectHash(identity, project.RelPath, branch)
+			projectDir := filepath.Join(dataDir, project.Name, projectHash)
+			if err := c.indexDiskClone(cli, identity, project.Name, projectHash, projectDir, dataDir, project.Path, headSHA, branch); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	return c.indexDiskClone(cli, identity, repoName, repoHash, repoDir, dataDir, srcDir, headSHA, branch)
+}
+
+func (c *AnalyzeCmd) indexDiskClone(
+	cli *CLI,
+	identity remote.RepoIdentity,
+	repoName, repoHash, repoDir, dataDir, srcDir, headSHA, branch string,
+) error {
+	start := time.Now()
+	if err := os.MkdirAll(repoDir, 0o750); err != nil {
+		return fmt.Errorf("analyze: create dir: %w", err)
+	}
 	spPipeline := newSpinner("Walking repository...")
 	spPipeline.Start()
 	pipeline := ingestion.NewPipeline(srcDir, ingestion.PipelineOptions{
@@ -996,20 +1404,20 @@ func (c *AnalyzeCmd) runCloneToDisk(
 	}); err != nil {
 		return fmt.Errorf("analyze: update registry: %w", err)
 	}
-	if err := finalizeEmbeddingMode(registry, repoName, c.Embed); err != nil {
+	if err := finalizeEmbeddingMode(registry, repoHash, c.Embed); err != nil {
 		return err
 	}
 
 	if cli.Client != nil {
-		_ = cli.Client.Reload(service.ReloadRequest{Repo: repoName})
+		_ = cli.Client.Reload(service.ReloadRequest{Repo: repoHash})
 	}
 
 	// Embedding in sync mode blocks until complete.
 	if c.Embed != embedOff {
 		if mc, ok := cli.Client.(*service.MemoryClient); ok {
-			mc.ReleaseSearchIndex(repoName)
+			mc.ReleaseSearchIndex(repoHash)
 		}
-		c.requestEmbedding(repoName)
+		c.requestEmbedding(repoHash)
 	}
 
 	fmt.Printf("Done in %s.\n", time.Since(start).Round(time.Millisecond))
@@ -1181,9 +1589,10 @@ func collectLanguages(g *lpg.Graph) []string {
 
 // populateContentBucket walks the billy filesystem and stores all files
 // in the BBolt content bucket with zstd compression.
-func populateContentBucket(cs *bbolt.ContentStore, fs billy.Filesystem) (int, error) {
+func populateContentBucket(cs *bbolt.ContentStore, fs billy.Filesystem, root string) (int, error) {
 	files := make(map[string][]byte)
-	if err := collectFiles(fs, ".", files); err != nil {
+	base := cleanBillyRoot(fs, root)
+	if err := collectFiles(fs, base, base, files); err != nil {
 		return 0, err
 	}
 	if len(files) == 0 {
@@ -1195,8 +1604,19 @@ func populateContentBucket(cs *bbolt.ContentStore, fs billy.Filesystem) (int, er
 	return len(files), nil
 }
 
+func cleanBillyRoot(fs billy.Filesystem, root string) string {
+	root = filepath.ToSlash(strings.TrimPrefix(path.Clean("/"+strings.TrimPrefix(root, "/")), "/"))
+	if root == "" || root == "." {
+		return "."
+	}
+	if info, err := fs.Stat(root); err == nil && info.IsDir() {
+		return root
+	}
+	return "."
+}
+
 // collectFiles recursively reads all files from a billy filesystem.
-func collectFiles(fs billy.Filesystem, dir string, files map[string][]byte) error {
+func collectFiles(fs billy.Filesystem, dir, base string, files map[string][]byte) error {
 	entries, err := fs.ReadDir(dir)
 	if err != nil {
 		return fmt.Errorf("read dir %s: %w", dir, err)
@@ -1215,7 +1635,7 @@ func collectFiles(fs billy.Filesystem, dir string, files map[string][]byte) erro
 		}
 
 		if entry.IsDir() {
-			if err := collectFiles(fs, relPath, files); err != nil {
+			if err := collectFiles(fs, relPath, base, files); err != nil {
 				return err
 			}
 			continue
@@ -1230,7 +1650,11 @@ func collectFiles(fs billy.Filesystem, dir string, files map[string][]byte) erro
 		if err != nil {
 			continue
 		}
-		files[relPath] = data
+		storePath := relPath
+		if base != "." {
+			storePath = strings.TrimPrefix(relPath, base+"/")
+		}
+		files[storePath] = data
 	}
 	return nil
 }
@@ -1239,6 +1663,18 @@ func collectFiles(fs billy.Filesystem, dir string, files map[string][]byte) erro
 func shortHash(path string) string {
 	h := sha256.Sum256([]byte(path))
 	return hex.EncodeToString(h[:8])
+}
+
+func splitLocalProjectHash(path string) string {
+	return shortHash(path)
+}
+
+func splitRemoteProjectHash(identity remote.RepoIdentity, relPath, branch string) string {
+	canonical := identity.Canonical
+	if !strings.Contains(canonical, "@") && branch != "" {
+		canonical += "@" + branch
+	}
+	return shortHash(canonical + "//" + filepath.ToSlash(relPath))
 }
 
 // gitHeadHash returns the current HEAD commit hash for the repo at dir,
@@ -1666,7 +2102,7 @@ func (c *CleanCmd) Run(cli *CLI) error {
 	_ = registry.Remove(entry.Hash)
 
 	if cli.Client != nil {
-		_ = cli.Client.Reload(service.ReloadRequest{Repo: entry.Name})
+		_ = cli.Client.Reload(service.ReloadRequest{Repo: entry.Hash})
 	}
 	fmt.Printf("Cleaned index for %s.\n", entry.Name)
 	return nil

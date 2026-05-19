@@ -30,7 +30,7 @@ import (
 
 // DefaultIdleTimeout is the default duration after which the server
 // shuts itself down if no requests are received.
-const DefaultIdleTimeout = 30 * time.Minute
+const DefaultIdleTimeout = 8 * time.Hour
 
 const (
 	networkUnix        = "unix"
@@ -86,6 +86,7 @@ type Server struct {
 // embedJob tracks the state of a background embedding job for a repo.
 type embedJob struct {
 	Repo      string
+	Hash      string
 	Status    string // "pending", "downloading", "running", "complete", "failed"
 	Progress  int    // nodes embedded so far
 	Total     int    // total embeddable nodes
@@ -430,11 +431,7 @@ func (s *Server) repoLoadLock(repo string) *sync.Mutex {
 }
 
 func (s *Server) loadGraphFromRegistry(repo string) error {
-	registry, err := storage.NewRegistry(s.dataDir)
-	if err != nil {
-		return nil //nolint:nilerr // registry unavailable — repo simply not loaded
-	}
-	entry, ok := registry.Get(repo)
+	entry, ok := s.registryEntry(repo)
 	if !ok {
 		return nil
 	}
@@ -487,13 +484,25 @@ func (s *Server) loadGraphFromRegistry(repo string) error {
 	}
 
 	s.mu.Lock()
-	s.graph[repo] = g
-	s.searchIdx[repo] = idx
-	s.repoDirs[repo] = repoDir
+	s.graph[entry.Hash] = g
+	s.searchIdx[entry.Hash] = idx
+	s.repoDirs[entry.Hash] = repoDir
 	s.mu.Unlock()
 	s.ready.Store(true)
 
 	return nil
+}
+
+func (s *Server) registryEntry(repo string) (storage.RegistryEntry, bool) {
+	registry, err := storage.NewRegistry(s.dataDir)
+	if err != nil {
+		return storage.RegistryEntry{}, false
+	}
+	entry, err := registry.Resolve(repo)
+	if err == nil {
+		return entry, true
+	}
+	return storage.RegistryEntry{}, false
 }
 
 // LoadAllFromRegistry scans the on-disk registry and loads every
@@ -518,14 +527,14 @@ func (s *Server) LoadAllFromRegistry() {
 	var wg sync.WaitGroup
 	for _, entry := range entries {
 		wg.Add(1)
-		go func(name string) {
+		go func(hash string) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			if err := s.lazyLoadGraph(name); err != nil {
-				log.Printf("[preload] %s: %v", name, err)
+			if err := s.lazyLoadGraph(hash); err != nil {
+				log.Printf("[preload] %s: %v", hash, err)
 			}
-		}(entry.Name)
+		}(entry.Hash)
 	}
 	wg.Wait()
 }
@@ -686,8 +695,8 @@ func (s *Server) BuildStatus() *StatusResult {
 }
 
 // ResolveRepoName normalises a repo identifier (hash, full name, or
-// short name) into its canonical registry name. Returns an error when
-// a short name is ambiguous. Returns as-is if already loaded in memory.
+// short name) into its stable registry hash. Returns an error when a
+// short name is ambiguous. Returns as-is if already loaded in memory.
 func (s *Server) ResolveRepoName(name string) (string, error) {
 	s.mu.RLock()
 	if _, ok := s.graph[name]; ok {
@@ -722,6 +731,11 @@ func (s *Server) GetBackend(repo string) (ToolBackend, error) {
 		if be := s.backendFactory(repo); be != nil {
 			return be, nil
 		}
+		if entry, ok := s.registryEntry(repo); ok && entry.Hash != repo {
+			if be := s.backendFactory(entry.Hash); be != nil {
+				return be, nil
+			}
+		}
 	}
 	return nil, nil
 }
@@ -741,6 +755,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc(RouteShutdown, s.handleShutdown)
 	mux.HandleFunc(RouteEmbed, s.handleEmbed)
 	mux.HandleFunc(RouteEmbedStatus, s.handleEmbedStatus)
+	mux.HandleFunc(RouteAnalyzePreflight, s.handleAnalyzePreflight)
 	mux.HandleFunc(RoutePluginIngest, s.handlePluginIngest)
 	mux.HandleFunc(RoutePluginIngestStatus, s.handlePluginIngestStatus)
 	return mux
@@ -780,6 +795,7 @@ func (s *Server) StartEmbedJob(ctx context.Context, req EmbedRequest) *embedJob 
 	jobCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	job := &embedJob{
 		Repo:     req.Repo,
+		Hash:     req.Repo,
 		Status:   "pending",
 		Provider: req.Provider,
 		Cancel:   cancel,
@@ -954,11 +970,12 @@ func (s *Server) runEmbedJob(ctx context.Context, job *embedJob, req EmbedReques
 		setError(fmt.Sprintf("open registry: %v", err))
 		return
 	}
-	entry, ok := registry.Get(req.Repo)
-	if !ok {
+	entry, err := registry.Resolve(req.Repo)
+	if err != nil {
 		setError(fmt.Sprintf("repo %q not found in registry", req.Repo))
 		return
 	}
+	job.Hash = entry.Hash
 	repoDir = filepath.Join(s.dataDir, entry.Name, entry.Hash)
 	dbPath := filepath.Join(repoDir, "graph.db")
 
@@ -1248,7 +1265,11 @@ func (s *Server) persistEmbedState(repo string, job *embedJob) {
 		log.Printf("[embed] warning: open registry for update: %v", err)
 		return
 	}
-	if err := registry.UpdateEmbedding(repo, storage.EmbeddingInfo{
+	identity := repo
+	if job.Hash != "" {
+		identity = job.Hash
+	}
+	if err := registry.UpdateEmbedding(identity, storage.EmbeddingInfo{
 		Status:   job.Status,
 		Model:    job.Model,
 		Dims:     job.Dims,

@@ -24,9 +24,11 @@ const (
 	ProjectSignalDependencyPath   ProjectSignal = "dependency-path"
 	ProjectSignalGitRoot          ProjectSignal = "git-root"
 	ProjectSignalManifestOnly     ProjectSignal = "manifest-only"
+	ProjectSignalNonGitVCSRoot    ProjectSignal = "non-git-vcs-root"
 	ProjectSignalSkipped          ProjectSignal = "skipped"
 	ProjectSignalSourceDensity    ProjectSignal = "source-density"
 	ProjectSignalSubmodule        ProjectSignal = "submodule"
+	ProjectSignalWorktree         ProjectSignal = "worktree"
 	ProjectSignalWorkspaceOwned   ProjectSignal = "workspace-owned"
 	ProjectSignalLowSourceDensity ProjectSignal = "low-source-density"
 )
@@ -70,6 +72,7 @@ func DetectProjects(root string, opts ProjectDetectionOptions) (*ProjectDiscover
 	projectFiles := make([]string, 0, len(walkResults))
 	dirs := make(map[string]bool)
 	sourceCounts := make(map[string]int)
+	sourceFiles := make([]string, 0)
 	for _, wr := range walkResults {
 		if wr.IsDir {
 			dirs[cleanProjectRel(wr.RelPath)] = true
@@ -78,6 +81,7 @@ func DetectProjects(root string, opts ProjectDetectionOptions) (*ProjectDiscover
 		addProjectParentDirs(dirs, wr.RelPath)
 		projectFiles = append(projectFiles, wr.RelPath)
 		if isProjectSourceFile(wr.RelPath, wr.Language) {
+			sourceFiles = append(sourceFiles, wr.RelPath)
 			countProjectSourceParents(sourceCounts, wr.RelPath)
 		}
 	}
@@ -113,9 +117,13 @@ func DetectProjects(root string, opts ProjectDetectionOptions) (*ProjectDiscover
 		augmentProjectVCS(localRoot, candidates)
 	}
 
-	result := &ProjectDiscoveryResult{Root: root, Candidates: make([]ProjectCandidate, 0, len(candidates))}
 	for _, candidate := range candidates {
 		classifyProjectCandidate(candidate)
+	}
+	demoteNestedSubprojects(candidates, sourceFiles)
+
+	result := &ProjectDiscoveryResult{Root: root, Candidates: make([]ProjectCandidate, 0, len(candidates))}
+	for _, candidate := range candidates {
 		result.Candidates = append(result.Candidates, *candidate)
 	}
 	slices.SortFunc(result.Candidates, func(a, b ProjectCandidate) int {
@@ -298,14 +306,21 @@ func augmentProjectVCS(root string, candidates map[string]*ProjectCandidate) {
 			return filepath.SkipDir
 		}
 		if name != "." && IsIgnoredDirectory(name) && name != fileGit {
-			addDependencyGitRoot(root, p, candidates)
+			addSkippedVCSRoot(root, p, submodules, candidates)
 			return filepath.SkipDir
 		}
-		if !hasGitMarker(p) {
+		candidate := ensureProjectCandidate(candidates, root, rel)
+		if hasGitMarker(p) {
+			addProjectSignal(candidate, ProjectSignalGitRoot)
+			if hasGitFileMarker(p) {
+				addProjectSignal(candidate, ProjectSignalWorktree)
+			}
+		} else if hasNonGitVCSMarker(p) {
+			addProjectSignal(candidate, ProjectSignalNonGitVCSRoot)
+		} else {
+			deleteEmptyProjectCandidate(candidates, rel)
 			return nil
 		}
-		candidate := ensureProjectCandidate(candidates, root, rel)
-		addProjectSignal(candidate, ProjectSignalGitRoot)
 		if slices.Contains(submodules, rel) {
 			addProjectSignal(candidate, ProjectSignalSubmodule)
 		}
@@ -316,20 +331,59 @@ func augmentProjectVCS(root string, candidates map[string]*ProjectCandidate) {
 	})
 }
 
-func addDependencyGitRoot(root, dir string, candidates map[string]*ProjectCandidate) {
-	if !hasGitMarker(dir) {
+func addSkippedVCSRoot(root, dir string, submodules []string, candidates map[string]*ProjectCandidate) {
+	if !hasGitMarker(dir) && !hasNonGitVCSMarker(dir) {
 		return
 	}
 	rel := projectRelToRoot(root, dir)
 	candidate := ensureProjectCandidate(candidates, root, rel)
 	addProjectSignal(candidate, ProjectSignalDependencyPath)
 	addProjectSignal(candidate, ProjectSignalSkipped)
-	addProjectSignal(candidate, ProjectSignalGitRoot)
+	if hasGitMarker(dir) {
+		addProjectSignal(candidate, ProjectSignalGitRoot)
+		if hasGitFileMarker(dir) {
+			addProjectSignal(candidate, ProjectSignalWorktree)
+		}
+	} else {
+		addProjectSignal(candidate, ProjectSignalNonGitVCSRoot)
+	}
+	if slices.Contains(submodules, rel) {
+		addProjectSignal(candidate, ProjectSignalSubmodule)
+	}
 }
 
 func hasGitMarker(dir string) bool {
-	_, err := os.Stat(filepath.Join(dir, fileGit))
-	return err == nil
+	info, err := os.Lstat(filepath.Join(dir, fileGit))
+	if err != nil {
+		return false
+	}
+	if info.IsDir() {
+		return true
+	}
+	data, err := os.ReadFile(filepath.Join(dir, fileGit))
+	return err == nil && strings.HasPrefix(strings.TrimSpace(string(data)), "gitdir:")
+}
+
+func hasGitFileMarker(dir string) bool {
+	info, err := os.Lstat(filepath.Join(dir, fileGit))
+	return err == nil && !info.IsDir() && hasGitMarker(dir)
+}
+
+func hasNonGitVCSMarker(dir string) bool {
+	for _, marker := range []string{".hg", ".svn"} {
+		if info, err := os.Stat(filepath.Join(dir, marker)); err == nil && info.IsDir() {
+			return true
+		}
+	}
+	return false
+}
+
+func deleteEmptyProjectCandidate(candidates map[string]*ProjectCandidate, rel string) {
+	candidate := candidates[rel]
+	if candidate == nil || candidate.Manifest != "" || candidate.Parent != "" || candidate.SourceFiles > 0 || len(candidate.Signals) > 0 {
+		return
+	}
+	delete(candidates, rel)
 }
 
 func projectRelToRoot(root, p string) string {
@@ -348,8 +402,14 @@ func readProjectGitmodules(root string) []string {
 	var out []string
 	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
-		if value, ok := strings.CutPrefix(line, "path ="); ok {
-			out = append(out, cleanProjectRel(strings.TrimSpace(value)))
+		if value, ok := strings.CutPrefix(line, "path"); ok {
+			value = strings.TrimSpace(value)
+			if value, ok = strings.CutPrefix(value, "="); ok {
+				value = strings.Trim(strings.TrimSpace(value), `"'`)
+				if value != "" {
+					out = append(out, cleanProjectRel(value))
+				}
+			}
 		}
 	}
 	return out
@@ -358,14 +418,74 @@ func readProjectGitmodules(root string) []string {
 func dependencyProjectPath(rel string) bool {
 	for part := range strings.SplitSeq(rel, "/") {
 		switch part {
-		case "vendor", "third_party", "external", "deps", "Pods", "Carthage", "testdata", "fixtures", "examples":
+		case "vendor", "vendors", "third_party", "external", "deps", "Pods", "Carthage", "testdata", "fixtures", "examples":
 			return true
 		}
 	}
 	return strings.Contains(rel, "docs/themes/") || strings.HasPrefix(rel, "docs/themes")
 }
 
+func demoteNestedSubprojects(candidates map[string]*ProjectCandidate, sourceFiles []string) {
+	for _, candidate := range candidates {
+		if !candidate.Recommended || candidate.RelPath == "" || !slices.Contains(candidate.Signals, ProjectSignalManifestOnly) {
+			continue
+		}
+		if slices.Contains(candidate.Signals, ProjectSignalGitRoot) || slices.Contains(candidate.Signals, ProjectSignalNonGitVCSRoot) {
+			continue
+		}
+		if !hasProjectAncestorWithOwnedSource(candidates, sourceFiles, candidate.RelPath) {
+			continue
+		}
+		candidate.Classification = ProjectClassificationAmbiguous
+		candidate.Recommended = false
+	}
+}
+
+func hasProjectAncestorWithOwnedSource(candidates map[string]*ProjectCandidate, sourceFiles []string, rel string) bool {
+	for parent := path.Dir(rel); parent != "."; parent = path.Dir(parent) {
+		candidate := candidates[parent]
+		if candidate != nil && candidate.Recommended && (slices.Contains(candidate.Signals, ProjectSignalGitRoot) || ownedSourceCount(candidates, sourceFiles, parent) >= 2) {
+			return true
+		}
+	}
+	candidate := candidates[""]
+	return candidate != nil && candidate.Recommended && (slices.Contains(candidate.Signals, ProjectSignalGitRoot) || ownedSourceCount(candidates, sourceFiles, "") >= 2)
+}
+
+func ownedSourceCount(candidates map[string]*ProjectCandidate, sourceFiles []string, rel string) int {
+	count := 0
+	for _, sourceFile := range sourceFiles {
+		if !projectRelContains(rel, sourceFile) || nestedProjectOwnsSource(candidates, rel, sourceFile) {
+			continue
+		}
+		count++
+	}
+	return count
+}
+
+func nestedProjectOwnsSource(candidates map[string]*ProjectCandidate, rel, sourceFile string) bool {
+	for childRel := range candidates {
+		if childRel == "" || childRel == rel || !projectRelContains(rel, childRel) {
+			continue
+		}
+		if projectRelContains(childRel, sourceFile) {
+			return true
+		}
+	}
+	return false
+}
+
+func projectRelContains(parent, child string) bool {
+	if parent == "" {
+		return true
+	}
+	return child == parent || strings.HasPrefix(child, parent+"/")
+}
+
 func classifyProjectCandidate(candidate *ProjectCandidate) {
+	if candidate.RelPath != "" && dependencyProjectPath(candidate.RelPath) {
+		addProjectSignal(candidate, ProjectSignalDependencyPath)
+	}
 	if candidate.SourceFiles >= 2 {
 		addProjectSignal(candidate, ProjectSignalSourceDensity)
 	} else {
@@ -379,7 +499,7 @@ func classifyProjectCandidate(candidate *ProjectCandidate) {
 		candidate.Recommended = false
 		return
 	}
-	if slices.Contains(candidate.Signals, ProjectSignalGitRoot) || slices.Contains(candidate.Signals, ProjectSignalWorkspaceOwned) || candidate.SourceFiles >= 2 {
+	if slices.Contains(candidate.Signals, ProjectSignalGitRoot) || slices.Contains(candidate.Signals, ProjectSignalNonGitVCSRoot) || slices.Contains(candidate.Signals, ProjectSignalWorkspaceOwned) || candidate.SourceFiles >= 2 {
 		candidate.Classification = ProjectClassificationPrimary
 		candidate.Recommended = true
 		return

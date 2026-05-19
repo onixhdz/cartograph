@@ -685,7 +685,7 @@ func removeString(slice []string, s string) []string {
 }
 
 // ResolveRepoName opens the registry at dataDir and resolves a repo
-// identifier (hash, name, or alias) to its canonical name.
+// identifier (hash, name, or alias) to its stable registry hash.
 func ResolveRepoName(dataDir, name string) (string, error) {
 	if dataDir == "" {
 		return name, nil
@@ -702,5 +702,5 @@ func ResolveRepoName(dataDir, name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return entry.Name, nil
+	return entry.Hash, nil
 }

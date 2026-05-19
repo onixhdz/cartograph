@@ -983,8 +983,8 @@ func TestResolveRepoName_ExactMatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got != testRepoNomad {
-		t.Errorf("got %q, want %q", got, testRepoNomad)
+	if got != "h1" {
+		t.Errorf("got %q, want %q", got, "h1")
 	}
 }
 
@@ -997,8 +997,8 @@ func TestResolveRepoName_ShortName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got != testRepoNomad {
-		t.Errorf("got %q, want %q", got, testRepoNomad)
+	if got != "h1" {
+		t.Errorf("got %q, want %q", got, "h1")
 	}
 }
 

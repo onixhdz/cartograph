@@ -58,6 +58,9 @@ cartograph analyze hashicorp/nomad@v1.8.0
 # Index with semantic embeddings (enables semantic search)
 cartograph analyze <path|url> --embed async
 
+# Explicitly split a multi-project folder into separate indexes
+cartograph analyze --projects auto ~/projects
+
 # Search for execution flows
 cartograph query "authentication middleware"
 
@@ -72,6 +75,8 @@ cartograph impact validateUser
 ```
 
 That's it. The graph is built, persisted locally, and ready to query.
+
+When a target contains multiple independent projects, interactive `analyze` asks before splitting. Non-interactive runs must choose explicitly with `--projects auto`, `--projects none`, or comma-separated project names/relative paths.
 
 ---
 

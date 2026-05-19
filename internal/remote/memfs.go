@@ -21,8 +21,8 @@ type MemFSWalker struct {
 }
 
 // Walk traverses the billy filesystem and returns WalkResults compatible
-// with the ingestion pipeline. The root parameter is used as the "virtual"
-// root for path building but the actual traversal always starts at "/".
+// with the ingestion pipeline. The root parameter scopes traversal within
+// the virtual filesystem.
 func (w MemFSWalker) Walk(root string, opts ingestion.WalkOptions) ([]ingestion.WalkResult, error) {
 	if opts.MaxFileSize <= 0 {
 		opts.MaxFileSize = ingestion.DefaultMaxFileSize
@@ -32,12 +32,25 @@ func (w MemFSWalker) Walk(root string, opts ingestion.WalkOptions) ([]ingestion.
 	gi := w.buildIgnoreMatcher(opts.IgnorePatterns)
 
 	var results []ingestion.WalkResult
-	err := w.walkDir(".", root, gi, opts, &results)
+	start := w.cleanRoot(root)
+	err := w.walkDir(start, start, root, gi, opts, &results)
 	return results, err
 }
 
+func (w MemFSWalker) cleanRoot(root string) string {
+	root = path.Clean("/" + strings.TrimPrefix(root, "/"))
+	if root == "/" || root == "." {
+		return "."
+	}
+	candidate := strings.TrimPrefix(root, "/")
+	if info, err := w.FS.Stat(candidate); err == nil && info.IsDir() {
+		return candidate
+	}
+	return "."
+}
+
 // walkDir recursively walks the billy filesystem from dir.
-func (w MemFSWalker) walkDir(dir, root string, gi *ignore.GitIgnore, opts ingestion.WalkOptions, results *[]ingestion.WalkResult) error {
+func (w MemFSWalker) walkDir(dir, base, root string, gi *ignore.GitIgnore, opts ingestion.WalkOptions, results *[]ingestion.WalkResult) error {
 	entries, err := w.FS.ReadDir(dir)
 	if err != nil {
 		return fmt.Errorf("readdir %s: %w", dir, err)
@@ -45,11 +58,16 @@ func (w MemFSWalker) walkDir(dir, root string, gi *ignore.GitIgnore, opts ingest
 
 	for _, entry := range entries {
 		name := entry.Name()
-		relPath := dir
-		if relPath == "." {
-			relPath = name
+		fsPath := dir
+		if fsPath == "." {
+			fsPath = name
 		} else {
-			relPath = dir + "/" + name
+			fsPath = dir + "/" + name
+		}
+
+		relPath := fsPath
+		if base != "." {
+			relPath = strings.TrimPrefix(fsPath, base+"/")
 		}
 
 		if entry.IsDir() && name == ".git" {
@@ -94,7 +112,7 @@ func (w MemFSWalker) walkDir(dir, root string, gi *ignore.GitIgnore, opts ingest
 				RelPath: relPath,
 				IsDir:   true,
 			})
-			if err := w.walkDir(relPath, root, gi, opts, results); err != nil {
+			if err := w.walkDir(fsPath, base, root, gi, opts, results); err != nil {
 				return err
 			}
 			continue

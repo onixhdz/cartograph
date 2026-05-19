@@ -272,8 +272,8 @@ func TestServerResolveRepoName_ShortNameViaRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got != "hashicorp/nomad" {
-		t.Errorf("got %q, want %q", got, "hashicorp/nomad")
+	if got != "h1" {
+		t.Errorf("got %q, want %q", got, "h1")
 	}
 }
 
