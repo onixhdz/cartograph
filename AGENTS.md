@@ -38,7 +38,7 @@ Cartograph is local-first code intelligence. Every change should make the tool m
 - Keep related behavior close together. Split functions only when the split improves understanding or testability.
 - Comments should explain why or clarify non-obvious behavior, not restate what the code says.
 - Keep code readable over clever. Remove dead code when replacing behavior.
-- Avoid one-line pass-through functions that only call another function with the same arguments, unless the wrapper preserves a meaningful abstraction boundary or satisfies an interface.
+- Avoid one-line pass-through functions that only call another function with the same arguments. Keep them only when they preserve a meaningful abstraction boundary, provide a stable public/defaulting API, satisfy an interface, expose a test seam, or isolate platform-specific behavior.
 
 ## Quality Bar
 
