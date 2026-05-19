@@ -87,6 +87,7 @@ Targeted `go test` is still allowed for specific packages that do not require th
 - **Environment variables**: `CARTOGRAPH_TIMING=1` enables pipeline step timing. `CARTOGRAPH_EMBEDDING_WORKERS` caps concurrent WASM workers. `GITHUB_TOKEN` for private repos.
 - **Serialization**: Graph persistence uses msgpack (via `vmihailenco/msgpack/v5`) in bbolt. API transport uses JSON.
 - **No external services**: Everything runs locally. No databases, no cloud APIs (embedding is optional and configurable).
+- **Refactor hygiene**: Avoid one-line pass-through functions that only call another function with the same arguments, unless the wrapper preserves a meaningful abstraction boundary or satisfies an interface.
 - **Modern Go style**: This project targets **Go 1.25+**. Prefer modern idioms over legacy patterns:
   - Use `range` over integers (`for i := range n`) instead of C-style `for i := 0; i < n; i++`.
   - Use `slices`, `maps`, and `cmp` standard library packages instead of hand-rolled helpers where appropriate.
