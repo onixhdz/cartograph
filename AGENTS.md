@@ -54,9 +54,11 @@ Cartograph is local-first code intelligence. Every change should make the tool m
 
 ## Verification
 
-- Use the repository-supported Task workflows for full builds and tests; do not run broad raw Go build/test commands unless the user explicitly requests that unsupported path.
-- Run targeted tests when they are enough to validate a small change, then run the broader supported workflow before considering substantial changes complete.
-- Run linting for code changes and fix reported issues rather than leaving known failures behind.
+- Use Task/Zig workflows for full builds and tests. Do not run raw `go build`, `go test ./...`, or `go test -short ./...` unless the user explicitly requests that unsupported path.
+- Use `task build:dev` for development builds, `task test` for unit tests, and `task test:integration` for integration tests.
+- This is a Zig/CGO project. Task workflows ensure Go uses the intended Zig `CC`/`CXX` toolchain and links the native embedding library correctly.
+- Targeted `go test` is allowed for specific packages that do not require the CGO-linked embedding library; when in doubt, use `task test`.
+- Run linting for code changes with `task lint` or `golangci-lint run ./...`, and fix reported issues rather than leaving known failures behind.
 - If verification cannot be run, report why and what remains unverified.
 
 ## Post-Change Checklist
