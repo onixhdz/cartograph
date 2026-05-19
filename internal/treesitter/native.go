@@ -626,7 +626,8 @@ type languageSpec struct {
 
 var languageSpecs = []languageSpec{
 	{name: "go", extensions: []string{".go"}, build: func() *treesitter.Language { return treesitter.NewLanguage(treego.Language()) }},
-	{name: "typescript", extensions: []string{".ts", ".tsx"}, aliases: []string{"tsx"}, build: func() *treesitter.Language { return treesitter.NewLanguage(treetypescript.LanguageTypescript()) }},
+	{name: "typescript", extensions: []string{".ts"}, build: func() *treesitter.Language { return treesitter.NewLanguage(treetypescript.LanguageTypescript()) }},
+	{name: "tsx", extensions: []string{".tsx"}, build: func() *treesitter.Language { return treesitter.NewLanguage(treetypescript.LanguageTSX()) }},
 	{name: "javascript", extensions: []string{".js", ".jsx", ".mjs", ".cjs"}, aliases: []string{"jsx"}, build: func() *treesitter.Language { return treesitter.NewLanguage(treejavascript.Language()) }},
 	{name: "python", extensions: []string{".py"}, build: func() *treesitter.Language { return treesitter.NewLanguage(treepython.Language()) }},
 	{name: "java", extensions: []string{".java"}, build: func() *treesitter.Language { return treesitter.NewLanguage(treejava.Language()) }},

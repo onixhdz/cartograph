@@ -345,11 +345,12 @@ type SchemaRequest struct {
 // It provides a summary of node labels, relationship types, and
 // community/process counts to help users write Cypher queries.
 type SchemaResult struct {
-	NodeLabels []NodeLabelSummary `json:"nodeLabels"`
-	RelTypes   []RelTypeSummary   `json:"relTypes"`
-	Properties []string           `json:"properties"`
-	TotalNodes int                `json:"totalNodes"`
-	TotalEdges int                `json:"totalEdges"`
+	NodeLabels           []NodeLabelSummary           `json:"nodeLabels"`
+	RelTypes             []RelTypeSummary             `json:"relTypes"`
+	RelationshipPatterns []RelationshipPatternSummary `json:"relationshipPatterns"`
+	Properties           []string                     `json:"properties"`
+	TotalNodes           int                          `json:"totalNodes"`
+	TotalEdges           int                          `json:"totalEdges"`
 }
 
 // NodeLabelSummary describes a node label and its count.
@@ -361,6 +362,14 @@ type NodeLabelSummary struct {
 // RelTypeSummary describes a relationship type and its count.
 type RelTypeSummary struct {
 	Type  string `json:"type"`
+	Count int    `json:"count"`
+}
+
+// RelationshipPatternSummary describes an observed edge pattern between node labels.
+type RelationshipPatternSummary struct {
+	From  string `json:"from"`
+	Type  string `json:"type"`
+	To    string `json:"to"`
 	Count int    `json:"count"`
 }
 

@@ -372,6 +372,37 @@ func TestCypherResultJSON(t *testing.T) {
 	}
 }
 
+func TestSchemaResultJSON(t *testing.T) {
+	result := SchemaResult{
+		NodeLabels: []NodeLabelSummary{{Label: "Function", Count: 2}},
+		RelTypes:   []RelTypeSummary{{Type: "CALLS", Count: 1}},
+		RelationshipPatterns: []RelationshipPatternSummary{{
+			From:  "Function",
+			Type:  "CALLS",
+			To:    "Function",
+			Count: 1,
+		}},
+		Properties: []string{"name"},
+		TotalNodes: 2,
+		TotalEdges: 1,
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var decoded SchemaResult
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(decoded.RelationshipPatterns) != 1 {
+		t.Fatalf("relationshipPatterns count = %d, want 1", len(decoded.RelationshipPatterns))
+	}
+	pattern := decoded.RelationshipPatterns[0]
+	if pattern.From != "Function" || pattern.Type != "CALLS" || pattern.To != "Function" || pattern.Count != 1 {
+		t.Fatalf("unexpected relationship pattern: %+v", pattern)
+	}
+}
+
 func TestErrorCodes(t *testing.T) {
 	codes := []int{
 		ErrCodeInternal,

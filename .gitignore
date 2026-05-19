@@ -41,3 +41,4 @@ internal/embedding/local/.zig-target.stamp
 
 # Task runner cache
 .task/
+.ignore

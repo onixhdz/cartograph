@@ -831,19 +831,20 @@ func cypherValueToAny(v opencypher.Value) any {
 		m["_labels"] = val.GetLabels().Slice()
 		return m
 	case *lpg.Edge:
-		m := make(map[string]any)
-		val.ForEachProperty(func(key string, value any) bool {
-			m[key] = value
-			return true
-		})
-		m["_label"] = val.GetLabel()
-		m["_from"] = graph.GetStringProp(val.GetFrom(), graph.PropID)
-		m["_to"] = graph.GetStringProp(val.GetTo(), graph.PropID)
-		return m
+		return edgeToCypherMap(val)
+	case *lpg.Path:
+		if val.NumEdges() == 1 {
+			return edgeToCypherMap(val.GetEdge(0))
+		}
+		edges := make([]any, 0, val.NumEdges())
+		for i := range val.NumEdges() {
+			edges = append(edges, edgeToCypherMap(val.GetEdge(i)))
+		}
+		return edges
 	case []*lpg.Edge:
 		edges := make([]any, 0, len(val))
 		for _, e := range val {
-			edges = append(edges, cypherValueToAny(opencypher.RValue{Value: e}))
+			edges = append(edges, edgeToCypherMap(e))
 		}
 		return edges
 	case []opencypher.Value:
@@ -855,6 +856,25 @@ func cypherValueToAny(v opencypher.Value) any {
 	default:
 		return raw
 	}
+}
+
+func edgeToCypherMap(edge *lpg.Edge) map[string]any {
+	m := make(map[string]any)
+	if edge == nil {
+		return m
+	}
+	edge.ForEachProperty(func(key string, value any) bool {
+		m[key] = value
+		return true
+	})
+	if relType, err := graph.GetEdgeRelType(edge); err == nil {
+		m["_label"] = string(relType)
+	} else {
+		m["_label"] = edge.GetLabel()
+	}
+	m["_from"] = graph.GetStringProp(edge.GetFrom(), graph.PropID)
+	m["_to"] = graph.GetStringProp(edge.GetTo(), graph.PropID)
+	return m
 }
 
 // Impact computes the blast radius: what symbols are affected if a target
@@ -1689,6 +1709,7 @@ func (b *Backend) Schema(req service.SchemaRequest) (*service.SchemaResult, erro
 	}
 
 	typeCounts := make(map[string]int)
+	patternCounts := make(map[relationshipPatternKey]int)
 	totalEdges := 0
 
 	edges := b.Graph.GetEdges()
@@ -1701,6 +1722,19 @@ func (b *Backend) Schema(req service.SchemaRequest) (*service.SchemaResult, erro
 			edgeType = edge.GetLabel()
 		}
 		typeCounts[edgeType]++
+
+		fromNode := edge.GetFrom()
+		toNode := edge.GetTo()
+		if fromNode == nil || toNode == nil {
+			continue
+		}
+		fromLabels := fromNode.GetLabels().Slice()
+		toLabels := toNode.GetLabels().Slice()
+		for _, from := range fromLabels {
+			for _, to := range toLabels {
+				patternCounts[relationshipPatternKey{from: from, typ: edgeType, to: to}]++
+			}
+		}
 	}
 
 	labelSummaries := make([]service.NodeLabelSummary, 0, len(labelCounts))
@@ -1719,6 +1753,28 @@ func (b *Backend) Schema(req service.SchemaRequest) (*service.SchemaResult, erro
 		return relSummaries[i].Count > relSummaries[j].Count
 	})
 
+	patternSummaries := make([]service.RelationshipPatternSummary, 0, len(patternCounts))
+	for pattern, count := range patternCounts {
+		patternSummaries = append(patternSummaries, service.RelationshipPatternSummary{
+			From:  pattern.from,
+			Type:  pattern.typ,
+			To:    pattern.to,
+			Count: count,
+		})
+	}
+	sort.Slice(patternSummaries, func(i, j int) bool {
+		if patternSummaries[i].Count != patternSummaries[j].Count {
+			return patternSummaries[i].Count > patternSummaries[j].Count
+		}
+		if patternSummaries[i].From != patternSummaries[j].From {
+			return patternSummaries[i].From < patternSummaries[j].From
+		}
+		if patternSummaries[i].Type != patternSummaries[j].Type {
+			return patternSummaries[i].Type < patternSummaries[j].Type
+		}
+		return patternSummaries[i].To < patternSummaries[j].To
+	})
+
 	props := make([]string, 0, len(propSet))
 	for p := range propSet {
 		props = append(props, p)
@@ -1726,10 +1782,17 @@ func (b *Backend) Schema(req service.SchemaRequest) (*service.SchemaResult, erro
 	sort.Strings(props)
 
 	return &service.SchemaResult{
-		NodeLabels: labelSummaries,
-		RelTypes:   relSummaries,
-		Properties: props,
-		TotalNodes: totalNodes,
-		TotalEdges: totalEdges,
+		NodeLabels:           labelSummaries,
+		RelTypes:             relSummaries,
+		RelationshipPatterns: patternSummaries,
+		Properties:           props,
+		TotalNodes:           totalNodes,
+		TotalEdges:           totalEdges,
 	}, nil
+}
+
+type relationshipPatternKey struct {
+	from string
+	typ  string
+	to   string
 }
