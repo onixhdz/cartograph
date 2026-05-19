@@ -125,6 +125,161 @@ func TestExtractFile_Go_Calls(t *testing.T) {
 	}
 }
 
+const dartTestSource = `import 'dart:async' as async;
+import 'package:flutter/widgets.dart';
+export 'src/public_api.dart';
+part 'client.g.dart';
+
+/// HTTP client docs.
+@visibleForTesting
+abstract class Client extends BaseClient with RetryMixin implements Closeable {
+  final String name;
+  static const int version = 1;
+
+  Client(this.name);
+  factory Client.create() => Impl();
+
+  Future<Response> send(Request request) async {
+    await async.Future.value();
+    this.name = request.toString();
+    return Response.json({'ok': true});
+  }
+
+  String get displayName => name;
+  set token(String value) { this.name = value; }
+}
+
+mixin RetryMixin {}
+
+extension RequestX on Request {
+  void retry() => send(this);
+}
+
+enum SessionState { initial, authenticated }
+
+typedef Handler = Future<Response> Function(Request request);
+
+Future<void> main() async {
+  runApp(App());
+  scheduleMicrotask(handleTick);
+  Timer(Duration.zero, handleTick);
+  registerCallback(handleTick);
+}
+
+void handleTick() {}
+void registerCallback(Handler handler) {}
+
+class _PrivateHelper {}
+`
+
+func TestExtractFile_Dart_SymbolsAndRelationships(t *testing.T) {
+	result, err := ExtractFile("/tmp/client.dart", []byte(dartTestSource), langDart)
+	if err != nil {
+		t.Fatalf("ExtractFile failed: %v", err)
+	}
+
+	symbolKey := func(owner, name string) string { return owner + "/" + name }
+	keyToSymbol := make(map[string]ExtractedSymbol)
+	for _, sym := range result.Symbols {
+		keyToSymbol[symbolKey(sym.OwnerName, sym.Name)] = sym
+		if sym.Language != langDart {
+			t.Errorf("symbol %q language = %q, want dart", sym.Name, sym.Language)
+		}
+	}
+
+	expected := map[string]graph.NodeLabel{
+		symbolKey("", "Client"):              graph.LabelClass,
+		symbolKey("Client", "name"):          graph.LabelProperty,
+		symbolKey("Client", "version"):       graph.LabelConst,
+		symbolKey("Client", "Client"):        graph.LabelConstructor,
+		symbolKey("Client", "create"):        graph.LabelConstructor,
+		symbolKey("Client", "send"):          graph.LabelMethod,
+		symbolKey("Client", "displayName"):   graph.LabelMethod,
+		symbolKey("Client", "token"):         graph.LabelMethod,
+		symbolKey("", "RetryMixin"):          graph.LabelTrait,
+		symbolKey("", "RequestX"):            graph.LabelClass,
+		symbolKey("RequestX", "retry"):       graph.LabelMethod,
+		symbolKey("", "SessionState"):        graph.LabelEnum,
+		symbolKey("SessionState", "initial"): graph.LabelConst,
+		symbolKey("", "Handler"):             graph.LabelTypeAlias,
+		symbolKey("", "main"):                graph.LabelFunction,
+		symbolKey("", "handleTick"):          graph.LabelFunction,
+		symbolKey("", "registerCallback"):    graph.LabelFunction,
+		symbolKey("", "_PrivateHelper"):      graph.LabelClass,
+	}
+	for key, label := range expected {
+		sym, ok := keyToSymbol[key]
+		if !ok {
+			t.Errorf("expected symbol %q not found", key)
+			continue
+		}
+		if sym.Label != label {
+			t.Errorf("symbol %q label = %q, want %q", key, sym.Label, label)
+		}
+	}
+
+	if sym := keyToSymbol[symbolKey("", "Client")]; sym.DocComment != "HTTP client docs." {
+		t.Errorf("Client doc = %q, want %q", sym.DocComment, "HTTP client docs.")
+	}
+	if sym := keyToSymbol[symbolKey("", "Client")]; !strings.Contains(sym.Annotations, "visibleForTesting") {
+		t.Errorf("Client annotations = %q, want visibleForTesting", sym.Annotations)
+	}
+	if sym := keyToSymbol[symbolKey("", "_PrivateHelper")]; sym.IsExported {
+		t.Error("_PrivateHelper exported = true, want false")
+	}
+
+	importSources := make(map[string]bool)
+	for _, imp := range result.Imports {
+		importSources[imp.Source] = true
+	}
+	for _, expected := range []string{"dart:async", "package:flutter/widgets.dart", "src/public_api.dart", "client.g.dart"} {
+		if !importSources[expected] {
+			t.Errorf("expected import/source %q not found; got %v", expected, importSources)
+		}
+	}
+
+	callNames := make(map[string]bool)
+	for _, call := range result.Calls {
+		callNames[call.CalleeName] = true
+	}
+	for _, expected := range []string{"value", "json", "runApp", "App", "scheduleMicrotask"} {
+		if !callNames[expected] {
+			t.Errorf("expected call %q not found; got %v", expected, callNames)
+		}
+	}
+
+	spawnTargets := make(map[string]bool)
+	for _, spawn := range result.Spawns {
+		spawnTargets[spawn.TargetName] = true
+	}
+	if !spawnTargets["handleTick"] {
+		t.Errorf("expected spawn target handleTick; got %v", spawnTargets)
+	}
+
+	delegateTargets := make(map[string]bool)
+	for _, delegate := range result.Delegates {
+		delegateTargets[delegate.TargetName] = true
+	}
+	if !delegateTargets["handleTick"] {
+		t.Errorf("expected delegate target handleTick; got %v", delegateTargets)
+	}
+
+	heritage := make(map[string]string)
+	for _, h := range result.Heritage {
+		heritage[h.ClassName+"/"+h.ParentName] = h.Kind
+	}
+	for key, kind := range map[string]string{
+		"Client/BaseClient": "extends",
+		"Client/RetryMixin": "trait",
+		"Client/Closeable":  "implements",
+		"RequestX/Request":  "extends",
+	} {
+		if heritage[key] != kind {
+			t.Errorf("heritage %q = %q, want %q; all: %v", key, heritage[key], kind, heritage)
+		}
+	}
+}
+
 const solidityTestSource = `// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
@@ -1017,7 +1172,7 @@ func TestExtractFile_DataFormatSkipped(t *testing.T) {
 
 func TestCanExtract(t *testing.T) {
 	// Languages with hand-crafted queries should return true.
-	for _, lang := range []string{"go", "python", "typescript", "javascript", "java", "rust", "cpp", "c", "ruby", "php", "kotlin", "swift", "csharp", langSolidity} {
+	for _, lang := range []string{"go", "python", "typescript", "javascript", "java", "rust", "cpp", "c", "ruby", "php", "kotlin", "swift", "csharp", langDart, langSolidity} {
 		if !CanExtract(lang) {
 			t.Errorf("CanExtract(%q) = false, want true (has custom query)", lang)
 		}
@@ -1031,7 +1186,7 @@ func TestCanExtract(t *testing.T) {
 	}
 
 	// Fallback-only languages and unknown languages should return false.
-	for _, lang := range []string{"json", "toml", "yaml", "hcl", "sql", "protobuf", "dockerfile", "bash", "make", "groovy", "lua", "elixir", "dart", "brainfuck_nonexistent"} {
+	for _, lang := range []string{"json", "toml", "yaml", "hcl", "sql", "protobuf", "dockerfile", "bash", "make", "groovy", "lua", "elixir", "brainfuck_nonexistent"} {
 		if CanExtract(lang) {
 			t.Errorf("CanExtract(%q) = true, want false", lang)
 		}
@@ -1049,6 +1204,7 @@ func TestLanguageCapabilities(t *testing.T) {
 	}{
 		{lang: "go", wantNative: true, wantFallbackGrammar: true, wantParse: true, wantCustomQueries: true, wantExtract: true},
 		{lang: "scala", wantNative: true, wantFallbackGrammar: true, wantParse: true, wantCustomQueries: true, wantExtract: true},
+		{lang: langDart, wantNative: true, wantFallbackGrammar: true, wantParse: true, wantCustomQueries: true, wantExtract: true},
 		{lang: langSolidity, wantNative: false, wantFallbackGrammar: true, wantParse: true, wantCustomQueries: true, wantExtract: true},
 		{lang: "yaml", wantNative: false, wantFallbackGrammar: true, wantParse: true, wantCustomQueries: false, wantExtract: false},
 		{lang: "hcl", wantNative: false, wantFallbackGrammar: true, wantParse: true, wantCustomQueries: false, wantExtract: false},
