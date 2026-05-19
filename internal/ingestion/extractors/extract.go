@@ -19,6 +19,8 @@ const langPython = "python"
 
 const langCPP = "cpp"
 
+const langDart = "dart"
+
 const langSolidity = "solidity"
 
 const modifierOverride = "override"
@@ -984,6 +986,10 @@ func detectExported(defNode *ts.Node, name, language string, lang *ts.Language, 
 		// non-exported, but private[scope]/protected[scope] means accessible
 		// within that scope (package/object) — treat as exported.
 		return !hasScalaBareVisibility(defNode, lang, source)
+	case langDart:
+		// Dart library privacy is name-based: declarations beginning with _
+		// are private to the library.
+		return !strings.HasPrefix(name, "_")
 	case langSolidity:
 		// Solidity contract-like declarations, events, and errors are addressable
 		// ABI/source concepts. Members marked private/internal are not exported.
@@ -1199,10 +1205,12 @@ func findDeclarationAncestor(node *ts.Node, lang *ts.Language) *ts.Node {
 
 // commentNodeTypes is the set of tree-sitter node types that represent comments.
 var commentNodeTypes = map[string]bool{
-	"comment":           true,
-	"line_comment":      true,
-	"block_comment":     true,
-	"multiline_comment": true,
+	"comment":                     true,
+	"line_comment":                true,
+	"block_comment":               true,
+	"multiline_comment":           true,
+	"documentation_comment":       true,
+	"documentation_block_comment": true,
 }
 
 // decoratorNodeTypes is the set of node types to skip when walking backward

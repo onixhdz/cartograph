@@ -619,7 +619,13 @@ func TestWalk_NewLanguageDetection(t *testing.T) {
 		t.Errorf("file test.scala: expected language %q, got %q", "scala", got)
 	}
 
-	for _, file := range []string{"test.lua", "test.ex", "test.hs", "test.dart", "test.zig", "test.ml", "test.erl", "test.clj", "test.r", "test.jl"} {
+	if got, ok := langMap["test.dart"]; !ok {
+		t.Error("file test.dart not found in walk results")
+	} else if got != "dart" {
+		t.Errorf("file test.dart: expected language %q, got %q", "dart", got)
+	}
+
+	for _, file := range []string{"test.lua", "test.ex", "test.hs", "test.zig", "test.ml", "test.erl", "test.clj", "test.r", "test.jl"} {
 		got, ok := langMap[file]
 		if !ok {
 			t.Errorf("file %s not found in walk results", file)
