@@ -52,13 +52,13 @@ func ResolveImportsWithConfig(g *lpg.Graph, imports []ImportInfo, cfg *ProjectCo
 			target = resolveGoImport(g, imp, cfg, fileIndex)
 		case "typescript", "javascript":
 			target = resolveTSJSImport(g, imp, cfg, fileIndex)
-		case "python":
+		case langPython:
 			target = resolvePythonImport(g, imp, cfg, fileIndex)
 		case langJava, "kotlin":
 			target = resolveJVMImport(g, imp, cfg, fileIndex)
-		case "rust":
+		case langRust:
 			target = resolveRustImport(g, imp, cfg, fileIndex)
-		case "csharp":
+		case langCSharp:
 			target = resolveCSharpImport(g, imp, cfg, fileIndex)
 		case "php":
 			target = resolvePHPImport(g, imp, cfg, fileIndex)
