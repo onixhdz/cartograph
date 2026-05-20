@@ -87,10 +87,10 @@
           <span class="font-mono text-sm font-bold tracking-tight text-primary">Cartograph</span>
         </a>
         <div class="hidden items-center gap-6 md:flex">
-          <a class="border-b-2 border-primary pb-1 font-mono text-sm font-bold text-primary" href="#features">Features</a>
-          <a class="font-mono text-sm text-on-surface-variant transition-colors hover:text-primary" href="#architecture">Architecture</a>
-          <a class="font-mono text-sm text-on-surface-variant transition-colors hover:text-primary" href="#agents">Agents</a>
-          <a class="font-mono text-sm text-on-surface-variant transition-colors hover:text-primary" href="#quickstart">Quickstart</a>
+          <a class="border-b-2 border-primary pb-1 font-mono text-sm font-bold text-primary" href="#features" data-nav-link>Features</a>
+          <a class="font-mono text-sm text-on-surface-variant transition-colors hover:text-primary" href="#architecture" data-nav-link>Architecture</a>
+          <a class="font-mono text-sm text-on-surface-variant transition-colors hover:text-primary" href="#agents" data-nav-link>Agents</a>
+          <a class="font-mono text-sm text-on-surface-variant transition-colors hover:text-primary" href="#quickstart" data-nav-link>Quickstart</a>
         </div>
       </div>
       <div class="flex items-center gap-3">
@@ -241,8 +241,8 @@
       <section class="border-b border-outline-variant py-20" id="architecture">
         <div class="mb-14">
           <span class="font-mono text-xs text-primary">04 · ARCHITECTURE</span>
-          <h2 class="mt-4 font-display text-3xl font-semibold tracking-[-0.03em] text-on-background sm:text-4xl">Structure. Resolve. Rank. Serve locally.</h2>
-          <p class="mt-4 max-w-3xl text-on-surface-variant">Cartograph builds the graph in stages: map the file tree, parse symbols with tree-sitter, resolve imports and calls, cluster communities, trace execution processes, build hybrid search indexes, and serve the result to CLI and MCP clients.</p>
+          <h2 class="mt-4 font-display text-3xl font-semibold tracking-[-0.03em] text-on-background sm:text-4xl">Index. Resolve. Query. Context.</h2>
+          <p class="mt-4 max-w-3xl text-on-surface-variant">Cartograph builds the graph in stages: walk the repository, parse symbols with tree-sitter, resolve imports, calls, inheritance, and references, cluster related symbols, trace execution processes, build BM25 plus optional vector search indexes, and serve the result to CLI and MCP clients.</p>
         </div>
         <div class="overflow-x-auto border border-outline-variant bg-black/60 p-6 font-mono text-sm leading-relaxed text-primary sm:p-10">
 <pre class="whitespace-pre">cartograph
@@ -302,6 +302,37 @@
       brew: 'brew install realxen/tap/cartograph',
       script: 'curl -sSfL https://realxen.github.io/cartograph/install.sh | sh',
     };
+
+    const navLinks = Array.from(document.querySelectorAll('[data-nav-link]'));
+    const navSections = navLinks
+      .map((link) => document.querySelector(link.getAttribute('href')))
+      .filter(Boolean)
+      .sort((a, b) => a.offsetTop - b.offsetTop);
+
+    const setActiveNav = (id) => {
+      for (const link of navLinks) {
+        const active = link.getAttribute('href') === `#${id}`;
+        link.classList.toggle('border-b-2', active);
+        link.classList.toggle('border-primary', active);
+        link.classList.toggle('pb-1', active);
+        link.classList.toggle('font-bold', active);
+        link.classList.toggle('text-primary', active);
+        link.classList.toggle('text-on-surface-variant', !active);
+      }
+    };
+
+    const updateActiveNav = () => {
+      let current = navSections[0];
+      const activationTop = document.querySelector('header').offsetHeight + 24;
+      for (const section of navSections) {
+        if (section.getBoundingClientRect().top <= activationTop) current = section;
+      }
+      if (current) setActiveNav(current.id);
+    };
+
+    updateActiveNav();
+    document.addEventListener('scroll', updateActiveNav, { passive: true });
+    window.addEventListener('hashchange', updateActiveNav);
 
     for (const tabs of document.querySelectorAll('[data-install-tabs]')) {
       const command = tabs.querySelector('.install-command');
