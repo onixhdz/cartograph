@@ -34,6 +34,10 @@
       animation: flow 22s linear infinite;
     }
     @keyframes flow { to { stroke-dashoffset: -100; } }
+    [data-hero-graph] { touch-action: none; }
+    [data-hero-graph] .graph-node { cursor: grab; }
+    [data-hero-graph] .graph-node:active { cursor: grabbing; }
+    [data-hero-graph] foreignObject { pointer-events: none; }
   </style>
   <script>
     tailwind.config = {
@@ -87,10 +91,10 @@
           <span class="font-mono text-sm font-bold tracking-tight text-primary">Cartograph</span>
         </a>
         <div class="hidden items-center gap-6 md:flex">
-          <a class="border-b-2 border-primary pb-1 font-mono text-sm font-bold text-primary" href="#features">Features</a>
-          <a class="font-mono text-sm text-on-surface-variant transition-colors hover:text-primary" href="#architecture">Architecture</a>
-          <a class="font-mono text-sm text-on-surface-variant transition-colors hover:text-primary" href="#agents">Agents</a>
-          <a class="font-mono text-sm text-on-surface-variant transition-colors hover:text-primary" href="#quickstart">Quickstart</a>
+          <a class="border-b-2 border-primary pb-1 font-mono text-sm font-bold text-primary" href="#features" data-nav-link>Features</a>
+          <a class="font-mono text-sm text-on-surface-variant transition-colors hover:text-primary" href="#architecture" data-nav-link>Architecture</a>
+          <a class="font-mono text-sm text-on-surface-variant transition-colors hover:text-primary" href="#agents" data-nav-link>Agents</a>
+          <a class="font-mono text-sm text-on-surface-variant transition-colors hover:text-primary" href="#quickstart" data-nav-link>Quickstart</a>
         </div>
       </div>
       <div class="flex items-center gap-3">
@@ -141,33 +145,8 @@
         </div>
 
         <div class="relative flex aspect-square items-center justify-center">
-          <div class="absolute inset-0 rounded-full bg-primary/5 blur-[100px]"></div>
-          <svg class="h-full w-full" viewBox="0 0 420 420" xmlns="http://www.w3.org/2000/svg" aria-label="Repository knowledge graph illustration">
-            <defs>
-              <filter id="glow"><feGaussianBlur result="coloredBlur" stdDeviation="2.5"></feGaussianBlur><feMerge><feMergeNode in="coloredBlur"></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge></filter>
-            </defs>
-            <g class="rectilinear-connector" fill="none" opacity="0.48" stroke="#f97316" stroke-width="1.2">
-              <path d="M80 105 H215 V165 H335"></path>
-              <path d="M105 300 H240 V230 H350"></path>
-              <path d="M210 70 V345"></path>
-              <path d="M65 230 H160 V145 H290"></path>
-            </g>
-            <g filter="url(#glow)">
-              <rect fill="#f97316" height="22" width="22" x="69" y="94"></rect>
-              <rect fill="#ffb690" height="22" width="22" x="204" y="154"></rect>
-              <rect fill="#93ccff" height="22" width="22" x="324" y="154"></rect>
-              <rect fill="#adc6ff" height="22" width="22" x="199" y="59"></rect>
-              <rect fill="#f97316" height="22" width="22" x="94" y="289"></rect>
-              <rect fill="#93ccff" height="22" width="22" x="339" y="219"></rect>
-              <rect fill="#ffb690" height="22" width="22" x="199" y="334"></rect>
-            </g>
-            <text fill="#e0c0b1" font-family="JetBrains Mono" font-size="10" x="96" y="110">SYMBOL</text>
-            <text fill="#e0c0b1" font-family="JetBrains Mono" font-size="10" x="230" y="170">CALL_PATH</text>
-            <text fill="#e0c0b1" font-family="JetBrains Mono" font-size="10" x="230" y="76">IMPORT</text>
-            <text fill="#e0c0b1" font-family="JetBrains Mono" font-size="10" x="120" y="305">REPO</text>
-            <text fill="#e0c0b1" font-family="JetBrains Mono" font-size="10" x="275" y="236">PROCESS</text>
-            <text fill="#e0c0b1" font-family="JetBrains Mono" font-size="10" x="225" y="350">COMMUNITY</text>
-          </svg>
+          <div class="pointer-events-none absolute inset-0 rounded-full bg-primary/5 blur-[100px]"></div>
+          <svg class="relative z-10 h-full w-full max-w-[560px]" viewBox="0 0 420 420" xmlns="http://www.w3.org/2000/svg" aria-label="Interactive repository knowledge graph illustration" data-hero-graph></svg>
         </div>
       </section>
 
@@ -241,8 +220,8 @@
       <section class="border-b border-outline-variant py-20" id="architecture">
         <div class="mb-14">
           <span class="font-mono text-xs text-primary">04 · ARCHITECTURE</span>
-          <h2 class="mt-4 font-display text-3xl font-semibold tracking-[-0.03em] text-on-background sm:text-4xl">Structure. Resolve. Rank. Serve locally.</h2>
-          <p class="mt-4 max-w-3xl text-on-surface-variant">Cartograph builds the graph in stages: map the file tree, parse symbols with tree-sitter, resolve imports and calls, cluster communities, trace execution processes, build hybrid search indexes, and serve the result to CLI and MCP clients.</p>
+          <h2 class="mt-4 font-display text-3xl font-semibold tracking-[-0.03em] text-on-background sm:text-4xl">Index. Resolve. Query. Context.</h2>
+          <p class="mt-4 max-w-3xl text-on-surface-variant">Cartograph builds the graph in stages: walk the repository, parse symbols with tree-sitter, resolve imports, calls, inheritance, and references, cluster related symbols, trace execution processes, build BM25 plus optional vector search indexes, and serve the result to CLI and MCP clients.</p>
         </div>
         <div class="overflow-x-auto border border-outline-variant bg-black/60 p-6 font-mono text-sm leading-relaxed text-primary sm:p-10">
 <pre class="whitespace-pre">cartograph
@@ -303,6 +282,37 @@
       script: 'curl -sSfL https://realxen.github.io/cartograph/install.sh | sh',
     };
 
+    const navLinks = Array.from(document.querySelectorAll('[data-nav-link]'));
+    const navSections = navLinks
+      .map((link) => document.querySelector(link.getAttribute('href')))
+      .filter(Boolean)
+      .sort((a, b) => a.offsetTop - b.offsetTop);
+
+    const setActiveNav = (id) => {
+      for (const link of navLinks) {
+        const active = link.getAttribute('href') === `#${id}`;
+        link.classList.toggle('border-b-2', active);
+        link.classList.toggle('border-primary', active);
+        link.classList.toggle('pb-1', active);
+        link.classList.toggle('font-bold', active);
+        link.classList.toggle('text-primary', active);
+        link.classList.toggle('text-on-surface-variant', !active);
+      }
+    };
+
+    const updateActiveNav = () => {
+      let current = navSections[0];
+      const activationTop = document.querySelector('header').offsetHeight + 24;
+      for (const section of navSections) {
+        if (section.getBoundingClientRect().top <= activationTop) current = section;
+      }
+      if (current) setActiveNav(current.id);
+    };
+
+    updateActiveNav();
+    document.addEventListener('scroll', updateActiveNav, { passive: true });
+    window.addEventListener('hashchange', updateActiveNav);
+
     for (const tabs of document.querySelectorAll('[data-install-tabs]')) {
       const command = tabs.querySelector('.install-command');
       const copyTarget = tabs.querySelector('[data-copy]');
@@ -334,6 +344,182 @@
           setTimeout(() => { icon.setAttribute('icon', 'material-symbols:content-copy'); }, 1600);
         }
       });
+    }
+  </script>
+  <script type="module">
+    import * as d3 from 'https://cdn.jsdelivr.net/npm/d3@7/+esm';
+
+    const graph = document.querySelector('[data-hero-graph]');
+    if (graph) {
+      const width = 420;
+      const height = 420;
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const nodes = [
+        { id: 'query', type: 'symbol', icon: 'material-symbols:data-object', color: '#ff563d', r: 17, x: 188, y: 178 },
+        { id: 'server', type: 'symbol', icon: 'material-symbols:data-object', color: '#ff563d', r: 17, x: 151, y: 265 },
+        { id: 'context', type: 'symbol', icon: 'material-symbols:data-object', color: '#ff563d', r: 15, x: 300, y: 203 },
+        { id: 'handler', type: 'symbol', icon: 'material-symbols:data-object', color: '#ff563d', r: 13, x: 354, y: 132 },
+        { id: 'store', type: 'symbol', icon: 'material-symbols:data-object', color: '#ff563d', r: 13, x: 78, y: 322 },
+        { id: 'flow', type: 'process', icon: 'material-symbols:account-tree', color: '#2fc7df', r: 14, x: 239, y: 264 },
+        { id: 'imports', type: 'process', icon: 'material-symbols:account-tree', color: '#2fc7df', r: 13, x: 92, y: 181 },
+        { id: 'tree', type: 'process', icon: 'material-symbols:account-tree', color: '#2fc7df', r: 13, x: 130, y: 86 },
+        { id: 'repo', type: 'process', icon: 'material-symbols:account-tree', color: '#2fc7df', r: 11, x: 347, y: 69 },
+        { id: 'impact', type: 'process', icon: 'material-symbols:account-tree', color: '#2fc7df', r: 11, x: 358, y: 351 },
+        { id: 'parse', type: 'function', icon: 'material-symbols:function', color: '#ffad2f', r: 10, x: 265, y: 145 },
+        { id: 'rank', type: 'function', icon: 'material-symbols:function', color: '#ffad2f', r: 10, x: 181, y: 336 },
+        { id: 'embed', type: 'function', icon: 'material-symbols:function', color: '#ffad2f', r: 10, x: 306, y: 325 },
+        { id: 'go1', type: 'file', icon: 'simple-icons:go', color: '#3478f6', r: 13, x: 242, y: 76 },
+        { id: 'go2', type: 'file', icon: 'simple-icons:go', color: '#3478f6', r: 13, x: 184, y: 60 },
+        { id: 'community', type: 'community', icon: 'material-symbols:hive', color: '#9b3ff2', r: 11, x: 351, y: 258 },
+        { id: 'cluster', type: 'community', icon: 'material-symbols:hive', color: '#9b3ff2', r: 10, x: 59, y: 254 },
+      ];
+      const linkPairs = [
+        ['store', 'server'], ['imports', 'server'], ['tree', 'query'], ['go2', 'query'],
+        ['go1', 'query'], ['query', 'parse'], ['query', 'context'], ['query', 'flow'],
+        ['server', 'flow'], ['server', 'rank'], ['flow', 'embed'], ['context', 'handler'],
+        ['context', 'community'], ['parse', 'handler'], ['parse', 'flow'], ['cluster', 'server'],
+        ['repo', 'handler'], ['impact', 'embed'], ['tree', 'imports'], ['go1', 'context'],
+        ['store', 'rank'], ['community', 'embed'], ['go2', 'go1'], ['cluster', 'store'],
+      ];
+      const nodesById = new Map(nodes.map((node) => [node.id, node]));
+      const links = linkPairs.map(([source, target]) => ({ source: nodesById.get(source), target: nodesById.get(target) }));
+      const connectedByNode = new Map(nodes.map((node) => [node.id, new Set([node.id])]));
+      const connectedByPair = new Set();
+      for (const [source, target] of linkPairs) {
+        connectedByNode.get(source).add(target);
+        connectedByNode.get(target).add(source);
+        connectedByPair.add(`${source}->${target}`);
+        connectedByPair.add(`${target}->${source}`);
+      }
+
+      const svg = d3.select(graph);
+      svg.selectAll('*').remove();
+      const defs = svg.append('defs');
+      defs.append('filter')
+        .attr('id', 'hero-graph-glow')
+        .append('feGaussianBlur')
+        .attr('stdDeviation', 2.2)
+        .attr('result', 'coloredBlur');
+      defs.select('#hero-graph-glow')
+        .append('feMerge')
+        .selectAll('feMergeNode')
+        .data(['coloredBlur', 'SourceGraphic'])
+        .join('feMergeNode')
+        .attr('in', (d) => d);
+      const link = svg.append('g')
+        .attr('fill', 'none')
+        .attr('stroke', '#6f7887')
+        .attr('stroke-linecap', 'round')
+        .attr('stroke-width', 2)
+        .attr('opacity', 0.72)
+        .selectAll('line')
+        .data(links)
+        .join('line');
+
+      const node = svg.append('g')
+        .attr('filter', 'url(#hero-graph-glow)')
+        .selectAll('g')
+        .data(nodes)
+        .join('g')
+        .attr('class', 'graph-node')
+        .on('mouseenter', (_event, d) => { if (!pinnedNodeId) highlightGraph(d.id); })
+        .on('mouseleave', () => { if (!pinnedNodeId) highlightGraph(null); })
+        .on('click', (event, d) => {
+          event.stopPropagation();
+          pinnedNodeId = pinnedNodeId === d.id ? null : d.id;
+          highlightGraph(pinnedNodeId);
+        })
+        .call(d3.drag()
+          .on('start', (event, d) => {
+            if (!event.active) simulation.alphaTarget(0.18).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+          })
+          .on('drag', (event, d) => {
+            d.fx = Math.max(24, Math.min(width - 24, event.x));
+            d.fy = Math.max(24, Math.min(height - 24, event.y));
+          })
+          .on('end', (event, d) => {
+            if (!event.active) simulation.alphaTarget(0);
+            d.fx = null;
+            d.fy = null;
+          }));
+
+      node.append('circle')
+        .attr('r', (d) => d.r + 8)
+        .attr('fill', 'transparent')
+        .attr('stroke', 'transparent');
+      node.append('circle')
+        .attr('r', (d) => d.r)
+        .attr('fill', (d) => d.color);
+      node.append('foreignObject')
+        .attr('x', (d) => -d.r * 0.72)
+        .attr('y', (d) => -d.r * 0.72)
+        .attr('width', (d) => d.r * 1.44)
+        .attr('height', (d) => d.r * 1.44)
+        .html((d) => `<div xmlns="http://www.w3.org/1999/xhtml" style="align-items:center;color:#fff7f2;display:flex;height:100%;justify-content:center;width:100%"><iconify-icon icon="${d.icon}" style="font-size:${Math.max(14, d.r * 1.1)}px"></iconify-icon></div>`);
+
+      let pinnedNodeId = null;
+      svg.on('click', () => {
+        pinnedNodeId = null;
+        highlightGraph(null);
+      });
+
+      const highlightGraph = (activeId) => {
+        const connected = activeId ? connectedByNode.get(activeId) : null;
+        node
+          .attr('opacity', (d) => !activeId || connected.has(d.id) ? 1 : 0.22)
+          .select('circle:nth-of-type(2)')
+          .attr('fill', (d) => !activeId || connected.has(d.id) ? d.color : '#343942');
+        link
+          .attr('opacity', (d) => {
+            if (!activeId) return 0.72;
+            const sourceId = typeof d.source === 'object' ? d.source.id : d.source;
+            const targetId = typeof d.target === 'object' ? d.target.id : d.target;
+            return connectedByPair.has(`${sourceId}->${targetId}`) && (sourceId === activeId || targetId === activeId) ? 0.95 : 0.12;
+          })
+          .attr('stroke', (d) => {
+            if (!activeId) return '#6f7887';
+            const sourceId = typeof d.source === 'object' ? d.source.id : d.source;
+            const targetId = typeof d.target === 'object' ? d.target.id : d.target;
+            return sourceId === activeId || targetId === activeId ? '#f97316' : '#343942';
+          })
+          .attr('stroke-width', (d) => {
+            if (!activeId) return 2;
+            const sourceId = typeof d.source === 'object' ? d.source.id : d.source;
+            const targetId = typeof d.target === 'object' ? d.target.id : d.target;
+            return sourceId === activeId || targetId === activeId ? 2.8 : 1.4;
+          });
+      };
+
+      const renderGraph = () => {
+        for (const d of nodes) {
+          d.x = Math.max(24, Math.min(width - 24, d.x));
+          d.y = Math.max(24, Math.min(height - 24, d.y));
+        }
+        link
+          .attr('x1', (d) => d.source.x)
+          .attr('y1', (d) => d.source.y)
+          .attr('x2', (d) => d.target.x)
+          .attr('y2', (d) => d.target.y);
+        node.attr('transform', (d) => `translate(${d.x},${d.y})`);
+      };
+      renderGraph();
+
+      const simulation = d3.forceSimulation(nodes)
+        .force('link', d3.forceLink(links).id((d) => d.id).distance(82).strength(0.55))
+        .force('charge', d3.forceManyBody().strength(-170))
+        .force('collide', d3.forceCollide().radius((d) => d.r + 8).strength(0.9))
+        .force('x', d3.forceX(width / 2).strength(0.055))
+        .force('y', d3.forceY(height / 2).strength(0.055))
+        .alpha(reducedMotion ? 0 : 0.65)
+        .on('tick', renderGraph);
+
+      if (reducedMotion) {
+        simulation.tick(80).stop();
+        renderGraph();
+      }
+      else setTimeout(() => simulation.alphaTarget(0).stop(), 1800);
     }
   </script>
 </body>
