@@ -298,7 +298,7 @@ func TestWalk_IgnoredDirectories(t *testing.T) {
 		".svn", ".hg", ".bzr", // VCS
 		".idea", ".vscode", // IDE
 		"__pycache__", "venv", ".venv", // Python
-		"dist", "build", "out", "target", // Build
+		"dist", "out", "target", // Build
 		".next", ".nuxt", ".turbo", // Framework
 		"coverage", "__tests__", "__mocks__", ".nyc_output", // Test/coverage
 	}
@@ -321,6 +321,59 @@ func TestWalk_IgnoredDirectories(t *testing.T) {
 				t.Errorf("directory %s should be ignored, but found %s", d, r.RelPath)
 			}
 		}
+	}
+}
+
+func TestWalk_BuildDirectoriesRespectIgnorePatterns(t *testing.T) {
+	dir := testutil.TempDir(t, map[string]string{
+		".gitignore":                        "/build/\n/module/build/\n",
+		"main.go":                           "package main",
+		"build/generated.js":                "generated",
+		"module/build/generated.js":         "generated",
+		"src/tools/commands/build/build.go": "package build",
+	})
+
+	results, err := Walk(dir, WalkOptions{})
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+
+	seen := map[string]bool{}
+	for _, r := range results {
+		seen[r.RelPath] = true
+	}
+
+	if seen["build/generated.js"] {
+		t.Error("ignored root build directory should be skipped")
+	}
+	if seen["module/build/generated.js"] {
+		t.Error("ignored nested build directory should be skipped")
+	}
+	if !seen["src/tools/commands/build/build.go"] {
+		t.Error("source command directories named build should be indexed")
+	}
+}
+
+func TestWalk_UnignoredBuildDirectoriesAreIndexed(t *testing.T) {
+	dir := testutil.TempDir(t, map[string]string{
+		"build/generated.js":  "generated",
+		"src/build/source.go": "package build",
+	})
+
+	results, err := Walk(dir, WalkOptions{})
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+
+	seen := map[string]bool{}
+	for _, r := range results {
+		seen[r.RelPath] = true
+	}
+	if !seen["build/generated.js"] {
+		t.Error("unignored root build directory should be indexed")
+	}
+	if !seen["src/build/source.go"] {
+		t.Error("unignored source build directory should be indexed")
 	}
 }
 
@@ -436,7 +489,7 @@ func TestWalk_CompoundExtensions(t *testing.T) {
 	}
 }
 
-func TestShouldIgnorePath_Comprehensive(t *testing.T) {
+func TestDefaultIgnorePatterns_Comprehensive(t *testing.T) {
 	// Files that should be ignored
 	ignored := []string{
 		"node_modules/express/index.js",
@@ -451,8 +504,8 @@ func TestShouldIgnorePath_Comprehensive(t *testing.T) {
 		"types/index.d.ts",
 	}
 	for _, fp := range ignored {
-		if !ShouldIgnorePath(fp) {
-			t.Errorf("expected ShouldIgnorePath(%q) = true", fp)
+		if !MatchesIgnorePath(defaultIgnoreMatcher, fp, false) {
+			t.Errorf("expected default ignore matcher to ignore %q", fp)
 		}
 	}
 
@@ -463,20 +516,12 @@ func TestShouldIgnorePath_Comprehensive(t *testing.T) {
 		"lib/utils.py",
 		"cmd/server/main.go",
 		"src/main.rs",
+		"src/commands/build/main.go",
 	}
 	for _, fp := range notIgnored {
-		if ShouldIgnorePath(fp) {
-			t.Errorf("expected ShouldIgnorePath(%q) = false", fp)
+		if MatchesIgnorePath(defaultIgnoreMatcher, fp, false) {
+			t.Errorf("expected default ignore matcher not to ignore %q", fp)
 		}
-	}
-}
-
-func TestShouldIgnorePath_WindowsPaths(t *testing.T) {
-	if !ShouldIgnorePath("node_modules\\express\\index.js") {
-		t.Error("expected Windows path with node_modules to be ignored")
-	}
-	if !ShouldIgnorePath("project\\.git\\HEAD") {
-		t.Error("expected Windows path with .git to be ignored")
 	}
 }
 

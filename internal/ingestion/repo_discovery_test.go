@@ -54,6 +54,29 @@ func TestDetectRepoCandidatesWorkspaceChildrenRecommendedWhenRootIsContainerOnly
 	}
 }
 
+func TestDetectRepoCandidatesBuildDirectoriesRespectIgnorePatterns(t *testing.T) {
+	root := t.TempDir()
+	writeProjectFile(t, root, ".gitignore", "/module/build/\n")
+	writeProjectFile(t, root, "module/build/generated.go", "package generated")
+	writeProjectFile(t, root, "src/commands/build/build.go", "package build")
+	writeProjectFile(t, root, "src/commands/build/.git/HEAD", "ref: refs/heads/main")
+
+	result, err := DetectRepoCandidates(root, RepoDetectionOptions{})
+	if err != nil {
+		t.Fatalf("DetectRepoCandidates: %v", err)
+	}
+
+	sourceBuild := repoCandidateByRel(t, result.Candidates, "src/commands/build")
+	if !slices.Contains(sourceBuild.Signals, RepoSignalGitRoot) {
+		t.Fatalf("source build directory should be traversed for repo signals: %+v", sourceBuild)
+	}
+	for _, candidate := range result.Candidates {
+		if candidate.RelPath == "module/build" {
+			t.Fatalf("ignored build directory should be skipped: %+v", candidate)
+		}
+	}
+}
+
 func TestDetectRepoCandidatesExpandsWorkspaceGlobsAndSkipsExternal(t *testing.T) {
 	root := t.TempDir()
 	writeProjectFile(t, root, "package.json", `{"name":"root","workspaces":["apps/*","apps/deleted","../outside"]}`)

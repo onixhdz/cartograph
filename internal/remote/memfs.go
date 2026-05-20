@@ -74,35 +74,18 @@ func (w MemFSWalker) walkDir(dir, base, root string, gi *ignore.GitIgnore, opts 
 			continue
 		}
 
-		// Check directory name against the ignored-directory list and hidden rules.
-		// ShouldIgnorePath only checks parents, so we need explicit checks here.
 		if entry.IsDir() {
-			if ingestion.IsIgnoredDirectory(name) {
-				continue
-			}
 			if !opts.IncludeHidden && strings.HasPrefix(name, ".") {
 				continue
 			}
-		}
-
-		// Use the shared ignore-path checker for files: extensions,
-		// binary files, exact filenames, compound suffixes, etc.
-		if !entry.IsDir() && ingestion.ShouldIgnorePath(relPath) {
-			continue
 		}
 
 		if !entry.IsDir() && !opts.IncludeHidden && strings.HasPrefix(name, ".") {
 			continue
 		}
 
-		if gi != nil {
-			if entry.IsDir() {
-				if gi.MatchesPath(relPath) || gi.MatchesPath(relPath+"/") {
-					continue
-				}
-			} else if gi.MatchesPath(relPath) {
-				continue
-			}
+		if ingestion.MatchesIgnorePath(gi, relPath, entry.IsDir()) {
+			continue
 		}
 
 		if entry.IsDir() {
@@ -145,7 +128,7 @@ func (w MemFSWalker) walkDir(dir, base, root string, gi *ignore.GitIgnore, opts 
 // buildIgnoreMatcher reads .gitignore and .cartographignore from the
 // billy filesystem and compiles them into an ignore matcher.
 func (w MemFSWalker) buildIgnoreMatcher(extraPatterns []string) *ignore.GitIgnore {
-	var lines []string
+	lines := ingestion.DefaultIgnorePatterns()
 	lines = append(lines, w.readIgnoreFile(".gitignore")...)
 	lines = append(lines, w.readIgnoreFile(".cartographignore")...)
 	lines = append(lines, extraPatterns...)
