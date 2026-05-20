@@ -4,6 +4,7 @@
 package ingestion
 
 import (
+	_ "embed"
 	"fmt"
 	"io/fs"
 	"os"
@@ -35,6 +36,14 @@ type WalkOptions struct {
 // DefaultMaxFileSize is the default maximum file size (10 MB).
 // Used by both the filesystem walker and the tree-sitter parser.
 const DefaultMaxFileSize int64 = 10 * 1024 * 1024
+
+//go:embed walker.cartographignore
+var defaultIgnoreFile string
+
+var (
+	defaultIgnorePatterns = parseIgnoreLines(defaultIgnoreFile)
+	defaultIgnoreMatcher  = ignore.CompileIgnoreLines(defaultIgnorePatterns...)
+)
 
 // Walk traverses the filesystem from root and returns all discovered entries.
 func Walk(root string, opts WalkOptions) ([]WalkResult, error) {
@@ -84,24 +93,11 @@ func Walk(root string, opts WalkOptions) ([]WalkResult, error) {
 			return nil
 		}
 
-		if d.IsDir() && IsIgnoredDirectory(name) {
-			return fs.SkipDir
-		}
-
 		// Check ignore patterns via go-gitignore (supports **, negation, etc.).
-		if gi != nil {
-			// For directories, also check with a trailing slash so that
-			// patterns like "logs/" correctly match directory entries.
+		if MatchesIgnorePath(gi, relPath, d.IsDir()) {
 			if d.IsDir() {
-				if gi.MatchesPath(relPath) || gi.MatchesPath(relPath+"/") {
-					return fs.SkipDir
-				}
-			} else if gi.MatchesPath(relPath) {
-				return nil
+				return fs.SkipDir
 			}
-		}
-
-		if !d.IsDir() && shouldIgnoreFile(name) {
 			return nil
 		}
 
@@ -111,10 +107,6 @@ func Walk(root string, opts WalkOptions) ([]WalkResult, error) {
 				RelPath: relPath,
 				IsDir:   true,
 			})
-			return nil
-		}
-
-		if isBinaryExtension(name) || isIgnoredExtension(name) {
 			return nil
 		}
 
@@ -152,15 +144,24 @@ func buildIgnoreMatcher(root string, extraPatterns []string) *ignore.GitIgnore {
 	gitignorePath := filepath.Join(root, ".gitignore")
 	cartographignorePath := filepath.Join(root, ".cartographignore")
 
-	var lines []string
+	lines := DefaultIgnorePatterns()
 	lines = append(lines, readIgnoreLines(gitignorePath)...)
 	lines = append(lines, readIgnoreLines(cartographignorePath)...)
 	lines = append(lines, extraPatterns...)
 
+	return compileIgnoreLines(lines)
+}
+
+func compileIgnoreLines(lines []string) *ignore.GitIgnore {
 	if len(lines) == 0 {
 		return nil
 	}
 	return ignore.CompileIgnoreLines(lines...)
+}
+
+// DefaultIgnorePatterns returns Cartograph's embedded default ignore rules.
+func DefaultIgnorePatterns() []string {
+	return append([]string(nil), defaultIgnorePatterns...)
 }
 
 // readIgnoreLines reads a .gitignore-style file and returns non-empty,
@@ -170,8 +171,12 @@ func readIgnoreLines(path string) []string {
 	if err != nil {
 		return nil
 	}
+	return parseIgnoreLines(string(data))
+}
+
+func parseIgnoreLines(text string) []string {
 	var lines []string
-	for line := range strings.SplitSeq(string(data), "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		line = strings.TrimRight(line, "\r")
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
@@ -181,6 +186,17 @@ func readIgnoreLines(path string) []string {
 		lines = append(lines, line)
 	}
 	return lines
+}
+
+// MatchesIgnorePath checks a normalized relative path against an ignore matcher.
+func MatchesIgnorePath(matcher *ignore.GitIgnore, relPath string, isDir bool) bool {
+	if matcher == nil {
+		return false
+	}
+	if matcher.MatchesPath(relPath) {
+		return true
+	}
+	return isDir && matcher.MatchesPath(relPath+"/")
 }
 
 var supportingLanguageNamesByFilename = map[string]string{
@@ -242,144 +258,6 @@ func DetectLanguage(name string) string {
 	}
 
 	return ""
-}
-
-// binaryExtensions is the set of file extensions considered binary.
-var binaryExtensions = map[string]bool{
-	".exe": true, ".bin": true, ".o": true, ".so": true, ".dll": true, ".dylib": true,
-	".class": true, ".jar": true, ".zip": true, ".tar": true, ".gz": true, ".rar": true,
-	".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".svg": true, ".ico": true, ".webp": true,
-	".pdf": true, ".wasm": true, ".pyc": true,
-	".doc": true, ".docx": true,
-	".mp4": true, ".mp3": true, ".wav": true,
-	".woff": true, ".woff2": true, ".ttf": true,
-	".db": true, ".sqlite": true,
-	".pem": true, ".key": true, ".crt": true,
-	".csv": true, ".parquet": true, ".pkl": true,
-}
-
-// isBinaryExtension checks whether a filename has a known binary extension.
-func isBinaryExtension(name string) bool {
-	ext := strings.ToLower(filepath.Ext(name))
-	return binaryExtensions[ext]
-}
-
-// ignoredExtensions are additional file extensions to skip (non-binary but not useful for code analysis).
-var ignoredExtensions = map[string]bool{
-	".map":  true, // source maps
-	".lock": true, // lock files
-}
-
-// isIgnoredExtension checks if a file has an extension that should be ignored.
-func isIgnoredExtension(name string) bool {
-	ext := strings.ToLower(filepath.Ext(name))
-	return ignoredExtensions[ext]
-}
-
-// ignoredDirectories is the comprehensive set of directories to always skip.
-var ignoredDirectories = map[string]bool{
-	// VCS
-	fileGit: true, ".svn": true, ".hg": true, ".bzr": true,
-	// IDE/Editor
-	".idea": true, ".vscode": true, ".vs": true,
-	// Dependencies
-	"node_modules": true, "vendor": true, "venv": true, ".venv": true,
-	"__pycache__": true, "site-packages": true,
-	".mypy_cache": true, ".pytest_cache": true,
-	// Build output
-	"dist": true, "build": true, "out": true, "output": true,
-	"bin": true, "obj": true, "target": true,
-	".next": true, ".nuxt": true, ".vercel": true,
-	".parcel-cache": true, ".turbo": true,
-	// Test/coverage
-	"coverage": true, "__tests__": true, "__mocks__": true, ".nyc_output": true,
-}
-
-// IsIgnoredDirectory checks if a directory name should be skipped.
-func IsIgnoredDirectory(name string) bool {
-	return ignoredDirectories[name]
-}
-
-// ignoredFileNames are exact filenames to always ignore.
-var ignoredFileNames = map[string]bool{
-	"package-lock.json": true, "yarn.lock": true, "pnpm-lock.yaml": true,
-	"composer.lock": true, "Cargo.lock": true, "go.sum": true,
-	".gitignore": true, ".gitattributes": true, ".npmrc": true, ".editorconfig": true,
-	".prettierrc": true, ".eslintignore": true, ".dockerignore": true,
-	"LICENSE": true, "LICENSE.md": true, "CHANGELOG.md": true,
-	".env": true, ".env.local": true, ".env.production": true,
-}
-
-// compoundIgnoredSuffixes are file suffixes that indicate generated/minified files.
-var compoundIgnoredSuffixes = []string{
-	".min.js", ".bundle.js", ".chunk.js", ".min.css",
-	".generated.ts", ".generated.js", ".generated.go",
-	".d.ts",
-	// Go code generators
-	".pb.go", ".pb.gw.go", // protobuf / gRPC gateway
-	"_generated.go", "_gen.go", // k8s deepcopy, etc.
-	"_string.go",                 // stringer
-	".zz_generated.go",           // controller-gen
-	".deepcopy.go",               // kubebuilder
-	"_enumer.go",                 // enumer
-	".twirp.go",                  // Twirp RPC
-	"_easyjson.go", "_ffjson.go", // JSON codegen
-	".mock.go", "_mock.go", // mockgen
-	// Scala code generators
-	".pb.scala", // ScalaPB protobuf
-}
-
-// shouldIgnoreFile checks if a file should be ignored based on its exact name
-// or compound extension patterns.
-func shouldIgnoreFile(name string) bool {
-	if ignoredFileNames[name] {
-		return true
-	}
-	lower := strings.ToLower(name)
-	for _, suffix := range compoundIgnoredSuffixes {
-		if strings.HasSuffix(lower, suffix) {
-			return true
-		}
-	}
-	return false
-}
-
-// ShouldIgnorePath checks if a file path should be ignored based on all
-// built-in rules (directories, extensions, exact names, compound extensions).
-// This is the main entry point for ignore checking used by external callers.
-func ShouldIgnorePath(filePath string) bool {
-	// Normalize Windows paths
-	fp := strings.ReplaceAll(filePath, "\\", "/")
-	name := fp
-	if idx := strings.LastIndex(fp, "/"); idx >= 0 {
-		name = fp[idx+1:]
-	}
-
-	parts := strings.Split(fp, "/")
-	if slices.ContainsFunc(parts[:len(parts)-1], IsIgnoredDirectory) {
-		return true
-	}
-
-	if isBinaryExtension(name) {
-		return true
-	}
-
-	if isIgnoredExtension(name) {
-		return true
-	}
-
-	if ignoredFileNames[name] {
-		return true
-	}
-
-	lower := strings.ToLower(name)
-	for _, suffix := range compoundIgnoredSuffixes {
-		if strings.HasSuffix(lower, suffix) {
-			return true
-		}
-	}
-
-	return false
 }
 
 // docNamePrefixes are case-insensitive base-filename prefixes that identify

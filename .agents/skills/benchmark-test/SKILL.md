@@ -139,7 +139,7 @@ python3 .agents/skills/benchmark-test/score.py /tmp/bat-steampipe.txt \
 | 5K-20K nodes  | `-l 10` | Moderate dilution                                       |
 | > 20K nodes   | `-l 15` | Large codebases need more slots to surface deep symbols |
 
-## Current Baseline (2026-05-19, Dart extraction support + OSS batteries)
+## Current Baseline (2026-05-20, Dart extraction support + OSS batteries)
 
 ```
 Project              Lang    Nodes    KW          INT         Criteria
@@ -153,10 +153,10 @@ gatling-usecases     Scala   11863    31/36 (86%) 25/36 (69%) 6/6
 mdbook               Rust    2375     26/43 (60%) 22/43 (51%) 5/5
 openzeppelin         Solidity 6784    30/44 (68%) 39/44 (88%) 5/5
 dss                  Solidity 1513    35/43 (81%) 29/43 (67%) 5/5
-dart-http            Dart    13336    23/42 (54%) 21/42 (50%) 5/5
-dart-frog            Dart     2488    32/45 (71%) 24/45 (53%) 5/5
+dart-http            Dart    13345    23/42 (54%) 22/42 (52%) 5/5
+dart-frog            Dart     2506    32/45 (71%) 21/45 (46%) 5/5
 ──────────────────────────────────────────────────────────────────────
-TOTAL                         317/453(70%) 278/453(61%) 55/56(98%)
+TOTAL                         317/453(70%) 276/453(61%) 55/56(98%)
 ```
 
 **Model:** bge-small (384d, 24MB)
