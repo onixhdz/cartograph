@@ -1,0 +1,21 @@
+<svg width="200" height="200" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Clean, bold outer frame (Hexagonal for technical feel) -->
+  <path d="M100 20L169.282 60V140L100 180L30.718 140V60L100 20Z" stroke="#f97316" stroke-width="12" stroke-linejoin="round"/>
+  
+  <!-- Minimalist Compass Ticks -->
+  <path d="M100 20V40M100 160V180M30.718 60L48.0385 70M151.962 130L169.282 140M30.718 140L48.0385 130M151.962 70L169.282 60" stroke="#f97316" stroke-width="8" stroke-linecap="round"/>
+  
+  <!-- Abstracted Context Graph -->
+  <!-- Central Origin Node -->
+  <circle cx="100" cy="100" r="16" fill="#f97316"/>
+  
+  <!-- Primary Connections -->
+  <line x1="100" y1="100" x2="65" y2="80" stroke="#f97316" stroke-width="8" stroke-linecap="round"/>
+  <line x1="100" y1="100" x2="135" y2="80" stroke="#f97316" stroke-width="8" stroke-linecap="round"/>
+  <line x1="100" y1="100" x2="100" y2="145" stroke="#f97316" stroke-width="8" stroke-linecap="round"/>
+  
+  <!-- Terminal Nodes -->
+  <circle cx="65" cy="80" r="8" fill="#f97316"/>
+  <circle cx="135" cy="80" r="8" fill="#f97316"/>
+  <circle cx="100" cy="145" r="8" fill="#f97316"/>
+</svg>

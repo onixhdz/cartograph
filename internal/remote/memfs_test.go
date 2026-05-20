@@ -126,6 +126,62 @@ func TestMemFSWalker_RespectsGitignore(t *testing.T) {
 	}
 }
 
+func TestMemFSWalker_UnignoredBuildDirectoriesAreIndexed(t *testing.T) {
+	fs := memfs.New()
+	_ = fs.MkdirAll("build", 0o755)
+	writeMemFile(t, fs, "build/output.js", "compiled\n")
+	_ = fs.MkdirAll("src/commands/build", 0o755)
+	writeMemFile(t, fs, "src/commands/build/main.go", "package build\n")
+
+	w := MemFSWalker{FS: fs}
+	results, err := w.Walk("/root", ingestion.WalkOptions{})
+	if err != nil {
+		t.Fatalf("Walk error: %v", err)
+	}
+
+	relPaths := make(map[string]bool)
+	for _, r := range results {
+		relPaths[r.RelPath] = true
+	}
+	if !relPaths["build/output.js"] {
+		t.Error("unignored root build directory should be indexed")
+	}
+	if !relPaths["src/commands/build/main.go"] {
+		t.Error("unignored source build directory should be indexed")
+	}
+}
+
+func TestMemFSWalker_BuildDirectoriesRespectIgnorePatterns(t *testing.T) {
+	fs := memfs.New()
+	writeMemFile(t, fs, ".gitignore", "/build/\n/module/build/\n")
+	_ = fs.MkdirAll("build", 0o755)
+	writeMemFile(t, fs, "build/output.js", "compiled\n")
+	_ = fs.MkdirAll("module/build", 0o755)
+	writeMemFile(t, fs, "module/build/generated.js", "generated\n")
+	_ = fs.MkdirAll("src/commands/build", 0o755)
+	writeMemFile(t, fs, "src/commands/build/main.go", "package build\n")
+
+	w := MemFSWalker{FS: fs}
+	results, err := w.Walk("/root", ingestion.WalkOptions{})
+	if err != nil {
+		t.Fatalf("Walk error: %v", err)
+	}
+
+	relPaths := make(map[string]bool)
+	for _, r := range results {
+		relPaths[r.RelPath] = true
+	}
+	if relPaths["build"] || relPaths["build/output.js"] {
+		t.Error("ignored root build directory should be skipped")
+	}
+	if relPaths["module/build"] || relPaths["module/build/generated.js"] {
+		t.Error("ignored nested build directory should be skipped")
+	}
+	if !relPaths["src/commands/build/main.go"] {
+		t.Error("source directories named build should be indexed")
+	}
+}
+
 func TestMemFSWalker_DetectsLanguage(t *testing.T) {
 	fs := memfs.New()
 	writeMemFile(t, fs, "main.go", "package main\n")

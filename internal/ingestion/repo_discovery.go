@@ -302,11 +302,11 @@ func augmentRepoVCS(root string, candidates map[string]*RepoCandidate) {
 		if rel != "" && strings.HasPrefix(name, ".") {
 			return filepath.SkipDir
 		}
-		if ignoreMatcher != nil && rel != "" && (ignoreMatcher.MatchesPath(rel) || ignoreMatcher.MatchesPath(rel+"/")) {
+		if rel != "" && dependencyRepoPath(rel) && MatchesIgnorePath(defaultIgnoreMatcher, rel, true) {
+			addSkippedVCSRoot(root, p, submodules, candidates)
 			return filepath.SkipDir
 		}
-		if name != "." && IsIgnoredDirectory(name) && name != fileGit {
-			addSkippedVCSRoot(root, p, submodules, candidates)
+		if rel != "" && MatchesIgnorePath(ignoreMatcher, rel, true) {
 			return filepath.SkipDir
 		}
 		candidate := ensureRepoCandidate(candidates, root, rel)
