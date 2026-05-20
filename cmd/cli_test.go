@@ -2,15 +2,23 @@ package cmd
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/go-git/go-billy/v6"
+	"github.com/go-git/go-billy/v6/memfs"
+
+	"github.com/realxen/cartograph/internal/ingestion"
+	"github.com/realxen/cartograph/internal/remote"
 	"github.com/realxen/cartograph/internal/service"
 	"github.com/realxen/cartograph/internal/storage"
+	"github.com/realxen/cartograph/internal/storage/bbolt"
 )
 
 const (
@@ -143,6 +151,11 @@ func (m *mockClient) Embed(_ service.EmbedRequest) (*service.EmbedStatusResult, 
 
 func (m *mockClient) EmbedStatus(_ service.EmbedStatusRequest) (*service.EmbedStatusResult, error) {
 	return &service.EmbedStatusResult{Status: ""}, nil
+}
+
+func (m *mockClient) AnalyzePreflight(req service.AnalyzePreflightRequest) (*service.AnalyzePreflightResult, error) {
+	res := service.NewAnalyzePreflightResult(req, nil, nil, false)
+	return &res, nil
 }
 
 func (m *mockClient) PluginIngest(_ service.PluginIngestRequest) (*service.PluginIngestStatusResult, error) {
@@ -877,6 +890,223 @@ func TestAnalyzeCmd_MultipleSources(t *testing.T) {
 	}
 	if !strings.Contains(out, "edges") {
 		t.Error("expected output to mention edges")
+	}
+}
+
+func TestAnalyzeCmd_RepoSelectionAutoSplitsLocalRepos(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	dir := t.TempDir()
+	writeCLITestFile(t, dir, "package.json", `{"name":"root","workspaces":["apps/web","services/worker"]}`)
+	writeCLITestFile(t, dir, "apps/web/package.json", `{"name":"web"}`)
+	writeCLITestFile(t, dir, "apps/web/index.js", "export function web() {}\n")
+	writeCLITestFile(t, dir, "apps/web/view.js", "export function view() {}\n")
+	writeCLITestFile(t, dir, "services/worker/go.mod", "module example.com/worker\n")
+	writeCLITestFile(t, dir, "services/worker/main.go", "package main\nfunc main() {}\n")
+	writeCLITestFile(t, dir, "services/worker/worker.go", "package main\nfunc worker() {}\n")
+
+	mc := &mockClient{}
+	cli := &CLI{Client: mc}
+	cmd := &AnalyzeCmd{Targets: []string{dir}, Repos: "auto", Embed: "off"}
+
+	out := captureStdout(t, func() {
+		if err := cmd.Run(cli); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if strings.Count(out, "Analyzing ") != 2 {
+		t.Fatalf("expected two selected repos to be analyzed, got output:\n%s", out)
+	}
+	reg, err := storage.NewRegistry(DefaultDataDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.Resolve("web"); err != nil {
+		t.Fatalf("expected web registry entry: %v", err)
+	}
+	if _, err := reg.Resolve("example.com/worker"); err != nil {
+		t.Fatalf("expected worker registry entry: %v", err)
+	}
+}
+
+func TestAnalyzeCmd_RepoSelectionNoneKeepsContainer(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	dir := t.TempDir()
+	writeCLITestFile(t, dir, "package.json", `{"name":"root","workspaces":["apps/web","apps/admin"]}`)
+	writeCLITestFile(t, dir, "apps/web/package.json", `{"name":"web"}`)
+	writeCLITestFile(t, dir, "apps/web/index.js", "export function web() {}\n")
+	writeCLITestFile(t, dir, "apps/web/view.js", "export function view() {}\n")
+	writeCLITestFile(t, dir, "apps/admin/package.json", `{"name":"admin"}`)
+	writeCLITestFile(t, dir, "apps/admin/index.js", "export function admin() {}\n")
+	writeCLITestFile(t, dir, "apps/admin/view.js", "export function view() {}\n")
+
+	mc := &mockClient{}
+	cli := &CLI{Client: mc}
+	cmd := &AnalyzeCmd{Targets: []string{dir}, Repos: "none", Embed: "off"}
+	out := captureStdout(t, func() {
+		if err := cmd.Run(cli); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if strings.Count(out, "Analyzing ") != 1 {
+		t.Fatalf("expected one container analysis, got output:\n%s", out)
+	}
+}
+
+func TestAnalyzeCmd_RepoSelectionRefusesLinkedContainer(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	dir := t.TempDir()
+	writeCLITestFile(t, dir, "package.json", `{"name":"root","workspaces":["apps/web","apps/admin"]}`)
+	writeCLITestFile(t, dir, "apps/web/package.json", `{"name":"web"}`)
+	writeCLITestFile(t, dir, "apps/web/index.js", "export function web() {}\n")
+	writeCLITestFile(t, dir, "apps/web/view.js", "export function view() {}\n")
+	writeCLITestFile(t, dir, "apps/admin/package.json", `{"name":"admin"}`)
+	writeCLITestFile(t, dir, "apps/admin/index.js", "export function admin() {}\n")
+	writeCLITestFile(t, dir, "apps/admin/view.js", "export function view() {}\n")
+
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err := storage.NewRegistry(DefaultDataDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	containerHash := shortHash(abs)
+	if err := reg.Add(storage.RegistryEntry{Name: filepath.Base(abs), Path: abs, Hash: containerHash, LinkedRepos: []string{"linked"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := &AnalyzeCmd{Targets: []string{dir}, Repos: "auto", Embed: "off"}
+	err = cmd.Run(&CLI{Client: &mockClient{}})
+	if err == nil || !strings.Contains(err.Error(), "already indexed") {
+		t.Fatalf("expected linked container refusal, got %v", err)
+	}
+}
+
+func TestRenderDetectedReposAlignsTable(t *testing.T) {
+	candidates := []ingestion.RepoCandidate{
+		{RelPath: "short", Classification: ingestion.RepoClassificationPrimary, Recommended: true, Signals: []ingestion.RepoSignal{ingestion.RepoSignalGitRoot}},
+		{RelPath: "very/long/repo/path", Classification: ingestion.RepoClassificationPrimary, Recommended: true, Signals: []ingestion.RepoSignal{ingestion.RepoSignalManifestRoot, ingestion.RepoSignalSourceDensity}},
+	}
+
+	out := captureStdout(t, func() {
+		renderDetectedRepos("/repo", candidates)
+	})
+	if !strings.Contains(out, "REPO") || !strings.Contains(out, "STATUS") || !strings.Contains(out, "SIGNALS") {
+		t.Fatalf("expected table headers, got:\n%s", out)
+	}
+	for line := range strings.SplitSeq(out, "\n") {
+		if strings.Contains(line, "short") || strings.Contains(line, "very/long/repo/path") {
+			if !regexp.MustCompile(`^  \S+(?:\s{2,})recommended(?:\s{2,})\S+`).MatchString(line) {
+				t.Fatalf("expected aligned table row, got %q in output:\n%s", line, out)
+			}
+		}
+	}
+}
+
+func TestRenderDetectedReposLimitsPreviewRows(t *testing.T) {
+	candidates := make([]ingestion.RepoCandidate, detectedReposPreviewRows+2)
+	for i := range candidates {
+		candidates[i] = ingestion.RepoCandidate{
+			RelPath:        fmt.Sprintf("repo-%02d", i),
+			Classification: ingestion.RepoClassificationPrimary,
+			Recommended:    true,
+			Signals:        []ingestion.RepoSignal{ingestion.RepoSignalGitRoot},
+		}
+	}
+
+	out := captureStdout(t, func() {
+		renderDetectedRepos("/repo", candidates)
+	})
+	if strings.Contains(out, "repo-20") || strings.Contains(out, "repo-21") {
+		t.Fatalf("expected preview to hide rows after limit, got:\n%s", out)
+	}
+	if !strings.Contains(out, "... and 2 more repo candidates") {
+		t.Fatalf("expected truncated count, got:\n%s", out)
+	}
+}
+
+func TestSplitRemoteRepoHashIncludesResolvedBranch(t *testing.T) {
+	identity := remote.RepoIdentity{Canonical: "github.com/acme/repo"}
+	mainHash := splitRemoteRepoHash(identity, "apps/web", "main")
+	v1Hash := splitRemoteRepoHash(identity, "apps/web", "v1.0.0")
+	if mainHash == v1Hash {
+		t.Fatal("expected different split repo hashes for different branches")
+	}
+
+	qualified := remote.RepoIdentity{Canonical: "github.com/acme/repo@v2.0.0"}
+	if got, want := splitRemoteRepoHash(qualified, "apps/web", "main"), splitRemoteRepoHash(qualified, "apps/web", "v2.0.0"); got != want {
+		t.Fatalf("expected canonical inline ref to remain authoritative, got %s and %s", got, want)
+	}
+}
+
+func TestPopulateContentBucketScopesKeys(t *testing.T) {
+	fs := memfs.New()
+	writeMemCLITestFile(t, fs, "apps/web/index.js", "export function web() {}\n")
+	writeMemCLITestFile(t, fs, "apps/web/src/view.js", "export function view() {}\n")
+
+	dbPath := filepath.Join(t.TempDir(), "graph.db")
+	store, err := bbolt.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := bbolt.NewContentStoreFromDB(store.DB())
+	if err != nil {
+		t.Fatal(err)
+	}
+	count, err := populateContentBucket(cs, fs, "/apps/web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("content count = %d, want 2", count)
+	}
+	if _, err := cs.Get("index.js"); err != nil {
+		t.Fatalf("expected project-relative index.js content: %v", err)
+	}
+	if _, err := cs.Get("src/view.js"); err != nil {
+		t.Fatalf("expected project-relative src/view.js content: %v", err)
+	}
+	if _, err := cs.Get("apps/web/index.js"); err == nil {
+		t.Fatal("did not expect container-relative content key")
+	}
+	if err := cs.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeCLITestFile(t *testing.T, root, rel, content string) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeMemCLITestFile(t *testing.T, fs billy.Filesystem, rel, content string) {
+	t.Helper()
+	if err := fs.MkdirAll(filepath.Dir(rel), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f, err := fs.Create(rel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte(content)); err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -181,12 +181,12 @@ func (mc *MemoryClient) LoadAllFromRegistry() error {
 	var wg sync.WaitGroup
 	for _, entry := range entries {
 		wg.Add(1)
-		go func(name string) {
+		go func(hash string) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			_ = mc.loadFromDisk(name) // non-fatal: skip repos that can't be loaded
-		}(entry.Name)
+			_ = mc.loadFromDisk(hash) // non-fatal: skip repos that can't be loaded
+		}(entry.Hash)
 	}
 	wg.Wait()
 	return nil
@@ -418,6 +418,10 @@ func (mc *MemoryClient) EmbedStatus(_ EmbedStatusRequest) (*EmbedStatusResult, e
 	return nil, errors.New("embed status not supported via in-memory client; use the background service")
 }
 
+func (mc *MemoryClient) AnalyzePreflight(req AnalyzePreflightRequest) (*AnalyzePreflightResult, error) {
+	return BuildAnalyzePreflight(req)
+}
+
 // PluginIngest is not supported by MemoryClient — plugin background ingestion requires the background service.
 func (mc *MemoryClient) PluginIngest(_ PluginIngestRequest) (*PluginIngestStatusResult, error) {
 	return nil, errors.New("plugin ingest not supported via in-memory client; use the background service")
@@ -493,7 +497,7 @@ func (mc *MemoryClient) getBackend(repo string) (ToolBackend, error) {
 	return nil, fmt.Errorf("repository %q not indexed or backend factory not configured", repo)
 }
 
-// resolveRepoName normalises a repo identifier via
+// resolveRepoName normalises a repo identifier to its stable registry hash via
 // storage.ResolveRepoName (short-name aliases, ambiguity detection).
 // Returns the name as-is if already loaded in memory.
 func (mc *MemoryClient) resolveRepoName(name string) (string, error) {
@@ -569,9 +573,9 @@ func (mc *MemoryClient) loadFromDisk(repo string) error {
 	}
 
 	mc.mu.Lock()
-	mc.graphs[repo] = g
-	mc.indexes[repo] = idx
-	mc.repoDirs[repo] = repoDir
+	mc.graphs[entry.Hash] = g
+	mc.indexes[entry.Hash] = idx
+	mc.repoDirs[entry.Hash] = repoDir
 	mc.mu.Unlock()
 
 	return nil

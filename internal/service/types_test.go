@@ -111,6 +111,7 @@ func TestAllMethodsComplete(t *testing.T) {
 		MethodSchema:             true,
 		MethodEmbed:              true,
 		MethodEmbedStatus:        true,
+		MethodAnalyzePreflight:   true,
 		MethodPluginIngest:       true,
 		MethodPluginIngestStatus: true,
 	}

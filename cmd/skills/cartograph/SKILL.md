@@ -41,7 +41,7 @@ supports embedding, and exposes an MCP endpoint for AI editors.
 ### 1. Background Service (Preferred)
 
 ```bash
-cartograph serve start          # starts detached, auto-shuts down after 30min idle
+cartograph serve start          # starts detached, auto-shuts down after 8h idle
 cartograph serve start --no-idle  # no auto-shutdown
 ```
 
@@ -130,7 +130,7 @@ every subsequent query instant:
 cartograph serve start
 ```
 
-The service auto-shuts down after 30 minutes of inactivity. Check if
+The service auto-shuts down after 8 hours of inactivity. Check if
 it's already running with `cartograph serve status`.
 
 ### Retry Query Timeouts

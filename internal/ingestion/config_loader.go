@@ -15,13 +15,21 @@ import (
 	"golang.org/x/mod/modfile"
 )
 
-const langPHP = "php"
+const (
+	langPHP    = "php"
+	langJava   = "java"
+	langCPP    = "cpp"
+	langPython = "python"
+	langRust   = "rust"
+	langCSharp = "csharp"
+)
 
-const langJava = "java"
-
-const langCPP = "cpp"
-
-const langPython = "python"
+const (
+	extCSProj     = ".csproj"
+	fileGit       = ".git"
+	filePom       = "pom.xml"
+	filePyproject = "pyproject.toml"
+)
 
 const (
 	depScopeDev      = "dev"
@@ -311,7 +319,7 @@ func loadCSharpProjectConfig(root string, readFile func(string) ([]byte, error),
 		return
 	}
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".csproj") {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), extCSProj) {
 			continue
 		}
 		data, err := readFile(filepath.Join(root, e.Name()))
@@ -876,7 +884,7 @@ func loadCsprojDependencies(root string, readFile func(string) ([]byte, error), 
 			return
 		}
 		for _, e := range entries {
-			if e.IsDir() || !strings.HasSuffix(e.Name(), ".csproj") {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), extCSProj) {
 				continue
 			}
 			data, err := readFile(filepath.Join(root, e.Name()))
@@ -888,7 +896,7 @@ func loadCsprojDependencies(root string, readFile func(string) ([]byte, error), 
 		return
 	}
 	for _, rel := range files {
-		if filepath.Ext(rel) != ".csproj" {
+		if filepath.Ext(rel) != extCSProj {
 			continue
 		}
 		data, err := readFile(filepath.Join(root, filepath.FromSlash(rel)))
@@ -977,7 +985,7 @@ func loadSwiftPackageDependencies(root string, readFile func(string) ([]byte, er
 // e.g., "https://github.com/apple/swift-argument-parser.git" → "swift-argument-parser"
 func swiftPackageName(url string) string {
 	// Strip trailing .git
-	name := strings.TrimSuffix(url, ".git")
+	name := strings.TrimSuffix(url, fileGit)
 	// Take the last path component.
 	if idx := strings.LastIndex(name, "/"); idx >= 0 {
 		name = name[idx+1:]
@@ -991,7 +999,7 @@ func swiftPackageName(url string) string {
 // loadPomXMLDependencies parses direct <dependency> elements from pom.xml,
 // extracting groupId:artifactId and version (skipping unresolved ${...} properties).
 func loadPomXMLDependencies(root string, readFile func(string) ([]byte, error), cfg *ProjectConfig, files []string) {
-	for _, rel := range relPathsByBase(files, "pom.xml") {
+	for _, rel := range relPathsByBase(files, filePom) {
 		data, err := readFile(filepath.Join(root, filepath.FromSlash(rel)))
 		if err != nil {
 			continue
@@ -1221,7 +1229,7 @@ func loadVcpkgDependencies(root string, readFile func(string) ([]byte, error), c
 // loadPyprojectTomlDependencies parses pyproject.toml for Python dependencies
 // (PEP 621 and Poetry formats).
 func loadPyprojectTomlDependencies(root string, readFile func(string) ([]byte, error), cfg *ProjectConfig, files []string) {
-	for _, rel := range relPathsByBase(files, "pyproject.toml") {
+	for _, rel := range relPathsByBase(files, filePyproject) {
 		data, err := readFile(filepath.Join(root, filepath.FromSlash(rel)))
 		if err != nil {
 			continue

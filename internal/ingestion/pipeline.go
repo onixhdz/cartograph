@@ -137,6 +137,7 @@ func (p *Pipeline) Run() error {
 	}
 
 	// Step 2d: Create package/module identity nodes from manifest files.
+	moduleByManifest := make(map[string]*lpg.Node, len(projectConfig.Manifests))
 	for _, manifest := range projectConfig.Manifests {
 		manifestNode := graph.FindNodeByFilePath(p.Graph, manifest.Source)
 		if manifestNode == nil {
@@ -152,9 +153,20 @@ func (p *Pipeline) Run() error {
 			graph.PropSource:   manifest.Source,
 		})
 		graph.AddEdge(p.Graph, manifestNode, moduleNode, graph.RelDefines, nil)
+		moduleByManifest[manifest.Source] = moduleNode
+	}
 
+	for _, manifest := range projectConfig.Manifests {
+		moduleNode := moduleByManifest[manifest.Source]
+		if moduleNode == nil {
+			continue
+		}
+		manifestNode := graph.FindNodeByFilePath(p.Graph, manifest.Source)
+		if manifestNode == nil {
+			continue
+		}
 		for _, workspace := range manifest.Workspaces {
-			workspaceNode, synthetic := resolveWorkspaceModuleNode(p.Graph, manifest, workspace)
+			workspaceNode, synthetic := resolveWorkspaceModuleNode(p.Graph, manifest, workspace, moduleByManifest)
 			if synthetic {
 				graph.AddEdge(p.Graph, manifestNode, workspaceNode, graph.RelDefines, nil)
 			}
@@ -473,8 +485,11 @@ func (p *Pipeline) Run() error {
 	return nil
 }
 
-func resolveWorkspaceModuleNode(g *lpg.Graph, manifest ManifestInfo, workspace string) (*lpg.Node, bool) {
-	if childManifestPath, ok := workspaceManifestPath(manifest, workspace); ok {
+func resolveWorkspaceModuleNode(g *lpg.Graph, manifest ManifestInfo, workspace string, moduleByManifest map[string]*lpg.Node) (*lpg.Node, bool) {
+	if childManifestPath, ok := workspaceMemberManifestPath(manifest, workspace); ok {
+		if child := moduleByManifest[childManifestPath]; child != nil {
+			return child, false
+		}
 		if child := graph.FindNodeByFilePath(g, childManifestPath); child != nil {
 			for _, edge := range graph.GetOutgoingEdges(child, graph.RelDefines) {
 				if to := edge.GetTo(); to != nil && to.HasLabel(string(graph.LabelModule)) {
@@ -493,28 +508,6 @@ func resolveWorkspaceModuleNode(g *lpg.Graph, manifest ManifestInfo, workspace s
 		graph.PropSource:   manifest.Source,
 	})
 	return workspaceNode, true
-}
-
-func workspaceManifestPath(manifest ManifestInfo, workspace string) (string, bool) {
-	workspace = strings.TrimSpace(workspace)
-	if workspace == "" || strings.ContainsAny(workspace, "*?[") {
-		return "", false
-	}
-
-	manifestDir := path.Dir(manifest.Source)
-	if manifestDir == "." {
-		manifestDir = ""
-	}
-
-	var candidate string
-	switch manifest.Language {
-	case "java":
-		candidate = path.Join(manifestDir, workspace, "pom.xml")
-	default:
-		return "", false
-	}
-
-	return path.Clean(candidate), true
 }
 
 // parseFiles runs tree-sitter extraction on all parseable files.

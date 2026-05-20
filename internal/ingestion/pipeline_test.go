@@ -10,7 +10,12 @@ import (
 	"github.com/realxen/cartograph/internal/testutil"
 )
 
-const testSrcFolder = "src"
+const (
+	testSrcFolder       = "src"
+	testPackageRootName = "root"
+	testPomParentName   = "parent"
+	testPomChildName    = "child"
+)
 
 func TestPipeline_BasicRun(t *testing.T) {
 	dir := testutil.TempDir(t, map[string]string{
@@ -177,11 +182,11 @@ func TestPipeline_MavenWorkspacesLinkToRealChildModules(t *testing.T) {
 		source := graph.GetStringProp(n, graph.PropSource)
 		name := graph.GetStringProp(n, graph.PropName)
 		switch {
-		case source == "pom.xml" && name == "parent":
+		case source == filePom && name == testPomParentName:
 			parentModule = n
 		case source == "child/pom.xml" && name == "child-artifact":
 			childModule = n
-		case source == "pom.xml" && name == "child":
+		case source == filePom && name == testPomChildName:
 			t.Fatal("unexpected synthetic Maven workspace module node")
 		}
 	}
@@ -198,6 +203,48 @@ func TestPipeline_MavenWorkspacesLinkToRealChildModules(t *testing.T) {
 	}
 	if !linked {
 		t.Fatal("expected parent module to link to real child module node")
+	}
+}
+
+func TestPipeline_PackageWorkspacesLinkToRealChildModules(t *testing.T) {
+	dir := testutil.TempDir(t, map[string]string{
+		"package.json":          `{"name":"root","workspaces":["apps/api"]}`,
+		"apps/api/package.json": `{"name":"backend"}`,
+		"apps/api/index.js":     "export function api() {}\n",
+	})
+
+	p := NewPipeline(dir, PipelineOptions{})
+	if err := p.Run(); err != nil {
+		t.Fatalf("Pipeline.Run: %v", err)
+	}
+
+	g := p.GetGraph()
+	var rootModule, childModule *lpg.Node
+	for _, n := range graph.FindNodesByLabel(g, graph.LabelModule) {
+		source := graph.GetStringProp(n, graph.PropSource)
+		name := graph.GetStringProp(n, graph.PropName)
+		switch {
+		case source == manifestPkgJSON && name == testPackageRootName:
+			rootModule = n
+		case source == "apps/api/package.json" && name == "backend":
+			childModule = n
+		case source == manifestPkgJSON && name == "apps/api":
+			t.Fatal("unexpected synthetic package workspace module node")
+		}
+	}
+	if rootModule == nil || childModule == nil {
+		t.Fatalf("expected root and child module nodes, got root=%v child=%v", rootModule != nil, childModule != nil)
+	}
+
+	linked := false
+	for _, edge := range graph.GetOutgoingEdges(rootModule, graph.RelMemberOf) {
+		if edge.GetTo() == childModule {
+			linked = true
+			break
+		}
+	}
+	if !linked {
+		t.Fatal("expected root package module to link to real child module node")
 	}
 }
 

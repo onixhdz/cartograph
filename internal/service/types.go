@@ -87,6 +87,8 @@ const (
 	RouteEmbed = APIPrefix + "/embed"
 	// RouteEmbedStatus is the endpoint to check embedding progress.
 	RouteEmbedStatus = APIPrefix + "/embed/status"
+	// RouteAnalyzePreflight is the endpoint for analyze repo candidate selection preflight.
+	RouteAnalyzePreflight = APIPrefix + "/analyze/preflight"
 	// RoutePluginIngest is the endpoint to trigger background plugin ingestion.
 	RoutePluginIngest = APIPrefix + "/plugin/ingest"
 	// RoutePluginIngestStatus is the endpoint to check plugin ingestion progress.
@@ -108,15 +110,75 @@ const (
 	MethodSchema             = "schema"
 	MethodEmbed              = "embed"
 	MethodEmbedStatus        = "embed_status"
+	MethodAnalyzePreflight   = "analyze_preflight"
 	MethodPluginIngest       = "plugin_ingest"
 	MethodPluginIngestStatus = "plugin_ingest_status"
 )
+
+type AnalyzeRepoSelectionMode string
+
+const (
+	AnalyzeRepoSelectionDefault AnalyzeRepoSelectionMode = "default"
+	AnalyzeRepoSelectionAuto    AnalyzeRepoSelectionMode = "auto"
+	AnalyzeRepoSelectionNone    AnalyzeRepoSelectionMode = "none"
+	AnalyzeRepoSelectionManual  AnalyzeRepoSelectionMode = "manual"
+)
+
+type AnalyzeRepoSelection struct {
+	Mode      AnalyzeRepoSelectionMode `json:"mode"`
+	Selectors []string                 `json:"selectors,omitempty"`
+}
+
+type AnalyzeRepoCandidate struct {
+	Name           string   `json:"name"`
+	Path           string   `json:"path"`
+	RelPath        string   `json:"relPath"`
+	Signals        []string `json:"signals"`
+	Classification string   `json:"classification"`
+	Recommended    bool     `json:"recommended"`
+	SourceFiles    int      `json:"sourceFiles"`
+	Parent         string   `json:"parent,omitempty"`
+}
+
+type AnalyzePreflightRequest struct {
+	Target    string               `json:"target"`
+	Selection AnalyzeRepoSelection `json:"selection"`
+	Remote    bool                 `json:"remote,omitempty"`
+}
+
+type AnalyzePreflightResult struct {
+	Target     string                 `json:"target"`
+	Candidates []AnalyzeRepoCandidate `json:"candidates,omitempty"`
+	Selected   []AnalyzeRepoCandidate `json:"selected,omitempty"`
+	Required   bool                   `json:"required,omitempty"`
+	Commands   []string               `json:"commands,omitempty"`
+}
+
+func NewAnalyzePreflightResult(req AnalyzePreflightRequest, candidates, selected []AnalyzeRepoCandidate, required bool) AnalyzePreflightResult {
+	return AnalyzePreflightResult{
+		Target:     req.Target,
+		Candidates: candidates,
+		Selected:   selected,
+		Required:   required,
+		Commands:   AnalyzePreflightCommands(req.Target),
+	}
+}
+
+func AnalyzePreflightCommands(target string) []string {
+	if target == "" {
+		target = "."
+	}
+	return []string{
+		"cartograph analyze --repos auto " + target,
+		"cartograph analyze --repos none " + target,
+	}
+}
 
 // AllMethods lists every valid method name.
 var AllMethods = []string{
 	MethodQuery, MethodContext, MethodCypher, MethodGraphExplore, MethodImpact,
 	MethodCat, MethodTree, MethodList, MethodReload, MethodStatus, MethodShutdown,
-	MethodSchema, MethodEmbed, MethodEmbedStatus, MethodPluginIngest, MethodPluginIngestStatus,
+	MethodSchema, MethodEmbed, MethodEmbedStatus, MethodAnalyzePreflight, MethodPluginIngest, MethodPluginIngestStatus,
 }
 
 // MethodToRoute maps method names to their HTTP route.
@@ -135,6 +197,7 @@ var MethodToRoute = map[string]string{
 	MethodSchema:             RouteSchema,
 	MethodEmbed:              RouteEmbed,
 	MethodEmbedStatus:        RouteEmbedStatus,
+	MethodAnalyzePreflight:   RouteAnalyzePreflight,
 	MethodPluginIngest:       RoutePluginIngest,
 	MethodPluginIngestStatus: RoutePluginIngestStatus,
 }
