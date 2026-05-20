@@ -2207,7 +2207,7 @@ func graphExploreTestNode(node *lpg.Node) bool {
 	if graph.GetBoolProp(node, graph.PropIsTest) {
 		return true
 	}
-	return isTestFile(graph.GetStringProp(node, graph.PropFilePath))
+	return ingestion.IsTestFile(graph.GetStringProp(node, graph.PropFilePath))
 }
 
 func graphExploreNodeHasAnyLabel(node *lpg.Node, labels map[string]bool) bool {
