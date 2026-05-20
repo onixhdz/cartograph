@@ -1,0 +1,340 @@
+<!doctype html>
+<html class="dark" lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Cartograph gives AI agents local code intelligence from a repository knowledge graph.">
+  <title>Cartograph | Full Context for AI Agents</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=optional" rel="stylesheet">
+  <script defer src="https://code.iconify.design/iconify-icon/3.0.0/iconify-icon.min.js"></script>
+  <style>
+    iconify-icon { display: inline-block; width: 1em; height: 1em; vertical-align: -0.125em; }
+    body { background-color: #0b0e14; scroll-behavior: smooth; }
+    .grid-bg {
+      background-image:
+        linear-gradient(to right, rgba(249, 115, 22, 0.08) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(249, 115, 22, 0.08) 1px, transparent 1px);
+      background-size: 40px 40px;
+    }
+    .glow-hover:hover {
+      border-color: #f97316;
+      box-shadow: 0 0 18px rgba(249, 115, 22, 0.25);
+    }
+    .terminal-cursor::after {
+      content: "_";
+      animation: blink 1s infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+    .rectilinear-connector {
+      stroke-dasharray: 4;
+      animation: flow 22s linear infinite;
+    }
+    @keyframes flow { to { stroke-dashoffset: -100; } }
+  </style>
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "background-deep": "#0B0E14",
+            "surface": "#1c110b",
+            "surface-container-lowest": "#160c06",
+            "surface-container-low": "#251913",
+            "surface-container": "#291d16",
+            "surface-container-high": "#352720",
+            "surface-container-highest": "#40322a",
+            "outline": "#a78b7d",
+            "outline-variant": "#584237",
+            "on-background": "#f6ded3",
+            "on-surface": "#f6ded3",
+            "on-surface-variant": "#e0c0b1",
+            "primary": "#ffb690",
+            "primary-container": "#f97316",
+            "on-primary": "#552100",
+            "on-primary-container": "#341100",
+            "secondary": "#adc6ff",
+            "tertiary": "#93ccff",
+            "error-red": "#93000a",
+            "success-green": "#7bf37b",
+          },
+          spacing: {
+            "margin-desktop": "32px",
+            "margin-mobile": "16px",
+            "gutter": "16px",
+            "container-max": "1440px",
+          },
+          fontFamily: {
+            display: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+            body: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+            mono: ["JetBrains Mono", "SFMono-Regular", "ui-monospace", "monospace"],
+          },
+        },
+      },
+    };
+  </script>
+</head>
+<body class="font-body text-on-background selection:bg-primary-container selection:text-on-primary-container">
+  <header class="fixed top-0 z-50 w-full border-b border-outline-variant bg-background-deep/85 backdrop-blur-md">
+    <nav class="mx-auto flex max-w-container-max items-center justify-between gap-4 px-margin-mobile py-4 md:px-margin-desktop">
+      <div class="flex min-w-0 items-center gap-6">
+        <a class="flex min-w-0 items-center gap-2" href="https://github.com/realxen/cartograph" aria-label="Cartograph on GitHub">
+          <img class="h-8 w-8 shrink-0" src="./logo.svg" alt="" aria-hidden="true">
+          <span class="font-mono text-sm font-bold tracking-tight text-primary">Cartograph</span>
+        </a>
+        <div class="hidden items-center gap-6 md:flex">
+          <a class="border-b-2 border-primary pb-1 font-mono text-sm font-bold text-primary" href="#features">Features</a>
+          <a class="font-mono text-sm text-on-surface-variant transition-colors hover:text-primary" href="#architecture">Architecture</a>
+          <a class="font-mono text-sm text-on-surface-variant transition-colors hover:text-primary" href="#agents">Agents</a>
+          <a class="font-mono text-sm text-on-surface-variant transition-colors hover:text-primary" href="#quickstart">Quickstart</a>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <a class="bg-primary-container px-5 py-2 font-mono text-sm font-bold text-on-primary-container transition-transform hover:shadow-[0_0_15px_rgba(249,115,22,0.4)] active:scale-95" href="#quickstart">Install</a>
+        <a class="inline-flex h-9 w-9 items-center justify-center border border-outline-variant text-on-surface-variant transition-colors hover:border-primary hover:text-primary" href="https://github.com/realxen/cartograph" aria-label="Cartograph GitHub repository">
+          <iconify-icon icon="simple-icons:github" aria-hidden="true"></iconify-icon>
+        </a>
+      </div>
+    </nav>
+  </header>
+
+  <main class="grid-bg min-h-screen pt-24">
+    <div class="mx-auto max-w-container-max px-margin-mobile md:px-margin-desktop">
+      <section class="grid grid-cols-1 items-center gap-12 border-b border-outline-variant py-16 lg:grid-cols-2 lg:py-20">
+        <div>
+          <div class="mb-6 inline-block border border-outline-variant bg-surface-container-high px-2 py-1">
+            <span class="font-mono text-xs uppercase tracking-widest text-primary">Cartograph context engine</span>
+          </div>
+          <h1 class="mb-6 font-display text-5xl font-bold leading-[1.05] tracking-[-0.04em] text-on-background sm:text-6xl lg:text-7xl">
+            Full context.<br>
+            <span class="text-primary">Before the agent answers.</span>
+          </h1>
+          <p class="mb-6 max-w-xl text-base leading-relaxed text-on-surface-variant sm:text-lg">
+            Cartograph indexes repositories into a local knowledge graph of files, symbols, imports, calls, inheritance, communities, and execution flows.
+          </p>
+          <p class="mb-10 max-w-xl border-l-2 border-primary-container pl-4 font-mono text-xs leading-6 text-on-surface-variant">
+            Built for codebase exploration and security research: fast local indexing, ranked flow discovery, precise symbol context, plugin-fed datasets, and permissive MIT licensing.
+          </p>
+          <div class="mb-8 flex flex-wrap gap-4">
+            <a class="flex items-center gap-2 bg-primary-container px-8 py-4 font-mono font-bold text-on-primary-container transition-all hover:shadow-[0_0_20px_rgba(249,115,22,0.5)]" href="#quickstart">
+              <iconify-icon icon="material-symbols:download" aria-hidden="true"></iconify-icon> Install
+            </a>
+            <a class="border border-outline-variant bg-surface-container-lowest px-8 py-4 font-mono text-on-surface transition-all hover:border-primary" href="#agents"> MORE →</a>
+          </div>
+          <div class="border border-outline-variant bg-black/40" data-install-tabs>
+            <div class="flex items-center justify-between border-b border-outline-variant font-mono text-xs">
+              <div class="flex">
+                <button class="install-tab border-r border-outline-variant bg-primary-container px-4 py-2 text-on-primary-container" type="button" data-install-target="script">Shell</button>
+                <button class="install-tab px-4 py-2 text-on-surface-variant transition-colors hover:text-primary" type="button" data-install-target="brew">Brew</button>
+              </div>
+              <a class="mr-2 inline-flex" href="https://github.com/realxen/cartograph/releases/latest" aria-label="Latest Cartograph release"><img class="h-5" src="https://img.shields.io/github/v/release/realxen/cartograph?label=&style=flat-square&color=352720" alt="Latest GitHub release"></a>
+            </div>
+            <div class="group flex cursor-pointer items-center justify-between gap-4 overflow-x-auto p-4 font-mono text-sm text-primary" data-copy="curl -sSfL https://realxen.github.io/cartograph/install.sh | sh">
+              <code class="install-command whitespace-nowrap">curl -sSfL https://realxen.github.io/cartograph/install.sh | sh</code>
+              <iconify-icon class="shrink-0 text-on-surface-variant group-hover:text-primary" icon="material-symbols:content-copy" aria-hidden="true"></iconify-icon>
+            </div>
+          </div>
+        </div>
+
+        <div class="relative flex aspect-square items-center justify-center">
+          <div class="absolute inset-0 rounded-full bg-primary/5 blur-[100px]"></div>
+          <svg class="h-full w-full" viewBox="0 0 420 420" xmlns="http://www.w3.org/2000/svg" aria-label="Repository knowledge graph illustration">
+            <defs>
+              <filter id="glow"><feGaussianBlur result="coloredBlur" stdDeviation="2.5"></feGaussianBlur><feMerge><feMergeNode in="coloredBlur"></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge></filter>
+            </defs>
+            <g class="rectilinear-connector" fill="none" opacity="0.48" stroke="#f97316" stroke-width="1.2">
+              <path d="M80 105 H215 V165 H335"></path>
+              <path d="M105 300 H240 V230 H350"></path>
+              <path d="M210 70 V345"></path>
+              <path d="M65 230 H160 V145 H290"></path>
+            </g>
+            <g filter="url(#glow)">
+              <rect fill="#f97316" height="22" width="22" x="69" y="94"></rect>
+              <rect fill="#ffb690" height="22" width="22" x="204" y="154"></rect>
+              <rect fill="#93ccff" height="22" width="22" x="324" y="154"></rect>
+              <rect fill="#adc6ff" height="22" width="22" x="199" y="59"></rect>
+              <rect fill="#f97316" height="22" width="22" x="94" y="289"></rect>
+              <rect fill="#93ccff" height="22" width="22" x="339" y="219"></rect>
+              <rect fill="#ffb690" height="22" width="22" x="199" y="334"></rect>
+            </g>
+            <text fill="#e0c0b1" font-family="JetBrains Mono" font-size="10" x="96" y="110">SYMBOL</text>
+            <text fill="#e0c0b1" font-family="JetBrains Mono" font-size="10" x="230" y="170">CALL_PATH</text>
+            <text fill="#e0c0b1" font-family="JetBrains Mono" font-size="10" x="230" y="76">IMPORT</text>
+            <text fill="#e0c0b1" font-family="JetBrains Mono" font-size="10" x="120" y="305">REPO</text>
+            <text fill="#e0c0b1" font-family="JetBrains Mono" font-size="10" x="275" y="236">PROCESS</text>
+            <text fill="#e0c0b1" font-family="JetBrains Mono" font-size="10" x="225" y="350">COMMUNITY</text>
+          </svg>
+        </div>
+      </section>
+
+      <section class="grid grid-cols-2 gap-gutter border-b border-outline-variant py-12 md:grid-cols-4">
+        <div class="text-center"><div class="font-mono text-4xl font-bold text-primary">206</div><div class="font-mono text-xs uppercase tracking-widest text-on-surface-variant">Languages detected</div></div>
+        <div class="text-center"><div class="font-mono text-4xl font-bold text-primary">13</div><div class="font-mono text-xs uppercase tracking-widest text-on-surface-variant">Tier 1 languages</div></div>
+        <div class="text-center"><div class="font-mono text-4xl font-bold text-primary">Flows</div><div class="font-mono text-xs uppercase tracking-widest text-on-surface-variant">Ranked relevance</div></div>
+        <div class="text-center"><div class="font-mono text-4xl font-bold text-primary">Plugins</div><div class="font-mono text-xs uppercase tracking-widest text-on-surface-variant">External graph data</div></div>
+      </section>
+
+      <section class="border-b border-outline-variant py-20" id="features">
+        <div class="mb-14">
+          <span class="font-mono text-xs text-primary">01 · WHY</span>
+          <h2 class="mt-4 font-display text-3xl font-semibold tracking-[-0.03em] text-on-background sm:text-4xl">Agents need system context, not isolated file reads.</h2>
+          <p class="mt-4 max-w-3xl text-on-surface-variant">Cartograph gives the agent a graph it can traverse: structure, dependencies, call paths, communities, processes, and search results grounded in the indexed repository. It ranks what matters so investigations start from relevant flows and important symbols, not a flat list of text matches.</p>
+        </div>
+        <div class="grid grid-cols-1 gap-8 md:grid-cols-2">
+          <div class="relative overflow-hidden border border-outline-variant bg-surface-container-lowest p-8 pt-12">
+            <div class="absolute left-1/2 top-0 -translate-x-1/2 bg-outline-variant px-4 py-1 font-mono text-xs text-on-surface">WITHOUT GRAPH CONTEXT</div>
+            <ul class="space-y-3 font-mono text-xs text-on-surface-variant">
+              <li class="flex gap-2"><span class="text-error-red">•</span> Read files one at a time</li>
+              <li class="flex gap-2"><span class="text-error-red">•</span> Grep for symbol names without relationships or ranking</li>
+              <li class="flex gap-2"><span class="text-error-red">•</span> Guess which calls, imports, and files are actually important</li>
+              <li class="flex gap-2"><span class="text-error-red">•</span> Miss execution flows, communities, and relevance signals</li>
+            </ul>
+          </div>
+          <div class="relative overflow-hidden border border-primary bg-surface-container p-8 pt-12 shadow-[0_0_30px_rgba(249,115,22,0.1)]">
+            <div class="absolute left-1/2 top-0 -translate-x-1/2 bg-primary-container px-4 py-1 font-mono text-xs text-on-primary-container">WITH CARTOGRAPH</div>
+            <ul class="space-y-3 font-mono text-xs text-on-background">
+              <li class="flex gap-2"><span class="text-primary">✔</span> Files, symbols, imports, calls, and inheritance in one graph</li>
+              <li class="flex gap-2"><span class="text-primary">✔</span> Hybrid BM25 + vector search when embeddings are enabled</li>
+              <li class="flex gap-2"><span class="text-primary">✔</span> Ranked flows, communities, and impact context for focused answers</li>
+              <li class="flex gap-2"><span class="text-primary">✔</span> Communities, process traces, file trees, and symbol impact connected in one local graph</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="border-b border-outline-variant py-20">
+        <div class="mb-14 flex items-end justify-between gap-8">
+          <div>
+            <span class="font-mono text-xs text-primary">02 · WHAT'S IN THE BOX</span>
+            <h2 class="mt-4 font-display text-3xl font-semibold tracking-[-0.03em] text-on-background sm:text-4xl">What Cartograph connects.</h2>
+          </div>
+          <div class="hidden font-mono text-xs uppercase tracking-widest text-on-surface-variant md:block">Current capabilities</div>
+        </div>
+        <div class="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+          <div class="glow-hover border border-outline-variant bg-surface-container-lowest p-6 transition-all"><div class="mb-6 flex justify-between"><span class="font-mono text-xs text-on-surface-variant">01 GRAPH</span><iconify-icon class="text-primary" icon="material-symbols:account-tree" aria-hidden="true"></iconify-icon></div><h3 class="mb-3 font-mono font-bold text-on-background">KNOWLEDGE GRAPH</h3><p class="text-sm leading-relaxed text-on-surface-variant">Maps folders, files, symbols, imports, calls, inheritance, communities, and execution processes.</p></div>
+          <div class="glow-hover border border-outline-variant bg-surface-container-lowest p-6 transition-all"><div class="mb-6 flex justify-between"><span class="font-mono text-xs text-on-surface-variant">02 PARSE</span><iconify-icon class="text-primary" icon="material-symbols:code" aria-hidden="true"></iconify-icon></div><h3 class="mb-3 font-mono font-bold text-on-background">206 LANGUAGES</h3><p class="text-sm leading-relaxed text-on-surface-variant">Tree-sitter detection across 206 languages, with full extraction for 13 Tier 1 languages and inferred extraction for 56+ Tier 2 languages.</p></div>
+          <div class="glow-hover border border-outline-variant bg-surface-container-lowest p-6 transition-all"><div class="mb-6 flex justify-between"><span class="font-mono text-xs text-on-surface-variant">03 SEARCH</span><iconify-icon class="text-primary" icon="material-symbols:search" aria-hidden="true"></iconify-icon></div><h3 class="mb-3 font-mono font-bold text-on-background">HYBRID RETRIEVAL</h3><p class="text-sm leading-relaxed text-on-surface-variant">BM25 full-text plus optional vector search via reciprocal rank fusion for better semantic recall.</p></div>
+          <div class="glow-hover border border-outline-variant bg-surface-container-lowest p-6 transition-all"><div class="mb-6 flex justify-between"><span class="font-mono text-xs text-on-surface-variant">04 FLOWS</span><iconify-icon class="text-primary" icon="material-symbols:route" aria-hidden="true"></iconify-icon></div><h3 class="mb-3 font-mono font-bold text-on-background">FLOW DETECTION</h3><p class="text-sm leading-relaxed text-on-surface-variant">Discovers execution processes from entry points through call chains, then surfaces ranked flows instead of isolated matches.</p></div>
+          <div class="glow-hover border border-outline-variant bg-surface-container-lowest p-6 transition-all"><div class="mb-6 flex justify-between"><span class="font-mono text-xs text-on-surface-variant">05 AGENT</span><iconify-icon class="text-primary" icon="material-symbols:smart-toy" aria-hidden="true"></iconify-icon></div><h3 class="mb-3 font-mono font-bold text-on-background">SKILLS + MCP</h3><p class="text-sm leading-relaxed text-on-surface-variant">Install Cartograph skills for AI coding agents, then expose the warm graph through MCP for Claude Code, Cursor, OpenCode, and other tools.</p></div>
+          <div class="glow-hover border border-outline-variant bg-surface-container-lowest p-6 transition-all"><div class="mb-6 flex justify-between"><span class="font-mono text-xs text-on-surface-variant">06 PLUGINS</span><iconify-icon class="text-primary" icon="material-symbols:extension" aria-hidden="true"></iconify-icon></div><h3 class="mb-3 font-mono font-bold text-on-background">PLUGIN INGESTION</h3><p class="text-sm leading-relaxed text-on-surface-variant">Standalone plugin binaries can feed external datasets into the graph through a small Go SDK and `cartograph plugin ingest` flow.</p></div>
+        </div>
+      </section>
+
+      <section class="border-b border-outline-variant py-20" id="agents">
+        <div class="mb-14">
+          <span class="font-mono text-xs text-primary">03 · WHY CARTOGRAPH</span>
+          <h2 class="mt-4 font-display text-3xl font-semibold tracking-[-0.03em] text-on-background sm:text-4xl">Purpose-built for exploration and security research.</h2>
+          <p class="mt-4 max-w-3xl text-on-surface-variant">Many code-intelligence tools stop at visualization, chat, or oversized tool catalogs. Cartograph focuses on the investigation loop that matters: index the repo, retrieve the right symbols, follow execution flows, understand impact, and keep the agent grounded in real code relationships.</p>
+        </div>
+        <div class="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
+          <div class="border border-outline-variant bg-surface-container-lowest p-6"><span class="font-mono text-xs text-primary">01 EXPLORE</span><p class="mt-4 text-sm leading-relaxed text-on-surface-variant">Find where behavior lives with semantic query, file-tree views, and symbol context.</p></div>
+          <div class="border border-outline-variant bg-surface-container-lowest p-6"><span class="font-mono text-xs text-primary">02 TRACE</span><p class="mt-4 text-sm leading-relaxed text-on-surface-variant">Follow ranked execution flows, callers, callees, processes, and related files to understand how behavior moves through the codebase.</p></div>
+          <div class="border border-outline-variant bg-surface-container-lowest p-6"><span class="font-mono text-xs text-primary">03 RESEARCH</span><p class="mt-4 text-sm leading-relaxed text-on-surface-variant">Use plugins and graph context to widen investigations with external datasets, references, and domain-specific signals.</p></div>
+          <div class="border border-outline-variant bg-surface-container-lowest p-6"><span class="font-mono text-xs text-primary">04 SPEED PATH</span><p class="mt-4 text-sm leading-relaxed text-on-surface-variant">Keep graphs hot through the background service so multi-query research sessions avoid repeated startup and reload costs.</p></div>
+        </div>
+      </section>
+
+      <section class="border-b border-outline-variant py-20" id="architecture">
+        <div class="mb-14">
+          <span class="font-mono text-xs text-primary">04 · ARCHITECTURE</span>
+          <h2 class="mt-4 font-display text-3xl font-semibold tracking-[-0.03em] text-on-background sm:text-4xl">Structure. Resolve. Rank. Serve locally.</h2>
+          <p class="mt-4 max-w-3xl text-on-surface-variant">Cartograph builds the graph in stages: map the file tree, parse symbols with tree-sitter, resolve imports and calls, cluster communities, trace execution processes, build hybrid search indexes, and serve the result to CLI and MCP clients.</p>
+        </div>
+        <div class="overflow-x-auto border border-outline-variant bg-black/60 p-6 font-mono text-sm leading-relaxed text-primary sm:p-10">
+<pre class="whitespace-pre">cartograph
+  │
+  ├─ structure ──► repositories, folders, files, ignore rules
+  ├─ parse     ──► tree-sitter symbols, imports, calls, heritage
+  ├─ resolve   ──► cross-file calls, imports, inheritance, references
+  ├─ cluster   ──► communities of related symbols (Leiden)
+  ├─ processes ──► execution flows from entry points through call chains
+  ├─ search    ──► BM25 + optional vector retrieval with RRF
+  ├─ plugins   ──► external nodes, edges, and agent references
+  └─ serve/mcp ──► warm graph cache, HTTP API, editor tools</pre>
+        </div>
+      </section>
+
+      <section class="border-b border-outline-variant py-20" id="quickstart">
+        <div class="mb-14">
+          <span class="font-mono text-xs text-primary">05 · QUICKSTART</span>
+          <h2 class="mt-4 font-display text-3xl font-semibold tracking-[-0.03em] text-on-background sm:text-4xl">Install it, then ask your agent.</h2>
+          <p class="mt-4 max-w-3xl text-on-surface-variant">Cartograph is meant to sit in the agent loop. Install the binary, install the skills, then ask your coding agent to index, inspect, and reason through the graph.</p>
+        </div>
+        <div class="grid grid-cols-1 gap-8 md:grid-cols-3">
+          <div class="space-y-4"><div class="font-mono text-on-background">01 · INSTALL</div><div class="overflow-x-auto whitespace-nowrap border border-outline-variant bg-black p-4 font-mono text-xs leading-6"><span class="text-primary">$</span> brew install realxen/tap/cartograph<br><span class="text-on-surface-variant"># or</span><br><span class="text-primary">$</span> curl -sSfL https://realxen.github.io/cartograph/install.sh | sh</div><p class="text-sm text-on-surface-variant">Homebrew is recommended on macOS. The shell installer supports Linux and macOS, or check out the latest <a class="inline-flex items-center gap-1 font-mono text-primary hover:underline" href="https://github.com/realxen/cartograph/releases/latest">Releases <iconify-icon icon="material-symbols:open-in-new" aria-hidden="true"></iconify-icon></a>.</p></div>
+          <div class="space-y-4"><div class="font-mono text-on-background">02 · INSTALL SKILLS</div><div class="overflow-x-auto whitespace-nowrap border border-outline-variant bg-black p-4 font-mono text-xs leading-6"><span class="text-primary">$</span> cartograph skills install<br><span class="text-on-surface-variant"># targeted install</span><br><span class="text-primary">$</span> cartograph skills install --agent claude,opencode</div><p class="text-sm text-on-surface-variant">Adds Cartograph routing, prompts, and workflows to AI coding agents so they know when to use the graph.</p></div>
+          <div class="space-y-4"><div class="font-mono text-on-background">03 · ASK YOUR AGENT</div><div class="overflow-x-auto whitespace-nowrap border border-outline-variant bg-black p-4 font-mono text-xs leading-6"><span class="text-on-surface-variant">"Use Cartograph to index this repo,</span><br><span class="text-on-surface-variant">then map the auth flow and impact</span><br><span class="text-on-surface-variant">for validateUser."</span></div><p class="text-sm text-on-surface-variant">The installed skill guides the agent to start the service when useful, index first, and use graph-aware commands like <code class="font-mono text-primary">context</code>, <code class="font-mono text-primary">impact</code>, and <code class="font-mono text-primary">query</code>.</p></div>
+        </div>
+      </section>
+
+      <section class="py-20 text-center">
+        <h2 class="mb-6 font-display text-4xl font-bold tracking-[-0.04em] text-on-background sm:text-5xl">Teach your agent how the codebase works.</h2>
+        <p class="mx-auto mb-10 max-w-2xl text-on-surface-variant">Cartograph maps repository context into one local graph so agents and researchers can explore code structure, trace behavior, and investigate risk.</p>
+        <div class="flex flex-wrap justify-center gap-4">
+          <a class="bg-primary-container px-10 py-4 font-mono font-bold text-on-primary-container transition-all hover:shadow-[0_0_20px_rgba(249,115,22,0.5)]" href="https://github.com/realxen/cartograph">GitHub</a>
+          <a class="inline-flex items-center gap-2 border border-outline-variant px-10 py-4 font-mono transition-all hover:border-primary" href="https://github.com/realxen/cartograph/releases/latest">Releases <iconify-icon icon="material-symbols:open-in-new" aria-hidden="true"></iconify-icon></a>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="border-t border-outline-variant bg-surface-container-lowest py-10">
+    <div class="mx-auto grid max-w-container-max grid-cols-1 gap-8 px-margin-mobile md:grid-cols-2 md:px-margin-desktop">
+      <div class="space-y-5">
+        <div class="flex items-center gap-2"><img class="h-6 w-6 shrink-0" src="./logo.svg" alt="" aria-hidden="true"><span class="font-mono text-sm font-bold text-primary">Cartograph</span></div>
+        <p class="font-mono text-xs text-on-surface-variant">Early-stage local-first code intelligence. Built for the era of AI agents.</p>
+        <div class="flex flex-wrap items-center gap-2"><a class="inline-flex h-6 items-center border border-primary/80" href="https://github.com/realxen/cartograph/releases/latest" aria-label="Latest Cartograph release"><img class="h-full" src="https://img.shields.io/github/v/release/realxen/cartograph?label=release&style=flat-square&color=f97316&labelColor=160c06&logo=github&logoColor=ffb690" alt="Latest GitHub release"></a><span class="inline-flex h-6 items-center border border-success-green/40 bg-success-green/10 px-2 font-mono text-[10px] text-success-green">local graph</span><span class="inline-flex h-6 items-center border border-secondary/40 bg-secondary/10 px-2 font-mono text-[10px] text-secondary">MCP</span></div>
+      </div>
+      <div class="grid grid-cols-2 gap-8 sm:grid-cols-3">
+        <div><h4 class="mb-4 font-mono text-xs font-bold text-on-background">Product</h4><ul class="space-y-2 font-mono text-xs text-on-surface-variant"><li><a class="hover:text-primary" href="#features">Features</a></li><li><a class="hover:text-primary" href="#quickstart">Quickstart</a></li><li><a class="hover:text-primary" href="https://github.com/realxen/cartograph/releases/latest">Release Notes</a></li></ul></div>
+        <div><h4 class="mb-4 font-mono text-xs font-bold text-on-background">Docs</h4><ul class="space-y-2 font-mono text-xs text-on-surface-variant"><li><a class="hover:text-primary" href="https://github.com/realxen/cartograph/blob/main/docs/plugin-guide.md">Plugin guide</a></li><li><a class="hover:text-primary" href="https://github.com/realxen/cartograph/blob/main/docs/capec-user-guide.md">CAPEC guide</a></li><li><a class="hover:text-primary" href="https://github.com/realxen/cartograph#ai-editor-integration-mcp">MCP</a></li></ul></div>
+        <div><h4 class="mb-4 font-mono text-xs font-bold text-on-background">Project</h4><ul class="space-y-2 font-mono text-xs text-on-surface-variant"><li><a class="hover:text-primary" href="https://github.com/realxen/cartograph">GitHub</a></li><li><a class="hover:text-primary" href="https://github.com/realxen/cartograph/blob/main/LICENSE">License</a></li><li><a class="hover:text-primary" href="https://github.com/realxen/cartograph/issues">Issues</a></li></ul></div>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    const installCommands = {
+      brew: 'brew install realxen/tap/cartograph',
+      script: 'curl -sSfL https://realxen.github.io/cartograph/install.sh | sh',
+    };
+
+    for (const tabs of document.querySelectorAll('[data-install-tabs]')) {
+      const command = tabs.querySelector('.install-command');
+      const copyTarget = tabs.querySelector('[data-copy]');
+      for (const tab of tabs.querySelectorAll('.install-tab')) {
+        tab.addEventListener('click', () => {
+          const value = installCommands[tab.getAttribute('data-install-target')];
+          command.textContent = value;
+          copyTarget.setAttribute('data-copy', value);
+          for (const item of tabs.querySelectorAll('.install-tab')) {
+            item.classList.remove('bg-primary-container', 'text-on-primary-container');
+            item.classList.add('text-on-surface-variant');
+          }
+          tab.classList.add('bg-primary-container', 'text-on-primary-container');
+          tab.classList.remove('text-on-surface-variant');
+        });
+      }
+    }
+
+    for (const target of document.querySelectorAll('[data-copy]')) {
+      target.addEventListener('click', async () => {
+        const text = target.getAttribute('data-copy');
+        const icon = target.querySelector('iconify-icon');
+        try {
+          await navigator.clipboard.writeText(text);
+          icon.setAttribute('icon', 'material-symbols:check');
+          setTimeout(() => { icon.setAttribute('icon', 'material-symbols:content-copy'); }, 1600);
+        } catch {
+          icon.setAttribute('icon', 'material-symbols:error');
+          setTimeout(() => { icon.setAttribute('icon', 'material-symbols:content-copy'); }, 1600);
+        }
+      });
+    }
+  </script>
+</body>
+</html>
