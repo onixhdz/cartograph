@@ -36,7 +36,7 @@ type ServeCmd struct {
 type ServeStartCmd struct {
 	Socket  string `help:"Unix socket path (default: <data-dir>/service.sock)." type:"path"`
 	NoIdle  bool   `help:"Disable idle auto-shutdown timer."`
-	Timeout int    `help:"Idle timeout in minutes before auto-shutdown (0 = no timeout)." default:"30"`
+	Timeout int    `help:"Idle timeout in minutes before auto-shutdown (0 = no timeout)." default:"480"`
 	Detach  bool   `help:"Detach and run in the background (use --no-detach for foreground)." short:"d" default:"true" negatable:""`
 	NoMCP   bool   `help:"Disable the built-in MCP endpoint at /mcp."`
 }

@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -19,6 +20,8 @@ import (
 	"time"
 
 	"github.com/alecthomas/kong"
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/huh"
 	"github.com/cloudprivacylabs/lpg/v2"
 	"github.com/go-git/go-billy/v6"
 	"golang.org/x/term"
@@ -36,12 +39,23 @@ import (
 )
 
 const (
-	embedOff       = "off"
-	embedAsync     = "async"
-	statusComplete = "complete"
-	statusFailed   = "failed"
-	statusPending  = "pending"
-	answerYes      = "yes"
+	embedOff                 = "off"
+	embedAsync               = "async"
+	statusComplete           = "complete"
+	statusFailed             = "failed"
+	statusPending            = "pending"
+	answerYes                = "yes"
+	detectedReposPreviewRows = 20
+)
+
+var errRepoSelectionCanceled = errors.New("repo selection canceled")
+
+type repoPromptAction string
+
+const (
+	repoPromptAuto   repoPromptAction = "auto"
+	repoPromptChoose repoPromptAction = "choose"
+	repoPromptNone   repoPromptAction = "none"
 )
 
 // finalizeEmbeddingMode clears persisted embedding metadata when the analyze
@@ -237,6 +251,7 @@ type AnalyzeCmd struct {
 	EmbedEndpoint string   `help:"Endpoint URL for remote embedding providers."`
 	EmbedAPIKey   string   `help:"API key for remote embedding providers." env:"CARTOGRAPH_EMBEDDING_API_KEY"`
 	EmbedModel    string   `help:"Model name for remote embedding providers."`
+	Repos         string   `help:"Repo candidate selection for multi-repo targets: auto, none, or comma-separated names/paths."`
 }
 
 func (c *AnalyzeCmd) Run(cli *CLI) error {
@@ -433,16 +448,35 @@ func (c *AnalyzeCmd) runLocal(cli *CLI, target string) error {
 	if err != nil {
 		return fmt.Errorf("resolve path: %w", err)
 	}
+	selected, split, err := c.selectRepos(abs, ingestion.RepoDetectionOptions{})
+	if err != nil {
+		if errors.Is(err, errRepoSelectionCanceled) {
+			return nil
+		}
+		return err
+	}
+	if split {
+		if err := guardSplitContainerEntry(DefaultDataDir(), filepath.Base(abs), shortHash(abs)); err != nil {
+			return err
+		}
+		for _, candidate := range selected {
+			if err := c.runLocalSingle(cli, candidate.Path, candidate.Name, shortHash(candidate.Path), false); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return c.runLocalSingle(cli, abs, filepath.Base(abs), shortHash(abs), true)
+}
 
-	repoName := filepath.Base(abs)
+func (c *AnalyzeCmd) runLocalSingle(cli *CLI, abs, repoName, repoHash string, allowIdempotency bool) error {
 	write(fmt.Sprintf("Analyzing %s\n", abs))
 
 	dataDir := DefaultDataDir()
-	repoHash := shortHash(abs)
 
 	// Check if re-analyzing with changed versions — force cleanup of
 	// stale derived state (search index) if schema or algorithm changed.
-	if !c.Force {
+	if !c.Force && allowIdempotency {
 		if reg, err := storage.NewRegistry(dataDir); err == nil {
 			if prev, ok := reg.Get(repoName); ok && prev.Hash == repoHash {
 				sv, av, _ := prev.Meta.Versions()
@@ -569,12 +603,12 @@ func (c *AnalyzeCmd) runLocal(cli *CLI, target string) error {
 	}); err != nil {
 		return fmt.Errorf("analyze: update registry: %w", err)
 	}
-	if err := finalizeEmbeddingMode(registry, repoName, c.Embed); err != nil {
+	if err := finalizeEmbeddingMode(registry, repoHash, c.Embed); err != nil {
 		return err
 	}
 
 	if cli.Client != nil {
-		_ = cli.Client.Reload(service.ReloadRequest{Repo: repoName})
+		_ = cli.Client.Reload(service.ReloadRequest{Repo: repoHash})
 	}
 
 	// Embedding in sync mode blocks until complete.
@@ -582,9 +616,9 @@ func (c *AnalyzeCmd) runLocal(cli *CLI, target string) error {
 		// Release the search index file lock so the background service
 		// can open it. The MC is no longer needed after this point.
 		if mc, ok := cli.Client.(*service.MemoryClient); ok {
-			mc.ReleaseSearchIndex(repoName)
+			mc.ReleaseSearchIndex(repoHash)
 		}
-		c.requestEmbedding(repoName)
+		c.requestEmbedding(repoHash)
 	}
 
 	fmt.Printf("Done in %s.\n", time.Since(start).Round(time.Millisecond))
@@ -614,7 +648,7 @@ func (c *AnalyzeCmd) runRemote(cli *CLI, url string) error {
 		AuthToken: c.AuthToken,
 	}
 
-	if !c.Force {
+	if !c.Force && c.allowRemoteContainerIdempotency(dataDir, repoHash) {
 		if prev, ok := func() (storage.RegistryEntry, bool) {
 			reg, err := storage.NewRegistry(dataDir)
 			if err != nil {
@@ -639,10 +673,10 @@ func (c *AnalyzeCmd) runRemote(cli *CLI, url string) error {
 						fmt.Println("Graph up to date. Triggering embedding...")
 						if cli.Client != nil {
 							if mc, ok := cli.Client.(*service.MemoryClient); ok {
-								mc.ReleaseSearchIndex(repoName)
+								mc.ReleaseSearchIndex(repoHash)
 							}
 						}
-						c.requestEmbedding(repoName)
+						c.requestEmbedding(repoHash)
 						return nil
 					}
 
@@ -710,6 +744,313 @@ func (c *AnalyzeCmd) runRemote(cli *CLI, url string) error {
 	return c.runCloneToMemory(cli, identity, repoName, repoHash, repoDir, dataDir, cloneOpts)
 }
 
+func (c *AnalyzeCmd) allowRemoteContainerIdempotency(dataDir, repoHash string) bool {
+	if c.Repos == string(service.AnalyzeRepoSelectionNone) {
+		return true
+	}
+	if c.Repos != "" && c.Repos != string(service.AnalyzeRepoSelectionDefault) {
+		return false
+	}
+	reg, err := storage.NewRegistry(dataDir)
+	if err != nil {
+		return false
+	}
+	entry, ok := reg.Get(repoHash)
+	return ok && entry.Hash == repoHash
+}
+
+type selectedRepo struct {
+	Name    string
+	Path    string
+	RelPath string
+}
+
+func (c *AnalyzeCmd) selectRepos(root string, opts ingestion.RepoDetectionOptions) ([]selectedRepo, bool, error) {
+	mode, selectors, err := parseRepoSelection(c.Repos)
+	if err != nil {
+		return nil, false, err
+	}
+	if mode == service.AnalyzeRepoSelectionNone {
+		return nil, false, nil
+	}
+	result, err := ingestion.DetectRepoCandidates(root, opts)
+	if err != nil {
+		return nil, false, fmt.Errorf("detect repo candidates: %w", err)
+	}
+	if !shouldSplitRepos(result.Candidates) && mode == service.AnalyzeRepoSelectionDefault {
+		return nil, false, nil
+	}
+	switch mode {
+	case service.AnalyzeRepoSelectionDefault:
+		if term.IsTerminal(int(os.Stdin.Fd())) { //nolint:gosec // G115: fd is a small integer
+			return promptDetectedRepos(root, result.Candidates)
+		}
+		renderDetectedRepos(root, result.Candidates)
+		return nil, false, fmt.Errorf("multiple repo candidates detected under %s; choose explicitly with --repos auto, --repos <name,path>, or --repos none", root)
+	case service.AnalyzeRepoSelectionAuto:
+		selected := selectedRecommendedRepos(result.Candidates)
+		if len(selected) == 0 {
+			return nil, false, nil
+		}
+		return selected, true, nil
+	case service.AnalyzeRepoSelectionManual:
+		selected, err := selectReposBySelector(result.Candidates, selectors)
+		return selected, err == nil, err
+	default:
+		return nil, false, fmt.Errorf("unsupported repo selection mode %q", mode)
+	}
+}
+
+func (c *AnalyzeCmd) runSelectedMemoryRepos(
+	cli *CLI,
+	identity remote.RepoIdentity,
+	dataDir string,
+	result *remote.CloneResult,
+	selected []selectedRepo,
+) error {
+	for _, repo := range selected {
+		repoHash := splitRemoteRepoHash(identity, repo.RelPath, result.Branch)
+		repoDir := filepath.Join(dataDir, repo.Name, repoHash)
+		if err := c.indexMemoryClone(cli, identity, repo.Name, repoHash, repoDir, dataDir, result, repo.Path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func parseRepoSelection(value string) (service.AnalyzeRepoSelectionMode, []string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" || value == string(service.AnalyzeRepoSelectionDefault) {
+		return service.AnalyzeRepoSelectionDefault, nil, nil
+	}
+	if value == string(service.AnalyzeRepoSelectionAuto) {
+		return service.AnalyzeRepoSelectionAuto, nil, nil
+	}
+	if value == string(service.AnalyzeRepoSelectionNone) {
+		return service.AnalyzeRepoSelectionNone, nil, nil
+	}
+	var selectors []string
+	for part := range strings.SplitSeq(value, ",") {
+		selector := filepath.ToSlash(strings.TrimSpace(part))
+		if selector != "" {
+			selectors = append(selectors, selector)
+		}
+	}
+	if len(selectors) == 0 {
+		return "", nil, errors.New("--repos must be auto, none, or comma-separated names/paths")
+	}
+	return service.AnalyzeRepoSelectionManual, selectors, nil
+}
+
+func shouldSplitRepos(candidates []ingestion.RepoCandidate) bool {
+	count := 0
+	for _, candidate := range candidates {
+		if candidate.Recommended && candidate.RelPath != "" {
+			count++
+		}
+	}
+	return count > 1
+}
+
+func selectedRecommendedRepos(candidates []ingestion.RepoCandidate) []selectedRepo {
+	var selected []selectedRepo
+	for _, candidate := range candidates {
+		if candidate.Recommended && candidate.RelPath != "" {
+			selected = append(selected, selectedRepo{Name: candidate.Name, Path: candidate.Path, RelPath: candidate.RelPath})
+		}
+	}
+	return selected
+}
+
+func guardSplitContainerEntry(dataDir, repoName, repoHash string) error {
+	registry, err := storage.NewRegistry(dataDir)
+	if err != nil {
+		return fmt.Errorf("open registry: %w", err)
+	}
+	entry, ok := registry.Get(repoHash)
+	if !ok {
+		return nil
+	}
+	if len(entry.LinkedRepos) > 0 {
+		return fmt.Errorf("container target %q is already indexed as %s and linked to workspaces/repos; remove that entry before split indexing", repoName, repoHash)
+	}
+	fmt.Printf("  Existing container index %s remains separate from selected repo candidate indexes.\n", repoHash)
+	return nil
+}
+
+func selectReposBySelector(candidates []ingestion.RepoCandidate, selectors []string) ([]selectedRepo, error) {
+	var selected []selectedRepo
+	seen := make(map[string]bool)
+	for _, selector := range selectors {
+		var matches []ingestion.RepoCandidate
+		for _, candidate := range candidates {
+			if candidate.Name == selector || candidate.RelPath == selector {
+				matches = append(matches, candidate)
+			}
+		}
+		switch len(matches) {
+		case 0:
+			return nil, fmt.Errorf("repo selector %q did not match any detected repo candidate", selector)
+		case 1:
+			candidate := matches[0]
+			if !seen[candidate.RelPath] {
+				seen[candidate.RelPath] = true
+				selected = append(selected, selectedRepo{Name: candidate.Name, Path: candidate.Path, RelPath: candidate.RelPath})
+			}
+		default:
+			paths := make([]string, len(matches))
+			for i, match := range matches {
+				paths[i] = match.RelPath
+			}
+			return nil, fmt.Errorf("repo selector %q is ambiguous; use relative path: %s", selector, strings.Join(paths, ", "))
+		}
+	}
+	return selected, nil
+}
+
+func renderDetectedRepos(root string, candidates []ingestion.RepoCandidate) {
+	fmt.Printf("Multiple repo candidates detected under %s.\n", root)
+	fmt.Println("Detected repo candidates:")
+	repoWidth := len("REPO")
+	statusWidth := len("STATUS")
+	rows := make([]struct {
+		repo    string
+		status  string
+		signals string
+	}, 0, len(candidates))
+	total := 0
+	for _, candidate := range candidates {
+		if candidate.RelPath == "" {
+			continue
+		}
+		total++
+		if len(rows) >= detectedReposPreviewRows {
+			continue
+		}
+		status := string(candidate.Classification)
+		if candidate.Recommended {
+			status = "recommended"
+		}
+		signals := repoSignalList(candidate.Signals)
+		rows = append(rows, struct {
+			repo    string
+			status  string
+			signals string
+		}{repo: candidate.RelPath, status: status, signals: signals})
+		repoWidth = max(repoWidth, len(candidate.RelPath))
+		statusWidth = max(statusWidth, len(status))
+	}
+	fmt.Printf("  %-*s  %-*s  %s\n", repoWidth, "REPO", statusWidth, "STATUS", "SIGNALS")
+	fmt.Printf("  %-*s  %-*s  %s\n", repoWidth, strings.Repeat("-", repoWidth), statusWidth, strings.Repeat("-", statusWidth), "-------")
+	for _, row := range rows {
+		fmt.Printf("  %-*s  %-*s  %s\n", repoWidth, row.repo, statusWidth, row.status, row.signals)
+	}
+	if total > len(rows) {
+		fmt.Printf("  ... and %d more repo candidates\n", total-len(rows))
+	}
+	fmt.Println("Choose explicitly:")
+	fmt.Printf("  cartograph analyze --repos auto %s\n", root)
+	fmt.Printf("  cartograph analyze --repos none %s\n", root)
+}
+
+func promptDetectedRepos(root string, candidates []ingestion.RepoCandidate) ([]selectedRepo, bool, error) {
+	recommended := selectedRecommendedRepos(candidates)
+	if len(recommended) == 0 {
+		return nil, false, nil
+	}
+
+	action := repoPromptAuto
+	selected := recommendedRepoPaths(recommended)
+	keymap := huh.NewDefaultKeyMap()
+	keymap.MultiSelect.Prev = key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back"))
+	err := huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[repoPromptAction]().
+				Title("Multiple repo candidates detected under "+root).
+				Description(fmt.Sprintf("%d recommended repo candidates found. Choose how to analyze this target.", len(recommended))).
+				Options(
+					huh.NewOption("Auto - analyze recommended repo candidates", repoPromptAuto),
+					huh.NewOption("Pick - choose repo candidates manually", repoPromptChoose),
+					huh.NewOption("None - analyze as one repo", repoPromptNone),
+				).
+				Value(&action),
+		),
+		huh.NewGroup(
+			huh.NewMultiSelect[string]().
+				Title("Choose repo candidates under "+root).
+				Description("Esc goes back. Ctrl+A selects all/none. Use / to filter, Space to toggle, Enter to analyze selected repo candidates.").
+				Options(repoChoiceOptions(recommended)...).
+				Filterable(true).
+				Height(12).
+				Value(&selected),
+		).WithHideFunc(func() bool {
+			return action != repoPromptChoose
+		}),
+	).WithKeyMap(keymap).WithHeight(18).Run()
+	if err != nil {
+		if errors.Is(err, huh.ErrUserAborted) {
+			fmt.Println("Repo selection canceled.")
+			return nil, false, errRepoSelectionCanceled
+		}
+		return nil, false, fmt.Errorf("prompt: %w", err)
+	}
+
+	switch action {
+	case repoPromptAuto:
+		return recommended, true, nil
+	case repoPromptNone:
+		return nil, false, nil
+	case repoPromptChoose:
+		return selectedReposFromPaths(recommended, selected)
+	default:
+		return nil, false, fmt.Errorf("unsupported repo prompt action %q", action)
+	}
+}
+
+func recommendedRepoPaths(recommended []selectedRepo) []string {
+	paths := make([]string, len(recommended))
+	for i, repo := range recommended {
+		paths[i] = repo.RelPath
+	}
+	return paths
+}
+
+func repoChoiceOptions(recommended []selectedRepo) []huh.Option[string] {
+	options := make([]huh.Option[string], len(recommended))
+	for i, repo := range recommended {
+		options[i] = huh.NewOption(repo.RelPath, repo.RelPath).Selected(true)
+	}
+	return options
+}
+
+func selectedReposFromPaths(recommended []selectedRepo, selected []string) ([]selectedRepo, bool, error) {
+	selectedSet := make(map[string]bool, len(selected))
+	for _, relPath := range selected {
+		if relPath != "" {
+			selectedSet[relPath] = true
+		}
+	}
+	if len(selectedSet) == 0 {
+		return nil, false, nil
+	}
+
+	repos := make([]selectedRepo, 0, len(selectedSet))
+	for _, repo := range recommended {
+		if selectedSet[repo.RelPath] {
+			repos = append(repos, repo)
+		}
+	}
+	return repos, true, nil
+}
+
+func repoSignalList(signals []ingestion.RepoSignal) string {
+	parts := make([]string, len(signals))
+	for i, signal := range signals {
+		parts[i] = string(signal)
+	}
+	return strings.Join(parts, ",")
+}
+
 // runCloneToMemory clones into memory, runs the pipeline, then persists
 // graph + content bucket. Source files never touch disk.
 func (c *AnalyzeCmd) runCloneToMemory(
@@ -717,8 +1058,6 @@ func (c *AnalyzeCmd) runCloneToMemory(
 	repoName, repoHash, repoDir, dataDir string,
 	cloneOpts remote.CloneOptions,
 ) error {
-	start := time.Now()
-
 	spClone := newSpinner("Cloning repository into memory...")
 	spClone.Start()
 
@@ -732,11 +1071,49 @@ func (c *AnalyzeCmd) runCloneToMemory(
 	}
 	spClone.StopWithSuccess(fmt.Sprintf("Cloned %s (commit %s)", result.Branch, result.HeadSHA[:12]))
 
+	analyzeRoot := "/"
+	selectedRepoName := repoName
+	selectedRepoHash := repoHash
+	selection, split, err := c.selectRepos(analyzeRoot, ingestion.RepoDetectionOptions{Walker: remote.MemFSWalker{FS: result.FS}, Reader: remote.MemFSFileReader{FS: result.FS}})
+	if err != nil {
+		if errors.Is(err, errRepoSelectionCanceled) {
+			return nil
+		}
+		return err
+	}
+	if split && len(selection) != 1 {
+		if err := guardSplitContainerEntry(dataDir, repoName, repoHash); err != nil {
+			return err
+		}
+		return c.runSelectedMemoryRepos(cli, identity, dataDir, result, selection)
+	}
+	if split {
+		if err := guardSplitContainerEntry(dataDir, repoName, repoHash); err != nil {
+			return err
+		}
+		analyzeRoot = selection[0].Path
+		selectedRepoName = selection[0].Name
+		selectedRepoHash = splitRemoteRepoHash(identity, selection[0].RelPath, result.Branch)
+		repoDir = filepath.Join(dataDir, selectedRepoName, selectedRepoHash)
+	}
+
+	return c.indexMemoryClone(cli, identity, selectedRepoName, selectedRepoHash, repoDir, dataDir, result, analyzeRoot)
+}
+
+func (c *AnalyzeCmd) indexMemoryClone(
+	cli *CLI,
+	identity remote.RepoIdentity,
+	repoName, repoHash, repoDir, dataDir string,
+	result *remote.CloneResult,
+	analyzeRoot string,
+) error {
+	start := time.Now()
+
 	// "/" is the root because all memfs paths are relative to /.
 	spPipeline := newSpinner("Walking repository...")
 	spPipeline.Start()
 	pipeline := &ingestion.Pipeline{
-		Root:  "/",
+		Root:  analyzeRoot,
 		Graph: lpg.NewGraph(),
 		Options: ingestion.PipelineOptions{
 			Force:  c.Force,
@@ -786,7 +1163,7 @@ func (c *AnalyzeCmd) runCloneToMemory(
 		spPersist.StopWithFailure("Failed to init content store")
 		return fmt.Errorf("analyze: init content store: %w", err)
 	}
-	fileCount, err := populateContentBucket(cs, result.FS)
+	fileCount, err := populateContentBucket(cs, result.FS, analyzeRoot)
 	if err != nil {
 		cs.Close()    //nolint:gosec
 		store.Close() //nolint:gosec
@@ -849,20 +1226,20 @@ func (c *AnalyzeCmd) runCloneToMemory(
 	}); err != nil {
 		return fmt.Errorf("analyze: update registry: %w", err)
 	}
-	if err := finalizeEmbeddingMode(registry, repoName, c.Embed); err != nil {
+	if err := finalizeEmbeddingMode(registry, repoHash, c.Embed); err != nil {
 		return err
 	}
 
 	if cli.Client != nil {
-		_ = cli.Client.Reload(service.ReloadRequest{Repo: repoName})
+		_ = cli.Client.Reload(service.ReloadRequest{Repo: repoHash})
 	}
 
 	// Embedding in sync mode blocks until complete.
 	if c.Embed != embedOff {
 		if mc, ok := cli.Client.(*service.MemoryClient); ok {
-			mc.ReleaseSearchIndex(repoName)
+			mc.ReleaseSearchIndex(repoHash)
 		}
-		c.requestEmbedding(repoName)
+		c.requestEmbedding(repoHash)
 	}
 
 	fmt.Printf("Done in %s.\n", time.Since(start).Round(time.Millisecond))
@@ -875,8 +1252,6 @@ func (c *AnalyzeCmd) runCloneToDisk(
 	repoName, repoHash, repoDir, dataDir string,
 	cloneOpts remote.CloneOptions,
 ) error {
-	start := time.Now()
-
 	srcDir := filepath.Join(repoDir, "src")
 	if err := os.MkdirAll(repoDir, 0o750); err != nil {
 		return fmt.Errorf("analyze: create dir: %w", err)
@@ -905,6 +1280,39 @@ func (c *AnalyzeCmd) runCloneToDisk(
 		branch = result.Branch
 	}
 
+	selected, split, err := c.selectRepos(srcDir, ingestion.RepoDetectionOptions{})
+	if err != nil {
+		if errors.Is(err, errRepoSelectionCanceled) {
+			return nil
+		}
+		return err
+	}
+	if split {
+		if err := guardSplitContainerEntry(dataDir, repoName, repoHash); err != nil {
+			return err
+		}
+		for _, repo := range selected {
+			repoHash := splitRemoteRepoHash(identity, repo.RelPath, branch)
+			repoDir := filepath.Join(dataDir, repo.Name, repoHash)
+			if err := c.indexDiskClone(cli, identity, repo.Name, repoHash, repoDir, dataDir, repo.Path, headSHA, branch); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	return c.indexDiskClone(cli, identity, repoName, repoHash, repoDir, dataDir, srcDir, headSHA, branch)
+}
+
+func (c *AnalyzeCmd) indexDiskClone(
+	cli *CLI,
+	identity remote.RepoIdentity,
+	repoName, repoHash, repoDir, dataDir, srcDir, headSHA, branch string,
+) error {
+	start := time.Now()
+	if err := os.MkdirAll(repoDir, 0o750); err != nil {
+		return fmt.Errorf("analyze: create dir: %w", err)
+	}
 	spPipeline := newSpinner("Walking repository...")
 	spPipeline.Start()
 	pipeline := ingestion.NewPipeline(srcDir, ingestion.PipelineOptions{
@@ -996,20 +1404,20 @@ func (c *AnalyzeCmd) runCloneToDisk(
 	}); err != nil {
 		return fmt.Errorf("analyze: update registry: %w", err)
 	}
-	if err := finalizeEmbeddingMode(registry, repoName, c.Embed); err != nil {
+	if err := finalizeEmbeddingMode(registry, repoHash, c.Embed); err != nil {
 		return err
 	}
 
 	if cli.Client != nil {
-		_ = cli.Client.Reload(service.ReloadRequest{Repo: repoName})
+		_ = cli.Client.Reload(service.ReloadRequest{Repo: repoHash})
 	}
 
 	// Embedding in sync mode blocks until complete.
 	if c.Embed != embedOff {
 		if mc, ok := cli.Client.(*service.MemoryClient); ok {
-			mc.ReleaseSearchIndex(repoName)
+			mc.ReleaseSearchIndex(repoHash)
 		}
-		c.requestEmbedding(repoName)
+		c.requestEmbedding(repoHash)
 	}
 
 	fmt.Printf("Done in %s.\n", time.Since(start).Round(time.Millisecond))
@@ -1181,9 +1589,10 @@ func collectLanguages(g *lpg.Graph) []string {
 
 // populateContentBucket walks the billy filesystem and stores all files
 // in the BBolt content bucket with zstd compression.
-func populateContentBucket(cs *bbolt.ContentStore, fs billy.Filesystem) (int, error) {
+func populateContentBucket(cs *bbolt.ContentStore, fs billy.Filesystem, root string) (int, error) {
 	files := make(map[string][]byte)
-	if err := collectFiles(fs, ".", files); err != nil {
+	base := cleanBillyRoot(fs, root)
+	if err := collectFiles(fs, base, base, files); err != nil {
 		return 0, err
 	}
 	if len(files) == 0 {
@@ -1195,8 +1604,19 @@ func populateContentBucket(cs *bbolt.ContentStore, fs billy.Filesystem) (int, er
 	return len(files), nil
 }
 
+func cleanBillyRoot(fs billy.Filesystem, root string) string {
+	root = filepath.ToSlash(strings.TrimPrefix(path.Clean("/"+strings.TrimPrefix(root, "/")), "/"))
+	if root == "" || root == "." {
+		return "."
+	}
+	if info, err := fs.Stat(root); err == nil && info.IsDir() {
+		return root
+	}
+	return "."
+}
+
 // collectFiles recursively reads all files from a billy filesystem.
-func collectFiles(fs billy.Filesystem, dir string, files map[string][]byte) error {
+func collectFiles(fs billy.Filesystem, dir, base string, files map[string][]byte) error {
 	entries, err := fs.ReadDir(dir)
 	if err != nil {
 		return fmt.Errorf("read dir %s: %w", dir, err)
@@ -1215,7 +1635,7 @@ func collectFiles(fs billy.Filesystem, dir string, files map[string][]byte) erro
 		}
 
 		if entry.IsDir() {
-			if err := collectFiles(fs, relPath, files); err != nil {
+			if err := collectFiles(fs, relPath, base, files); err != nil {
 				return err
 			}
 			continue
@@ -1230,7 +1650,11 @@ func collectFiles(fs billy.Filesystem, dir string, files map[string][]byte) erro
 		if err != nil {
 			continue
 		}
-		files[relPath] = data
+		storePath := relPath
+		if base != "." {
+			storePath = strings.TrimPrefix(relPath, base+"/")
+		}
+		files[storePath] = data
 	}
 	return nil
 }
@@ -1239,6 +1663,14 @@ func collectFiles(fs billy.Filesystem, dir string, files map[string][]byte) erro
 func shortHash(path string) string {
 	h := sha256.Sum256([]byte(path))
 	return hex.EncodeToString(h[:8])
+}
+
+func splitRemoteRepoHash(identity remote.RepoIdentity, relPath, branch string) string {
+	canonical := identity.Canonical
+	if !strings.Contains(canonical, "@") && branch != "" {
+		canonical += "@" + branch
+	}
+	return shortHash(canonical + "//" + filepath.ToSlash(relPath))
 }
 
 // gitHeadHash returns the current HEAD commit hash for the repo at dir,
@@ -1666,7 +2098,7 @@ func (c *CleanCmd) Run(cli *CLI) error {
 	_ = registry.Remove(entry.Hash)
 
 	if cli.Client != nil {
-		_ = cli.Client.Reload(service.ReloadRequest{Repo: entry.Name})
+		_ = cli.Client.Reload(service.ReloadRequest{Repo: entry.Hash})
 	}
 	fmt.Printf("Cleaned index for %s.\n", entry.Name)
 	return nil

@@ -680,10 +680,10 @@ func TestNormalizeGitURL(t *testing.T) {
 	}
 }
 
-func TestGitURLToImportPath(t *testing.T) {
-	got := GitURLToImportPath("https://github.com/gorilla/mux.git")
+func TestNormalizeGitURLForImportPath(t *testing.T) {
+	got := NormalizeGitURL("https://github.com/gorilla/mux.git")
 	if got != "github.com/gorilla/mux" {
-		t.Errorf("GitURLToImportPath: got %q, want github.com/gorilla/mux", got)
+		t.Errorf("NormalizeGitURL: got %q, want github.com/gorilla/mux", got)
 	}
 }
 
@@ -983,8 +983,8 @@ func TestResolveRepoName_ExactMatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got != testRepoNomad {
-		t.Errorf("got %q, want %q", got, testRepoNomad)
+	if got != "h1" {
+		t.Errorf("got %q, want %q", got, "h1")
 	}
 }
 
@@ -997,8 +997,8 @@ func TestResolveRepoName_ShortName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got != testRepoNomad {
-		t.Errorf("got %q, want %q", got, testRepoNomad)
+	if got != "h1" {
+		t.Errorf("got %q, want %q", got, "h1")
 	}
 }
 

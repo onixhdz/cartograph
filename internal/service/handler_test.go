@@ -450,7 +450,7 @@ func newTestServerWithRegistry(t *testing.T) *Server {
 		dataDir:     dir,
 		idleTimeout: DefaultIdleTimeout,
 	}
-	s.graph["acme/sdk"] = lpg.NewGraph()
+	s.graph["h1"] = lpg.NewGraph()
 	s.backendFactory = func(repo string) ToolBackend {
 		if _, ok := s.graph[repo]; !ok {
 			return nil
@@ -577,7 +577,7 @@ func TestHandleQuery_ShortNameResolvesViaRegistry(t *testing.T) {
 		dataDir:     dir,
 		idleTimeout: DefaultIdleTimeout,
 	}
-	s.graph["acme/sdk"] = lpg.NewGraph()
+	s.graph["h1"] = lpg.NewGraph()
 	s.backendFactory = func(repo string) ToolBackend {
 		if _, ok := s.graph[repo]; !ok {
 			return nil
@@ -616,8 +616,8 @@ func TestHandleTree_ConcurrentRequestsUseLoadedGraph(t *testing.T) {
 		dataDir:     dir,
 		idleTimeout: DefaultIdleTimeout,
 	}
-	s.graph["acme/sdk"] = lpg.NewGraph()
-	graph.AddFileNode(s.graph["acme/sdk"], graph.FileProps{FilePath: "main.go", BaseNodeProps: graph.BaseNodeProps{ID: "file://main.go", Name: "main.go"}})
+	s.graph["h1"] = lpg.NewGraph()
+	graph.AddFileNode(s.graph["h1"], graph.FileProps{FilePath: "main.go", BaseNodeProps: graph.BaseNodeProps{ID: "file://main.go", Name: "main.go"}})
 
 	var wg sync.WaitGroup
 	for range 8 {

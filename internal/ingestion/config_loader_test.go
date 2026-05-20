@@ -15,7 +15,8 @@ const (
 	testPackageJSON     = "package.json"
 	testCargoTomlPath   = "/project/Cargo.toml"
 	testCargoToml       = "Cargo.toml"
-	testPomXML          = "pom.xml"
+	testPomXML          = filePom
+	testPyprojectPath   = "/project/pyproject.toml"
 	testScopeDev        = "dev"
 	testScopeOptional   = "optional"
 	testResolvedReact   = "18.3.1"
@@ -448,25 +449,25 @@ func TestMonorepoGoModDependencies(t *testing.T) {
 func TestMonorepoPyprojectDependenciesAndManifest(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
 		switch filepath.ToSlash(path) {
-		case "/project/pyproject.toml":
+		case testPyprojectPath:
 			return []byte("[project]\nname='root'\ndependencies=['requests>=2.0']\n"), nil
-		case "/project/packages/api/pyproject.toml":
-			return []byte("[project]\nname='api'\nversion='0.2.0'\ndependencies=['fastapi>=0.100']\n"), nil
+		case "/project/packages/backend/pyproject.toml":
+			return []byte("[project]\nname='backend'\nversion='0.2.0'\ndependencies=['fastapi>=0.100']\n"), nil
 		}
 		return nil, fmt.Errorf("not found: %s", path)
 	}
 
-	cfg := LoadProjectConfig("/project", readFile, ProjectConfigOptions{Files: []string{"pyproject.toml", "packages/api/pyproject.toml"}})
+	cfg := LoadProjectConfig("/project", readFile, ProjectConfigOptions{Files: []string{filePyproject, "packages/backend/pyproject.toml"}})
 	foundDeps := map[string]string{}
 	for _, d := range cfg.Dependencies {
 		foundDeps[d.Source+":"+d.Name] = d.Version
 	}
-	if foundDeps["packages/api/pyproject.toml:fastapi"] != ">=0.100" {
+	if foundDeps["packages/backend/pyproject.toml:fastapi"] != ">=0.100" {
 		t.Fatalf("expected nested pyproject dependency, got %v", foundDeps)
 	}
 	foundManifest := false
 	for _, m := range cfg.Manifests {
-		if m.Source == "packages/api/pyproject.toml" && m.Name == "api" && m.Version == "0.2.0" {
+		if m.Source == "packages/backend/pyproject.toml" && m.Name == "backend" && m.Version == "0.2.0" {
 			foundManifest = true
 		}
 	}
@@ -1176,7 +1177,7 @@ func TestManifestIdentities(t *testing.T) {
 			return []byte(`{"name":"@acme/web","version":"1.2.0","workspaces":["packages/*","apps/*"]}`), nil
 		case testCargoTomlPath:
 			return []byte("[package]\nname = \"carto\"\nversion = \"0.1.0\"\n"), nil
-		case "/project/pyproject.toml":
+		case testPyprojectPath:
 			return []byte("[project]\nname='pyapp'\nversion='0.5.0'\n"), nil
 		}
 		return nil, fmt.Errorf("not found: %s", path)
@@ -1196,14 +1197,14 @@ func TestManifestIdentities(t *testing.T) {
 	if got := found["package.json"].Version; got != "1.2.0" {
 		t.Errorf("package.json manifest version = %q, want 1.2.0", got)
 	}
-	if got := found["pom.xml"].Name; got != "root-app" {
+	if got := found[filePom].Name; got != "root-app" {
 		t.Errorf("pom.xml manifest name = %q, want root-app", got)
 	}
-	if got := found["pom.xml"].Version; got != "1.0.0" {
+	if got := found[filePom].Version; got != "1.0.0" {
 		t.Errorf("pom.xml manifest version = %q, want 1.0.0", got)
 	}
-	if len(found["pom.xml"].Workspaces) != 2 {
-		t.Errorf("pom.xml modules = %v, want 2 entries", found["pom.xml"].Workspaces)
+	if len(found[filePom].Workspaces) != 2 {
+		t.Errorf("pom.xml modules = %v, want 2 entries", found[filePom].Workspaces)
 	}
 	if len(found["package.json"].Workspaces) != 2 {
 		t.Errorf("package.json workspaces = %v, want 2 entries", found["package.json"].Workspaces)
@@ -1211,8 +1212,119 @@ func TestManifestIdentities(t *testing.T) {
 	if got := found["Cargo.toml"].Name; got != "carto" {
 		t.Errorf("Cargo.toml manifest name = %q, want carto", got)
 	}
-	if got := found["pyproject.toml"].Name; got != "pyapp" {
+	if got := found[filePyproject].Name; got != "pyapp" {
 		t.Errorf("pyproject.toml manifest name = %q, want pyapp", got)
+	}
+}
+
+func TestWorkspaceManifestIdentities_FirstPartyFormats(t *testing.T) {
+	files := []string{
+		"go.work",
+		"Cargo.toml",
+		"pnpm-workspace.yaml",
+		"settings.gradle",
+		"App.sln",
+		"Package.swift",
+		filePyproject,
+	}
+	readFile := func(path string) ([]byte, error) {
+		switch path {
+		case "/project/go.work":
+			return []byte("go 1.22\n\nuse (\n\t./services/api\n\t./libs/common\n)\n"), nil
+		case testCargoTomlPath:
+			return []byte("[workspace]\nmembers = [\"crates/core\", \"crates/cli\"]\n"), nil
+		case "/project/pnpm-workspace.yaml":
+			return []byte("packages:\n  - 'apps/*'\n  - packages/*\n"), nil
+		case "/project/settings.gradle":
+			return []byte("pluginManagement {}\ninclude ':service', ':libs:common'\n"), nil
+		case "/project/App.sln":
+			return []byte(`Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Api", "src\Api\Api.csproj", "{11111111-1111-1111-1111-111111111111}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Worker", "src\Worker\Worker.csproj", "{22222222-2222-2222-2222-222222222222}"
+EndProject`), nil
+		case "/project/Package.swift":
+			return []byte(`let package = Package(name: "SwiftTools", products: [])`), nil
+		case testPyprojectPath:
+			return []byte("[project]\nname = 'pyroot'\n[tool.uv.workspace]\nmembers = ['packages/api', 'packages/lib']\n"), nil
+		}
+		return nil, fmt.Errorf("not found: %s", path)
+	}
+
+	cfg := LoadProjectConfig("/project", readFile, ProjectConfigOptions{Files: files})
+	found := map[string]ManifestInfo{}
+	for _, manifest := range cfg.Manifests {
+		found[manifest.Source] = manifest
+	}
+	checks := map[string][]string{
+		"go.work":             {"./services/api", "./libs/common"},
+		"Cargo.toml":          {"crates/core", "crates/cli"},
+		"pnpm-workspace.yaml": {"apps/*", "packages/*"},
+		"settings.gradle":     {"service", "libs/common"},
+		"App.sln":             {"src/Api/Api.csproj", "src/Worker/Worker.csproj"},
+		filePyproject:         {"packages/api", "packages/lib"},
+	}
+	for source, want := range checks {
+		if got := found[source].Workspaces; strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("%s workspaces = %v, want %v", source, got, want)
+		}
+	}
+	if got := found["Package.swift"].Name; got != "SwiftTools" {
+		t.Errorf("Package.swift name = %q, want SwiftTools", got)
+	}
+}
+
+func TestWorkspaceManifestIdentities_RegressionCases(t *testing.T) {
+	files := []string{
+		"go.mod",
+		"services/api/go.mod",
+		"package.json",
+		"pnpm-workspace.yaml",
+		"settings.gradle",
+		"App.sln",
+	}
+	readFile := func(path string) ([]byte, error) {
+		switch filepath.ToSlash(path) {
+		case "/project/go.mod":
+			return []byte("module github.com/acme/root\n"), nil
+		case "/project/services/api/go.mod":
+			return []byte("module github.com/acme/api\n"), nil
+		case testPackageJSONPath:
+			return []byte(`{"private":true,"workspaces":["apps/*"]}`), nil
+		case "/project/pnpm-workspace.yaml":
+			return []byte("packages:\n  - apps/api # active\n  - 'apps/#literal'\n  # - apps/old\n"), nil
+		case "/project/settings.gradle":
+			return []byte("// include ':old'\ninclude ':service'\n/* include ':dead' */\n"), nil
+		case "/project/App.sln":
+			return []byte(`Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Api", "src\Services\ApiService.csproj", "{11111111-1111-1111-1111-111111111111}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "App", "App.csproj", "{22222222-2222-2222-2222-222222222222}"
+EndProject`), nil
+		}
+		return nil, fmt.Errorf("not found: %s", path)
+	}
+
+	cfg := LoadProjectConfig("/project", readFile, ProjectConfigOptions{Files: files})
+	found := map[string]ManifestInfo{}
+	for _, manifest := range cfg.Manifests {
+		found[manifest.Source] = manifest
+	}
+	if got := found["services/api/go.mod"].Name; got != "github.com/acme/api" {
+		t.Fatalf("nested go.mod manifest = %q, want github.com/acme/api", got)
+	}
+	if got := found[manifestPkgJSON].Name; got == "" {
+		t.Fatal("unnamed package.json workspace root should get fallback name")
+	}
+	if got := strings.Join(found["pnpm-workspace.yaml"].Workspaces, ","); got != "apps/api,apps/#literal" {
+		t.Fatalf("pnpm workspaces = %q, want active entries without comments", got)
+	}
+	if got := strings.Join(found["settings.gradle"].Workspaces, ","); got != "service" {
+		t.Fatalf("gradle workspaces = %q, want service only", got)
+	}
+	if got := strings.Join(found["App.sln"].Workspaces, ","); got != "src/Services/ApiService.csproj,App.csproj" {
+		t.Fatalf("sln workspaces = %q, want exact csproj paths", got)
+	}
+	if path, ok := workspaceMemberManifestPath(found["App.sln"], "src/Services/ApiService.csproj"); !ok || path != "src/Services/ApiService.csproj" {
+		t.Fatalf("sln member manifest path = %q ok=%v", path, ok)
 	}
 }
 
@@ -1269,7 +1381,7 @@ func TestCsprojDependencies(t *testing.T) {
 
 	found := map[string]string{}
 	for _, d := range cfg.Dependencies {
-		if strings.HasSuffix(d.Source, ".csproj") {
+		if strings.HasSuffix(d.Source, extCSProj) {
 			found[d.Name] = d.Version
 		}
 	}
@@ -1304,7 +1416,7 @@ func TestCsprojSkipsMSBuildVariables(t *testing.T) {
 
 	var names []string
 	for _, d := range cfg.Dependencies {
-		if strings.HasSuffix(d.Source, ".csproj") {
+		if strings.HasSuffix(d.Source, extCSProj) {
 			names = append(names, d.Name)
 		}
 	}
@@ -1389,7 +1501,7 @@ let package = Package(
 
 func TestPomXMLDependencies(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
-		if strings.HasSuffix(path, "pom.xml") {
+		if strings.HasSuffix(path, filePom) {
 			return []byte(`<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0">
     <groupId>com.example</groupId>
@@ -1455,7 +1567,7 @@ func TestPomXMLDependencies(t *testing.T) {
 
 func TestPomXMLProjectVersionProperty(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
-		if strings.HasSuffix(path, "pom.xml") {
+		if strings.HasSuffix(path, filePom) {
 			return []byte(`<project>
     <groupId>com.example</groupId>
     <artifactId>myapp</artifactId>
@@ -1485,7 +1597,7 @@ func TestPomXMLProjectVersionProperty(t *testing.T) {
 
 func TestPomXMLDependencyManagement(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
-		if strings.HasSuffix(path, "pom.xml") {
+		if strings.HasSuffix(path, filePom) {
 			return []byte(`<project>
     <groupId>com.example</groupId>
     <artifactId>parent</artifactId>
@@ -1533,7 +1645,7 @@ func TestPomXMLDependencyManagement(t *testing.T) {
 
 func TestPomXMLParentInheritance(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
-		if strings.HasSuffix(path, "pom.xml") {
+		if strings.HasSuffix(path, filePom) {
 			return []byte(`<project>
     <parent>
         <groupId>com.example</groupId>
@@ -1698,7 +1810,7 @@ func TestVcpkgDependencies(t *testing.T) {
 
 func TestPyprojectTomlPEP621(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
-		if strings.HasSuffix(path, "pyproject.toml") {
+		if strings.HasSuffix(path, filePyproject) {
 			return []byte(`[project]
 name = "myapp"
 version = "1.0.0"
@@ -1719,7 +1831,7 @@ docs = ["sphinx"]
 	cfg := LoadProjectConfig("/project", readFile)
 	found := map[string]DependencyInfo{}
 	for _, d := range cfg.Dependencies {
-		if d.Source == "pyproject.toml" {
+		if d.Source == filePyproject {
 			found[d.Name] = d
 		}
 	}
@@ -1747,7 +1859,7 @@ docs = ["sphinx"]
 
 func TestPyprojectTomlPoetry(t *testing.T) {
 	readFile := func(path string) ([]byte, error) {
-		if strings.HasSuffix(path, "pyproject.toml") {
+		if strings.HasSuffix(path, filePyproject) {
 			return []byte(`[tool.poetry]
 name = "myapp"
 version = "1.0.0"
@@ -1768,7 +1880,7 @@ mypy = "*"
 	cfg := LoadProjectConfig("/project", readFile)
 	found := map[string]DependencyInfo{}
 	for _, d := range cfg.Dependencies {
-		if d.Source == "pyproject.toml" {
+		if d.Source == filePyproject {
 			found[d.Name] = d
 		}
 	}

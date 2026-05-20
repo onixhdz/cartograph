@@ -303,8 +303,8 @@ func TestMemoryClient_ResolveRepoName_ShortNameViaRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got != "hashicorp/consul" {
-		t.Errorf("got %q, want %q", got, "hashicorp/consul")
+	if got != "h1" {
+		t.Errorf("got %q, want %q", got, "h1")
 	}
 }
 

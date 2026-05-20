@@ -224,6 +224,14 @@ func (c *Client) EmbedStatus(req EmbedStatusRequest) (*EmbedStatusResult, error)
 	return &res, nil
 }
 
+func (c *Client) AnalyzePreflight(req AnalyzePreflightRequest) (*AnalyzePreflightResult, error) {
+	var res AnalyzePreflightResult
+	if err := c.do(http.MethodPost, RouteAnalyzePreflight, req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
 // PluginIngest sends a POST /api/plugin/ingest request to trigger background plugin ingestion.
 func (c *Client) PluginIngest(req PluginIngestRequest) (*PluginIngestStatusResult, error) {
 	var res PluginIngestStatusResult

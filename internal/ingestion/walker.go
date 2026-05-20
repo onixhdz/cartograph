@@ -73,7 +73,7 @@ func Walk(root string, opts WalkOptions) ([]WalkResult, error) {
 
 		name := d.Name()
 
-		if d.IsDir() && name == ".git" {
+		if d.IsDir() && name == fileGit {
 			return fs.SkipDir
 		}
 
@@ -279,7 +279,7 @@ func isIgnoredExtension(name string) bool {
 // ignoredDirectories is the comprehensive set of directories to always skip.
 var ignoredDirectories = map[string]bool{
 	// VCS
-	".git": true, ".svn": true, ".hg": true, ".bzr": true,
+	fileGit: true, ".svn": true, ".hg": true, ".bzr": true,
 	// IDE/Editor
 	".idea": true, ".vscode": true, ".vs": true,
 	// Dependencies

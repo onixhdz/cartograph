@@ -23,6 +23,7 @@ Accepts multiple targets in a single command; each is indexed independently.
 - `--embed-endpoint <url>` — Endpoint URL for remote embedding providers (e.g., `https://api.openai.com`)
 - `--embed-api-key <token>` — API key for remote providers (env: `CARTOGRAPH_EMBEDDING_API_KEY`)
 - `--embed-model <name>` — Model alias (e.g., `nomic-code`) or Hugging Face repo ID
+- `--repos <mode|selectors>` — Repo candidate selection: `auto`, `none`, or comma-separated names/relative paths
 
 **Examples:**
 ```bash
@@ -42,6 +43,13 @@ cartograph analyze hashicorp/nomad
 cartograph analyze hashicorp/nomad@v1.8.0
 cartograph analyze hashicorp/nomad@release/1.7.x
 cartograph analyze github.com/gorilla/mux@v1.8.0
+
+# Split an umbrella folder into recommended child repo indexes
+cartograph analyze --repos auto ~/repos
+
+# Keep an umbrella folder as one index, or manually select children
+cartograph analyze --repos none ~/repos
+cartograph analyze --repos apps/api,apps/web ~/repos
 
 # Host-prefixed URL — auto-expands to https://github.com/org/repo
 cartograph analyze github.com/org/repo
@@ -335,49 +343,49 @@ cartograph schema hashicorp/nomad
 
 ### Node Labels
 
-| Label | Description |
-|---|---|
-| `Function` | Standalone function |
-| `Method` | Method on a class/struct |
-| `Class` | Class definition |
-| `Interface` | Interface definition |
-| `Struct` | Struct definition |
-| `Enum` | Enum definition |
-| `File` | Source file |
-| `Folder` | Directory |
-| `Community` | Leiden community cluster |
-| `Process` | Execution flow (entry point → call chain) |
-| `Namespace` | Namespace/module |
-| `Trait` | Trait (Rust) |
-| `Impl` | Impl block (Rust) |
-| `TypeAlias` | Type alias |
-| `Const` | Constant |
-| `Property` | Property/field |
-| `Record` | Record type |
-| `Constructor` | Constructor |
-| `Macro` | Macro definition |
-| `Typedef` | C/C++ typedef |
-| `Union` | C/C++ union |
-| `Delegate` | Delegate type |
-| `Annotation` | Annotation/decorator |
+| Label         | Description                               |
+| ------------- | ----------------------------------------- |
+| `Function`    | Standalone function                       |
+| `Method`      | Method on a class/struct                  |
+| `Class`       | Class definition                          |
+| `Interface`   | Interface definition                      |
+| `Struct`      | Struct definition                         |
+| `Enum`        | Enum definition                           |
+| `File`        | Source file                               |
+| `Folder`      | Directory                                 |
+| `Community`   | Leiden community cluster                  |
+| `Process`     | Execution flow (entry point → call chain) |
+| `Namespace`   | Namespace/module                          |
+| `Trait`       | Trait (Rust)                              |
+| `Impl`        | Impl block (Rust)                         |
+| `TypeAlias`   | Type alias                                |
+| `Const`       | Constant                                  |
+| `Property`    | Property/field                            |
+| `Record`      | Record type                               |
+| `Constructor` | Constructor                               |
+| `Macro`       | Macro definition                          |
+| `Typedef`     | C/C++ typedef                             |
+| `Union`       | C/C++ union                               |
+| `Delegate`    | Delegate type                             |
+| `Annotation`  | Annotation/decorator                      |
 
 ### Relationship Types
 
-| Type | Description |
-|---|---|
-| `CALLS` | Function/method calls another |
-| `IMPORTS` | File imports another file/module |
-| `DEFINES` | File defines a symbol |
-| `CONTAINS` | Folder contains file, class contains method |
-| `EXTENDS` | Class extends another class |
-| `IMPLEMENTS` | Class implements an interface |
-| `HAS_METHOD` | Class/struct has a method |
-| `HAS_PROPERTY` | Class/struct has a property |
-| `OVERRIDES` | Method overrides parent method |
-| `MEMBER_OF` | Symbol is a member of a community |
-| `STEP_IN_PROCESS` | Symbol is a step in an execution flow |
-| `ACCESSES` | Function accesses a property/field |
-| `USES` | Symbol uses another symbol |
+| Type              | Description                                 |
+| ----------------- | ------------------------------------------- |
+| `CALLS`           | Function/method calls another               |
+| `IMPORTS`         | File imports another file/module            |
+| `DEFINES`         | File defines a symbol                       |
+| `CONTAINS`        | Folder contains file, class contains method |
+| `EXTENDS`         | Class extends another class                 |
+| `IMPLEMENTS`      | Class implements an interface               |
+| `HAS_METHOD`      | Class/struct has a method                   |
+| `HAS_PROPERTY`    | Class/struct has a property                 |
+| `OVERRIDES`       | Method overrides parent method              |
+| `MEMBER_OF`       | Symbol is a member of a community           |
+| `STEP_IN_PROCESS` | Symbol is a step in an execution flow       |
+| `ACCESSES`        | Function accesses a property/field          |
+| `USES`            | Symbol uses another symbol                  |
 
 ### Key Properties
 
@@ -462,14 +470,14 @@ Remove a cached model from disk.
 
 **Available model aliases:**
 
-| Alias        | Repo                                            | Dimensions | Notes           |
-| ------------ | ----------------------------------------------- | ---------- | --------------- |
-| `bge-small`  | `CompendiumLabs/bge-small-en-v1.5-gguf`         | 384        | **Default**     |
-| `bge-base`   | `CompendiumLabs/bge-base-en-v1.5-gguf`          | 768        | General purpose |
-| `nomic-code` | `nomic-ai/nomic-embed-code-GGUF`                | 768        | Code-optimized  |
-| `nomic-text` | `nomic-ai/nomic-embed-text-v1.5-GGUF`           | 768        | Text            |
-| `jina-code`  | `ggml-org/jina-embeddings-v2-base-code-Q8_0-GGUF` | 768      | Code-optimized  |
-| `qwen3`      | `Qwen/Qwen3-Embedding-0.6B-GGUF`               | 1024       | 0.6B parameters |
+| Alias        | Repo                                              | Dimensions | Notes           |
+| ------------ | ------------------------------------------------- | ---------- | --------------- |
+| `bge-small`  | `CompendiumLabs/bge-small-en-v1.5-gguf`           | 384        | **Default**     |
+| `bge-base`   | `CompendiumLabs/bge-base-en-v1.5-gguf`            | 768        | General purpose |
+| `nomic-code` | `nomic-ai/nomic-embed-code-GGUF`                  | 768        | Code-optimized  |
+| `nomic-text` | `nomic-ai/nomic-embed-text-v1.5-GGUF`             | 768        | Text            |
+| `jina-code`  | `ggml-org/jina-embeddings-v2-base-code-Q8_0-GGUF` | 768        | Code-optimized  |
+| `qwen3`      | `Qwen/Qwen3-Embedding-0.6B-GGUF`                  | 1024       | 0.6B parameters |
 
 Models are cached at `~/.cache/cartograph/models/`. Cartograph also reads from the Hugging Face hub cache (`~/.cache/huggingface/hub/`) for zero-copy reuse.
 
@@ -484,13 +492,13 @@ and exposes a Streamable HTTP MCP endpoint at `/mcp`.
 **Flags:**
 - `--socket <path>` — Unix socket path (auto-generated by default)
 - `--no-idle` — Disable idle timeout
-- `--timeout <min>` — Idle timeout in minutes (default: 30)
+- `--timeout <min>` — Idle timeout in minutes (default: 480)
 - `--no-detach` — Run in foreground (default: detaches)
 - `--no-mcp` — Disable the built-in MCP endpoint at `/mcp`
 
 **Examples:**
 ```bash
-# Start with defaults (detached, 30min idle timeout, MCP enabled)
+# Start with defaults (detached, 8h idle timeout, MCP enabled)
 cartograph serve start
 
 # Start without idle timeout (stays running until stopped)
@@ -533,15 +541,15 @@ available, it falls back to an in-process MemoryClient.
 
 **Available MCP tools:**
 
-| Tool | Description |
-|---|---|
-| `cartograph_query` | Search the knowledge graph for execution flows and symbols |
-| `cartograph_context` | 360° view of a code symbol (callers, callees, processes) |
-| `cartograph_impact` | Blast radius analysis for a symbol |
-| `cartograph_cypher` | Execute raw Cypher queries against the graph |
-| `cartograph_cat` | Read file contents from an indexed repository |
-| `cartograph_schema` | Show graph schema (node labels, edge types, counts) |
-| `cartograph_status` | Check server status and loaded repositories |
+| Tool                 | Description                                                |
+| -------------------- | ---------------------------------------------------------- |
+| `cartograph_query`   | Search the knowledge graph for execution flows and symbols |
+| `cartograph_context` | 360° view of a code symbol (callers, callees, processes)   |
+| `cartograph_impact`  | Blast radius analysis for a symbol                         |
+| `cartograph_cypher`  | Execute raw Cypher queries against the graph               |
+| `cartograph_cat`     | Read file contents from an indexed repository              |
+| `cartograph_schema`  | Show graph schema (node labels, edge types, counts)        |
+| `cartograph_status`  | Check server status and loaded repositories                |
 
 **Editor configuration examples:**
 

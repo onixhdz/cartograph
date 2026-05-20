@@ -355,6 +355,12 @@ func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	g, _, ok := s.GetRepoResources(req.Repo)
+	if !ok {
+		if entry, found := s.registryEntry(req.Repo); found && entry.Hash != req.Repo {
+			req.Repo = entry.Hash
+			g, _, ok = s.GetRepoResources(req.Repo)
+		}
+	}
 	if !ok || g == nil {
 		writeError(w, ErrCodeRepoNotFound, fmt.Sprintf("repository %q not indexed", req.Repo))
 		return
@@ -554,6 +560,24 @@ func (s *Server) handleEmbedStatus(w http.ResponseWriter, r *http.Request) {
 		DownloadFile:    job.DownloadFile,
 		DownloadPercent: job.DownloadPercent,
 	})
+}
+
+func (s *Server) handleAnalyzePreflight(w http.ResponseWriter, r *http.Request) {
+	s.resetIdleTimer(r.Context())
+	if !requirePOST(w, r) {
+		return
+	}
+	var req AnalyzePreflightRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	res, err := BuildAnalyzePreflight(req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, res)
 }
 
 func (s *Server) handlePluginIngest(w http.ResponseWriter, r *http.Request) {
