@@ -44,12 +44,8 @@ cartograph analyze hashicorp/nomad@v1.8.0
 cartograph analyze hashicorp/nomad@release/1.7.x
 cartograph analyze github.com/gorilla/mux@v1.8.0
 
-# Split an umbrella folder into recommended child repo indexes
-cartograph analyze --repos auto ~/repos
-
-# Keep an umbrella folder as one index, or manually select children
-cartograph analyze --repos none ~/repos
-cartograph analyze --repos apps/api,apps/web ~/repos
+# Inspect an umbrella folder and show recommended repo candidates first
+cartograph analyze ~/repos
 
 # Host-prefixed URL — auto-expands to https://github.com/org/repo
 cartograph analyze github.com/org/repo
@@ -85,6 +81,11 @@ cartograph analyze <path|url> --embed sync \
   --embed-api-key $OPENAI_API_KEY \
   --embed-model text-embedding-3-small
 ```
+
+For local folders that may contain multiple projects, agents should run plain
+`cartograph analyze <folder>` first to see Cartograph's recommended repo
+candidates. If candidates are found, follow the next command printed by analyze
+instead of guessing repo-selection flags.
 
 ### `cartograph query "<search>"`
 

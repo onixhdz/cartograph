@@ -214,6 +214,20 @@ listing the full names — use `-r acme/sdk` to disambiguate.
   repos. If the user's current project already appears, skip re-indexing
   it (unless they ask for `--force`).
 
+### Folder Analysis & Repo Candidates
+
+When the user gives a local folder that may contain multiple repositories or
+projects, do **not** jump straight to `--repos auto` and do not ask the user
+before seeing Cartograph's recommendations. Run plain analyze on the folder:
+
+```bash
+cartograph analyze <folder>
+```
+
+If multiple repo candidates are detected, Cartograph prints the candidate table
+and follow-up commands. Follow the command recommendation printed by analyze;
+do not guess repo-selection flags from the skill text.
+
 ## Delegating Research to Sub-Agents
 
 For sub-agent delegation (explore/task agents with cartograph), including
