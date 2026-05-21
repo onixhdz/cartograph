@@ -383,6 +383,22 @@ func TestShouldEmbed(t *testing.T) {
 		t.Error("struct: want true (always embed)")
 	}
 
+	// Other structural types are architectural even when compact.
+	enum := graph.AddSymbolNode(g, graph.LabelEnum, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "enum1", Name: "HttpMethod"},
+		FilePath:      "http_method.dart",
+	})
+	if !ShouldEmbed(enum, g) {
+		t.Error("enum: want true (always embed)")
+	}
+	typeAlias := graph.AddSymbolNode(g, graph.LabelTypeAlias, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "alias1", Name: "MockClientHandler"},
+		FilePath:      "mock_client.dart",
+	})
+	if !ShouldEmbed(typeAlias, g) {
+		t.Error("type alias: want true (always embed)")
+	}
+
 	// Meaningful generic code elements are selected by kind, not language.
 	event := graph.AddSymbolNode(g, graph.LabelCodeElement, graph.SymbolProps{
 		BaseNodeProps: graph.BaseNodeProps{ID: "e1", Name: "Minted"},
@@ -462,6 +478,31 @@ func TestShouldEmbed(t *testing.T) {
 	})
 	if ShouldEmbed(getter, g) {
 		t.Error("trivial getter (≤3 lines, no doc): want false")
+	}
+
+	// Compact exported APIs without docs are still trivial; BM25 handles the
+	// name/signature better than spending embedding budget on accessors.
+	trivialAPI := graph.AddSymbolNode(g, graph.LabelMethod, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "triv_api", Name: "read"},
+		FilePath:      "context.dart",
+		IsExported:    true,
+		StartLine:     14,
+		EndLine:       16,
+		Signature:     "T read<T>()",
+	})
+	if ShouldEmbed(trivialAPI, g) {
+		t.Error("trivial exported API with signature: want false")
+	}
+	compactScalaAPI := graph.AddSymbolNode(g, graph.LabelMethod, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "triv_scala", Name: "execute"},
+		FilePath:      "controller.scala",
+		IsExported:    true,
+		StartLine:     14,
+		EndLine:       16,
+		Signature:     "def execute(): Unit",
+	})
+	if ShouldEmbed(compactScalaAPI, g) {
+		t.Error("trivial non-Dart API with signature: want false")
 	}
 
 	// Doc overrides trivial-skip.
@@ -603,6 +644,10 @@ func TestEmbedPriority(t *testing.T) {
 		BaseNodeProps: graph.BaseNodeProps{ID: "c1", Name: "Server"},
 		FilePath:      "server.go",
 	})
+	alias := graph.AddSymbolNode(g, graph.LabelTypeAlias, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "ta1", Name: "Handler"},
+		FilePath:      "handler.dart",
+	})
 
 	exported := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
 		BaseNodeProps: graph.BaseNodeProps{ID: "fn1", Name: "Handle"},
@@ -618,6 +663,9 @@ func TestEmbedPriority(t *testing.T) {
 
 	if p := EmbedPriority(cls, g); p != PriorityArchitectural {
 		t.Errorf("class priority: got %d, want %d", p, PriorityArchitectural)
+	}
+	if p := EmbedPriority(alias, g); p != PriorityArchitectural {
+		t.Errorf("type alias priority: got %d, want %d", p, PriorityArchitectural)
 	}
 	if p := EmbedPriority(exported, g); p != PriorityExported {
 		t.Errorf("exported+doc priority: got %d, want %d", p, PriorityExported)

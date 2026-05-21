@@ -13,12 +13,12 @@ const entryPatternReason = "entry-pattern"
 // __tests__/, spec/, specs/, e2e/, cypress/, mocks/, fixtures/, etc.
 // The pattern matches segments starting with test/spec stems, allowing
 // compound suffixes (test-utils, test_helpers, test-fixtures).
-var testDirRe = regexp.MustCompile(`(?i)(^|/)(_*test(s|ing|data|util|utils)?([_-]\w+)?_*|_*specs?_*|__tests__|__mocks__|__snapshots__|e2e|cypress|fixtures?|mocks?|mirage|androidtest)(/|$)`)
+var testDirRe = regexp.MustCompile(`(?i)(^|/)(_*test(s|ing|data|util|utils)?([_-]\w+)?_*|[\w.-]+[_-]test(s|ing|data|util|utils)?([_-]\w+)?|_*specs?_*|[\w.-]+[_-]specs?|__tests__|__mocks__|__snapshots__|e2e|cypress|fixtures?|mocks?|mirage|androidtest)(/|$)`)
 
 // exampleDirRe matches a directory segment that signals example/demo/docs content.
 // Handles variations like examples/, docs_src/, doc-examples/, tutorial_code/,
 // demo-app/, sample-projects/, playground-v2/, etc.
-var exampleDirRe = regexp.MustCompile(`(?i)(^|/)(_*examples?([_-]\w+)?_*|_*demos?([_-]\w+)?_*|_*samples?([_-]\w+)?_*|_*tutorials?([_-]\w+)?_*|_*cookbooks?([_-]\w+)?_*|docs?([_-]\w+)?|storybook|stories|playgrounds?|sandbox(es)?|snippets?|quickstart|getting[_-]started|how[_-]?to|recipes?|showcase)(/|$)`)
+var exampleDirRe = regexp.MustCompile(`(?i)(^|/)(_*examples?([_-]\w+)?_*|[\w.-]+[_-]examples?([_-]\w+)?|_*demos?([_-]\w+)?_*|[\w.-]+[_-]demos?([_-]\w+)?|_*samples?([_-]\w+)?_*|[\w.-]+[_-]samples?([_-]\w+)?|_*tutorials?([_-]\w+)?_*|[\w.-]+[_-]tutorials?([_-]\w+)?|_*cookbooks?([_-]\w+)?_*|docs?([_-]\w+)?|storybook|stories|playgrounds?|sandbox(es)?|snippets?|quickstart|getting[_-]started|how[_-]?to|recipes?|showcase)(/|$)`)
 
 // EntryPointScore holds the heuristic score and reasoning for a symbol's
 // likelihood of being an entry point.

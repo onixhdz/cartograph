@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/cloudprivacylabs/lpg/v2"
 	"github.com/cloudprivacylabs/opencypher"
@@ -87,8 +88,10 @@ func (b *Backend) Query(req service.QueryRequest) (*service.QueryResult, error) 
 			sm.Score *= centralityBoost(node)
 			// Prefer architecture-bearing labels for flow-style queries.
 			sm.Score *= labelBoost(searchText, sm)
+			sm.Score *= languageMentionBoost(searchText, graph.GetStringProp(node, graph.PropLanguage))
 			definitions = append(definitions, sm)
 		}
+		definitions = append(definitions, exactIdentifierMatches(b.Graph, req.Text, req.Content, req.IncludeTests)...)
 		sortByScore(definitions)
 		definitions = deduplicateDefinitions(definitions)
 		definitions = capPerName(definitions)
@@ -1290,6 +1293,7 @@ func rankDirectProcesses(g *lpg.Graph, queryText string, limit int) []service.Pr
 
 func expansionCandidateScore(queryText string, node *lpg.Node, sm service.SymbolMatch) float64 {
 	score := contextBoost(queryText, sm) * centralityBoost(node)
+	score *= languageMentionBoost(queryText, graph.GetStringProp(node, graph.PropLanguage))
 	switch sm.Label {
 	case string(graph.LabelClass), string(graph.LabelMethod), string(graph.LabelFunction),
 		string(graph.LabelConstructor), string(graph.LabelInterface):
@@ -1393,6 +1397,212 @@ func findNodesByNameCI(g *lpg.Graph, name string) []*lpg.Node {
 		return true
 	})
 	return result
+}
+
+func exactIdentifierMatches(g *lpg.Graph, queryText string, includeContent, includeUsage bool) []service.SymbolMatch {
+	if g == nil {
+		return nil
+	}
+
+	tokens := codeIdentifierTokens(queryText)
+	tokens = append(tokens, compoundIdentifierTokens(queryText)...)
+	if len(tokens) == 0 {
+		return nil
+	}
+
+	const (
+		maxPerToken       = 3
+		maxExactMatches   = 12
+		exactIdentifierSc = 50.0
+	)
+
+	seen := make(map[string]bool)
+	matches := make([]service.SymbolMatch, 0, min(len(tokens)*maxPerToken, maxExactMatches))
+	for _, token := range tokens {
+		candidates := graph.FindNodesByName(g, token)
+		if len(candidates) == 0 {
+			candidates = findNodesByNameCI(g, token)
+		}
+		sortExactIdentifierCandidates(queryText, candidates)
+		addedForToken := 0
+		for _, node := range candidates {
+			if !isDefinitionNode(node) {
+				continue
+			}
+			sm := nodeToSymbolMatch(node, includeContent)
+			if !includeUsage && ingestion.IsUsageFile(sm.FilePath) {
+				continue
+			}
+			key := sm.Name + "\x00" + sm.FilePath
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			sm.Score = exactIdentifierSc * languageMentionBoost(queryText, graph.GetStringProp(node, graph.PropLanguage))
+			matches = append(matches, sm)
+			addedForToken++
+			if addedForToken >= maxPerToken || len(matches) >= maxExactMatches {
+				break
+			}
+		}
+		if len(matches) >= maxExactMatches {
+			break
+		}
+	}
+	return matches
+}
+
+func sortExactIdentifierCandidates(queryText string, candidates []*lpg.Node) {
+	sort.SliceStable(candidates, func(i, j int) bool {
+		iUsage := ingestion.IsUsageFile(graph.GetStringProp(candidates[i], graph.PropFilePath))
+		jUsage := ingestion.IsUsageFile(graph.GetStringProp(candidates[j], graph.PropFilePath))
+		if iUsage != jUsage {
+			return !iUsage
+		}
+
+		iBoost := languageMentionBoost(queryText, graph.GetStringProp(candidates[i], graph.PropLanguage))
+		jBoost := languageMentionBoost(queryText, graph.GetStringProp(candidates[j], graph.PropLanguage))
+		if iBoost != jBoost {
+			return iBoost > jBoost
+		}
+
+		return graph.GetStringProp(candidates[i], graph.PropFilePath) < graph.GetStringProp(candidates[j], graph.PropFilePath)
+	})
+}
+
+func codeIdentifierTokens(queryText string) []string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, token := range strings.FieldsFunc(queryText, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_'
+	}) {
+		if !looksLikeCodeIdentifier(token) {
+			continue
+		}
+		key := strings.ToLower(token)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, token)
+	}
+	return out
+}
+
+func compoundIdentifierTokens(queryText string) []string {
+	words := compoundIdentifierWords(queryText)
+	if len(words) < 2 {
+		return nil
+	}
+
+	seen := make(map[string]bool)
+	var out []string
+	for n := 2; n <= 3; n++ {
+		for i := 0; i+n <= len(words); i++ {
+			token := titleJoin(words[i : i+n])
+			key := strings.ToLower(token)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, token)
+		}
+	}
+	return out
+}
+
+func compoundIdentifierWords(queryText string) []string {
+	stop := map[string]bool{
+		"a": true, "an": true, "and": true, "by": true, "does": true,
+		"how": true, "in": true, "into": true, "of": true, "or": true,
+		"the": true, "through": true, "to": true, "with": true,
+	}
+
+	var words []string
+	for _, token := range strings.FieldsFunc(strings.ToLower(queryText), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}) {
+		if len(token) < 3 || stop[token] {
+			continue
+		}
+		words = append(words, token)
+	}
+	return words
+}
+
+func titleJoin(words []string) string {
+	var b strings.Builder
+	for _, word := range words {
+		runes := []rune(word)
+		if len(runes) == 0 {
+			continue
+		}
+		b.WriteRune(unicode.ToUpper(runes[0]))
+		for _, r := range runes[1:] {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func looksLikeCodeIdentifier(token string) bool {
+	if len(token) < 3 {
+		return false
+	}
+	lower := strings.ToLower(token)
+	if _, ok := languageQueryAliases[lower]; ok {
+		return false
+	}
+	hasUpper := false
+	hasLower := false
+	hasDigit := false
+	hasUnderscore := false
+	for _, r := range token {
+		switch {
+		case unicode.IsUpper(r):
+			hasUpper = true
+		case unicode.IsLower(r):
+			hasLower = true
+		case unicode.IsDigit(r):
+			hasDigit = true
+		case r == '_':
+			hasUnderscore = true
+		}
+	}
+	return (hasUpper && hasLower) || hasDigit || hasUnderscore
+}
+
+func isDefinitionNode(node *lpg.Node) bool {
+	if node == nil {
+		return false
+	}
+	for _, label := range []graph.NodeLabel{
+		graph.LabelFunction,
+		graph.LabelClass,
+		graph.LabelMethod,
+		graph.LabelInterface,
+		graph.LabelStruct,
+		graph.LabelEnum,
+		graph.LabelConst,
+		graph.LabelVariable,
+		graph.LabelModule,
+		graph.LabelNamespace,
+		graph.LabelTrait,
+		graph.LabelTypeAlias,
+		graph.LabelProperty,
+		graph.LabelConstructor,
+		graph.LabelCodeElement,
+		graph.LabelDelegate,
+		graph.LabelRecord,
+		graph.LabelMacro,
+		graph.LabelTypedef,
+		graph.LabelUnion,
+	} {
+		if node.HasLabel(string(label)) {
+			return true
+		}
+	}
+	return false
 }
 
 func searchByName(g *lpg.Graph, text string, limit int, includeContent bool) []service.SymbolMatch {
