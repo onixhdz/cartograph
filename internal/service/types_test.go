@@ -194,10 +194,12 @@ func TestQueryRequestJSON(t *testing.T) {
 
 func TestContextRequestJSON(t *testing.T) {
 	req := ContextRequest{
-		Repo: "myrepo",
-		Name: "parseFile",
-		File: "parser.go",
-		UID:  "func:parseFile",
+		Repo:                 "myrepo",
+		Name:                 "parseFile",
+		File:                 "parser.go",
+		UID:                  "func:parseFile",
+		IncludeRelationships: true,
+		RelationshipLimit:    25,
 	}
 	data, err := json.Marshal(req)
 	if err != nil {
@@ -212,6 +214,12 @@ func TestContextRequestJSON(t *testing.T) {
 	}
 	if decoded.UID != "func:parseFile" {
 		t.Errorf("uid mismatch")
+	}
+	if !decoded.IncludeRelationships {
+		t.Errorf("include relationships mismatch")
+	}
+	if decoded.RelationshipLimit != 25 {
+		t.Errorf("relationship limit mismatch")
 	}
 }
 
@@ -332,6 +340,16 @@ func TestContextResultJSON(t *testing.T) {
 		Symbol:  SymbolMatch{Name: "Foo", Label: "Class"},
 		Callers: []SymbolMatch{{Name: "main", Label: "Function"}},
 		Callees: []SymbolMatch{{Name: "bar", Label: "Method"}},
+		RelationshipGroups: []RelationshipGroup{{
+			Type: "CALLS",
+			Relationships: []ContextRelationship{{
+				FromID: "func:main",
+				From:   SymbolMatch{Name: "main", Label: "Function"},
+				ToID:   "func:foo",
+				To:     SymbolMatch{Name: "Foo", Label: "Class"},
+			}},
+		}},
+		RelationshipStats: &RelationshipStats{Depth: 2, ReturnedNodes: 2, ReturnedRelationships: 1, Limit: 100},
 	}
 	data, err := json.Marshal(result)
 	if err != nil {
@@ -349,6 +367,12 @@ func TestContextResultJSON(t *testing.T) {
 	}
 	if len(decoded.Callees) != 1 {
 		t.Errorf("callees count mismatch")
+	}
+	if len(decoded.RelationshipGroups) != 1 || len(decoded.RelationshipGroups[0].Relationships) != 1 {
+		t.Errorf("relationship groups mismatch")
+	}
+	if decoded.RelationshipStats == nil || decoded.RelationshipStats.Depth != 2 {
+		t.Errorf("relationship stats mismatch")
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/cloudprivacylabs/lpg/v2"
 	"github.com/cloudprivacylabs/opencypher"
@@ -34,6 +35,9 @@ const heuristicTestFlow = "Test flow"
 const (
 	defaultGraphExploreLimit = 500
 	maxGraphExploreLimit     = 50000
+	defaultContextRelLimit   = 100
+	maxContextRelLimit       = 1000
+	contextRelScanFactor     = 4
 )
 
 var visualStructuralNodeLabels = map[string]bool{
@@ -113,8 +117,10 @@ func (b *Backend) Query(req service.QueryRequest) (*service.QueryResult, error) 
 			sm.Score *= centralityBoost(node)
 			// Prefer architecture-bearing labels for flow-style queries.
 			sm.Score *= labelBoost(searchText, sm)
+			sm.Score *= languageMentionBoost(searchText, graph.GetStringProp(node, graph.PropLanguage))
 			definitions = append(definitions, sm)
 		}
+		definitions = append(definitions, exactIdentifierMatches(b.Graph, req.Text, req.Content, req.IncludeTests)...)
 		sortByScore(definitions)
 		definitions = deduplicateDefinitions(definitions)
 		definitions = capPerName(definitions)
@@ -678,7 +684,185 @@ func (b *Backend) Context(req service.ContextRequest) (*service.ContextResult, e
 		}
 	}
 
+	if req.IncludeRelationships {
+		result.RelationshipGroups, result.RelationshipStats = b.contextRelationships(node, depth, req.RelationshipLimit, req.Content, req.IncludeTests)
+	}
+
 	return result, nil
+}
+
+type contextRelationshipQueueEntry struct {
+	node  *lpg.Node
+	depth int
+}
+
+func (b *Backend) contextRelationships(root *lpg.Node, depth, limit int, includeContent, includeTests bool) ([]service.RelationshipGroup, *service.RelationshipStats) {
+	if root == nil {
+		return nil, &service.RelationshipStats{Depth: depth}
+	}
+	if limit <= 0 {
+		limit = defaultContextRelLimit
+	}
+	if limit > maxContextRelLimit {
+		limit = maxContextRelLimit
+	}
+	perNodeScanLimit := limit * contextRelScanFactor
+
+	visitedNodes := map[*lpg.Node]int{root: 0}
+	returnedNodes := map[*lpg.Node]bool{root: true}
+	seenEdges := make(map[*lpg.Edge]bool)
+	queue := []contextRelationshipQueueEntry{{node: root, depth: 0}}
+	groupsByType := make(map[string][]service.ContextRelationship)
+	var groupTypes []string
+	returnedRelationships := 0
+	truncated := false
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		if current.depth >= depth {
+			continue
+		}
+
+		edges, scanTruncated := boundedContextRelationshipEdges(current.node, perNodeScanLimit)
+		if scanTruncated {
+			truncated = true
+		}
+		sort.Slice(edges, func(i, j int) bool {
+			typeI := contextRelationshipType(edges[i])
+			typeJ := contextRelationshipType(edges[j])
+			if typeI != typeJ {
+				return typeI < typeJ
+			}
+			return contextRelationshipEdgeID(edges[i]) < contextRelationshipEdgeID(edges[j])
+		})
+
+		for _, edge := range edges {
+			if seenEdges[edge] {
+				continue
+			}
+			from := edge.GetFrom()
+			to := edge.GetTo()
+			if from == nil || to == nil {
+				continue
+			}
+			if !includeTests && (isUsageNode(from) || isUsageNode(to)) {
+				continue
+			}
+			if returnedRelationships >= limit {
+				truncated = true
+				break
+			}
+
+			seenEdges[edge] = true
+			typ := contextRelationshipType(edge)
+			if _, ok := groupsByType[typ]; !ok {
+				groupTypes = append(groupTypes, typ)
+			}
+			groupsByType[typ] = append(groupsByType[typ], service.ContextRelationship{
+				FromID: graph.GetStringProp(from, graph.PropID),
+				From:   nodeToSymbolMatch(from, includeContent),
+				ToID:   graph.GetStringProp(to, graph.PropID),
+				To:     nodeToSymbolMatch(to, includeContent),
+			})
+			returnedRelationships++
+			returnedNodes[from] = true
+			returnedNodes[to] = true
+
+			for _, neighbor := range []*lpg.Node{from, to} {
+				if neighbor == current.node {
+					continue
+				}
+				if _, ok := visitedNodes[neighbor]; ok {
+					continue
+				}
+				visitedNodes[neighbor] = current.depth + 1
+				queue = append(queue, contextRelationshipQueueEntry{node: neighbor, depth: current.depth + 1})
+			}
+		}
+		if returnedRelationships >= limit {
+			truncated = truncated || hasMoreContextRelationships(edges, seenEdges, includeTests) || contextQueueHasMoreRelationships(queue, depth, perNodeScanLimit, seenEdges, includeTests)
+			break
+		}
+	}
+	sort.Strings(groupTypes)
+	groups := make([]service.RelationshipGroup, 0, len(groupTypes))
+	for _, typ := range groupTypes {
+		groups = append(groups, service.RelationshipGroup{Type: typ, Relationships: groupsByType[typ]})
+	}
+
+	stats := &service.RelationshipStats{
+		Depth:                 depth,
+		ReturnedNodes:         len(returnedNodes),
+		ReturnedRelationships: returnedRelationships,
+		Limit:                 limit,
+		Truncated:             truncated,
+	}
+	return groups, stats
+}
+
+func contextQueueHasMoreRelationships(queue []contextRelationshipQueueEntry, maxDepth, perNodeScanLimit int, seenEdges map[*lpg.Edge]bool, includeTests bool) bool {
+	for _, entry := range queue {
+		if entry.depth >= maxDepth {
+			continue
+		}
+		edges, scanTruncated := boundedContextRelationshipEdges(entry.node, perNodeScanLimit)
+		if scanTruncated || hasMoreContextRelationships(edges, seenEdges, includeTests) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasMoreContextRelationships(edges []*lpg.Edge, seenEdges map[*lpg.Edge]bool, includeTests bool) bool {
+	for _, edge := range edges {
+		if seenEdges[edge] {
+			continue
+		}
+		from := edge.GetFrom()
+		to := edge.GetTo()
+		if from == nil || to == nil {
+			continue
+		}
+		if !includeTests && (isUsageNode(from) || isUsageNode(to)) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func boundedContextRelationshipEdges(node *lpg.Node, limit int) ([]*lpg.Edge, bool) {
+	edges := make([]*lpg.Edge, 0, min(limit, 16))
+	truncated := false
+	for _, dir := range []lpg.EdgeDir{lpg.IncomingEdge, lpg.OutgoingEdge} {
+		for iter := node.GetEdges(dir); iter.Next(); {
+			if len(edges) >= limit {
+				truncated = true
+				return edges, truncated
+			}
+			edges = append(edges, iter.Edge())
+		}
+	}
+	return edges, truncated
+}
+
+func contextRelationshipType(edge *lpg.Edge) string {
+	if typ, err := graph.GetEdgeRelType(edge); err == nil {
+		return string(typ)
+	}
+	return edge.GetLabel()
+}
+
+func contextRelationshipEdgeID(edge *lpg.Edge) string {
+	fromID, toID := "", ""
+	if edge.GetFrom() != nil {
+		fromID = graph.GetStringProp(edge.GetFrom(), graph.PropID)
+	}
+	if edge.GetTo() != nil {
+		toID = graph.GetStringProp(edge.GetTo(), graph.PropID)
+	}
+	return fromID + ":" + contextRelationshipType(edge) + ":" + toID
 }
 
 const (
@@ -1142,6 +1326,7 @@ func rankDirectProcesses(g *lpg.Graph, queryText string, limit int) []service.Pr
 
 func expansionCandidateScore(queryText string, node *lpg.Node, sm service.SymbolMatch) float64 {
 	score := contextBoost(queryText, sm) * centralityBoost(node)
+	score *= languageMentionBoost(queryText, graph.GetStringProp(node, graph.PropLanguage))
 	switch sm.Label {
 	case string(graph.LabelClass), string(graph.LabelMethod), string(graph.LabelFunction),
 		string(graph.LabelConstructor), string(graph.LabelInterface):
@@ -1245,6 +1430,212 @@ func findNodesByNameCI(g *lpg.Graph, name string) []*lpg.Node {
 		return true
 	})
 	return result
+}
+
+func exactIdentifierMatches(g *lpg.Graph, queryText string, includeContent, includeUsage bool) []service.SymbolMatch {
+	if g == nil {
+		return nil
+	}
+
+	tokens := codeIdentifierTokens(queryText)
+	tokens = append(tokens, compoundIdentifierTokens(queryText)...)
+	if len(tokens) == 0 {
+		return nil
+	}
+
+	const (
+		maxPerToken       = 3
+		maxExactMatches   = 12
+		exactIdentifierSc = 50.0
+	)
+
+	seen := make(map[string]bool)
+	matches := make([]service.SymbolMatch, 0, min(len(tokens)*maxPerToken, maxExactMatches))
+	for _, token := range tokens {
+		candidates := graph.FindNodesByName(g, token)
+		if len(candidates) == 0 {
+			candidates = findNodesByNameCI(g, token)
+		}
+		sortExactIdentifierCandidates(queryText, candidates)
+		addedForToken := 0
+		for _, node := range candidates {
+			if !isDefinitionNode(node) {
+				continue
+			}
+			sm := nodeToSymbolMatch(node, includeContent)
+			if !includeUsage && ingestion.IsUsageFile(sm.FilePath) {
+				continue
+			}
+			key := sm.Name + "\x00" + sm.FilePath
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			sm.Score = exactIdentifierSc * languageMentionBoost(queryText, graph.GetStringProp(node, graph.PropLanguage))
+			matches = append(matches, sm)
+			addedForToken++
+			if addedForToken >= maxPerToken || len(matches) >= maxExactMatches {
+				break
+			}
+		}
+		if len(matches) >= maxExactMatches {
+			break
+		}
+	}
+	return matches
+}
+
+func sortExactIdentifierCandidates(queryText string, candidates []*lpg.Node) {
+	sort.SliceStable(candidates, func(i, j int) bool {
+		iUsage := ingestion.IsUsageFile(graph.GetStringProp(candidates[i], graph.PropFilePath))
+		jUsage := ingestion.IsUsageFile(graph.GetStringProp(candidates[j], graph.PropFilePath))
+		if iUsage != jUsage {
+			return !iUsage
+		}
+
+		iBoost := languageMentionBoost(queryText, graph.GetStringProp(candidates[i], graph.PropLanguage))
+		jBoost := languageMentionBoost(queryText, graph.GetStringProp(candidates[j], graph.PropLanguage))
+		if iBoost != jBoost {
+			return iBoost > jBoost
+		}
+
+		return graph.GetStringProp(candidates[i], graph.PropFilePath) < graph.GetStringProp(candidates[j], graph.PropFilePath)
+	})
+}
+
+func codeIdentifierTokens(queryText string) []string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, token := range strings.FieldsFunc(queryText, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_'
+	}) {
+		if !looksLikeCodeIdentifier(token) {
+			continue
+		}
+		key := strings.ToLower(token)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, token)
+	}
+	return out
+}
+
+func compoundIdentifierTokens(queryText string) []string {
+	words := compoundIdentifierWords(queryText)
+	if len(words) < 2 {
+		return nil
+	}
+
+	seen := make(map[string]bool)
+	var out []string
+	for n := 2; n <= 3; n++ {
+		for i := 0; i+n <= len(words); i++ {
+			token := titleJoin(words[i : i+n])
+			key := strings.ToLower(token)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, token)
+		}
+	}
+	return out
+}
+
+func compoundIdentifierWords(queryText string) []string {
+	stop := map[string]bool{
+		"a": true, "an": true, "and": true, "by": true, "does": true,
+		"how": true, "in": true, "into": true, "of": true, "or": true,
+		"the": true, "through": true, "to": true, "with": true,
+	}
+
+	var words []string
+	for _, token := range strings.FieldsFunc(strings.ToLower(queryText), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}) {
+		if len(token) < 3 || stop[token] {
+			continue
+		}
+		words = append(words, token)
+	}
+	return words
+}
+
+func titleJoin(words []string) string {
+	var b strings.Builder
+	for _, word := range words {
+		runes := []rune(word)
+		if len(runes) == 0 {
+			continue
+		}
+		b.WriteRune(unicode.ToUpper(runes[0]))
+		for _, r := range runes[1:] {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func looksLikeCodeIdentifier(token string) bool {
+	if len(token) < 3 {
+		return false
+	}
+	lower := strings.ToLower(token)
+	if _, ok := languageQueryAliases[lower]; ok {
+		return false
+	}
+	hasUpper := false
+	hasLower := false
+	hasDigit := false
+	hasUnderscore := false
+	for _, r := range token {
+		switch {
+		case unicode.IsUpper(r):
+			hasUpper = true
+		case unicode.IsLower(r):
+			hasLower = true
+		case unicode.IsDigit(r):
+			hasDigit = true
+		case r == '_':
+			hasUnderscore = true
+		}
+	}
+	return (hasUpper && hasLower) || hasDigit || hasUnderscore
+}
+
+func isDefinitionNode(node *lpg.Node) bool {
+	if node == nil {
+		return false
+	}
+	for _, label := range []graph.NodeLabel{
+		graph.LabelFunction,
+		graph.LabelClass,
+		graph.LabelMethod,
+		graph.LabelInterface,
+		graph.LabelStruct,
+		graph.LabelEnum,
+		graph.LabelConst,
+		graph.LabelVariable,
+		graph.LabelModule,
+		graph.LabelNamespace,
+		graph.LabelTrait,
+		graph.LabelTypeAlias,
+		graph.LabelProperty,
+		graph.LabelConstructor,
+		graph.LabelCodeElement,
+		graph.LabelDelegate,
+		graph.LabelRecord,
+		graph.LabelMacro,
+		graph.LabelTypedef,
+		graph.LabelUnion,
+	} {
+		if node.HasLabel(string(label)) {
+			return true
+		}
+	}
+	return false
 }
 
 func searchByName(g *lpg.Graph, text string, limit int, includeContent bool) []service.SymbolMatch {

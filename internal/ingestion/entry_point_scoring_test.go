@@ -434,6 +434,8 @@ func TestIsExampleFile(t *testing.T) {
 		"docs-src/guide.py",                // hyphenated variant
 		"doc_examples/setup.go",            // underscore variant
 		"sandboxes/experiment.ts",          // plural of sandbox
+		"pkgs/flutter_http_example/lib/main.dart",
+		"packages/payment-sample/lib/client.ts",
 	}
 	for _, fp := range regexExampleFiles {
 		t.Run("regex_"+fp, func(t *testing.T) {
@@ -537,10 +539,12 @@ func TestIsTestFile_RegexPatterns(t *testing.T) {
 	// Compound and variant directory names the regex catches
 	// that a static list would miss.
 	regexTestFiles := []string{
-		"test-utils/setup.ts",               // hyphenated compound
-		"test_helpers/factory.py",           // underscore compound
-		"src/test-fixtures/data.json",       // hyphenated test dir
-		"project/specs/models/user_spec.rb", // plural of spec
+		"test-utils/setup.ts",                         // hyphenated compound
+		"test_helpers/factory.py",                     // underscore compound
+		"src/test-fixtures/data.json",                 // hyphenated test dir
+		"project/specs/models/user_spec.rb",           // plural of spec
+		"pkgs/http_client_conformance_tests/lib/a.go", // suffix compound
+		"packages/payment-conformance-test/lib/a.go",  // hyphenated suffix compound
 	}
 	for _, fp := range regexTestFiles {
 		if !IsTestFile(fp) {

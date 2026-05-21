@@ -287,13 +287,15 @@ type SymbolMatch struct {
 
 // ContextRequest is the JSON body for POST /api/context.
 type ContextRequest struct {
-	Repo         string `json:"repo"`
-	Name         string `json:"name"`
-	File         string `json:"file,omitempty"`
-	UID          string `json:"uid,omitempty"`
-	Content      bool   `json:"content,omitempty"`
-	Depth        int    `json:"depth,omitempty"`
-	IncludeTests bool   `json:"includeTests,omitempty"`
+	Repo                 string `json:"repo"`
+	Name                 string `json:"name"`
+	File                 string `json:"file,omitempty"`
+	UID                  string `json:"uid,omitempty"`
+	Content              bool   `json:"content,omitempty"`
+	Depth                int    `json:"depth,omitempty"`
+	IncludeTests         bool   `json:"includeTests,omitempty"`
+	IncludeRelationships bool   `json:"includeRelationships,omitempty"`
+	RelationshipLimit    int    `json:"relationshipLimit,omitempty"`
 }
 
 // CallTreeNode is a node in a transitive call tree returned by context --depth.
@@ -306,15 +308,40 @@ type CallTreeNode struct {
 
 // ContextResult is the result payload for a context response.
 type ContextResult struct {
-	Symbol       SymbolMatch   `json:"symbol"`
-	Callers      []SymbolMatch `json:"callers"`
-	Callees      []SymbolMatch `json:"callees"`
-	CallTree     *CallTreeNode `json:"callTree,omitempty"`
-	Importers    []SymbolMatch `json:"importers"`
-	Imports      []SymbolMatch `json:"imports"`
-	Processes    []SymbolMatch `json:"processes"`
-	Implementors []SymbolMatch `json:"implementors,omitempty"`
-	Extends      []SymbolMatch `json:"extends,omitempty"`
+	Symbol             SymbolMatch         `json:"symbol"`
+	Callers            []SymbolMatch       `json:"callers"`
+	Callees            []SymbolMatch       `json:"callees"`
+	CallTree           *CallTreeNode       `json:"callTree,omitempty"`
+	Importers          []SymbolMatch       `json:"importers"`
+	Imports            []SymbolMatch       `json:"imports"`
+	Processes          []SymbolMatch       `json:"processes"`
+	Implementors       []SymbolMatch       `json:"implementors,omitempty"`
+	Extends            []SymbolMatch       `json:"extends,omitempty"`
+	RelationshipGroups []RelationshipGroup `json:"relationshipGroups,omitempty"`
+	RelationshipStats  *RelationshipStats  `json:"relationshipStats,omitempty"`
+}
+
+// RelationshipGroup contains context relationships grouped by graph relationship type.
+type RelationshipGroup struct {
+	Type          string                `json:"type"`
+	Relationships []ContextRelationship `json:"relationships"`
+}
+
+// ContextRelationship is a graph edge returned by context relationship mode.
+type ContextRelationship struct {
+	FromID string      `json:"fromId"`
+	From   SymbolMatch `json:"from"`
+	ToID   string      `json:"toId"`
+	To     SymbolMatch `json:"to"`
+}
+
+// RelationshipStats describes the bounded graph neighborhood returned with context.
+type RelationshipStats struct {
+	Depth                 int  `json:"depth"`
+	ReturnedNodes         int  `json:"returnedNodes"`
+	ReturnedRelationships int  `json:"returnedRelationships"`
+	Limit                 int  `json:"limit"`
+	Truncated             bool `json:"truncated"`
 }
 
 // CypherRequest is the JSON body for POST /api/cypher.

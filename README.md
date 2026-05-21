@@ -58,8 +58,8 @@ cartograph analyze hashicorp/nomad@v1.8.0
 # Index with semantic embeddings (enables semantic search)
 cartograph analyze <path|url> --embed async
 
-# Explicitly split an umbrella folder into separate repo indexes
-cartograph analyze --repos auto ~/repos
+# Inspect an umbrella folder and show recommended repo candidates first
+cartograph analyze ~/repos
 
 # Search for execution flows
 cartograph query "authentication middleware"
@@ -67,7 +67,7 @@ cartograph query "authentication middleware"
 # Inspect the indexed file tree
 cartograph tree internal/service --depth 2
 
-# See everything about a symbol — callers, callees, processes
+# See everything about a symbol — callers, callees, processes, relationships
 cartograph context UserService
 
 # What breaks if you change something?
@@ -76,7 +76,7 @@ cartograph impact validateUser
 
 That's it. The graph is built, persisted locally, and ready to query.
 
-When a target contains multiple repo candidates, interactive `analyze` asks before splitting. Non-interactive runs must choose explicitly with `--repos auto`, `--repos none`, or comma-separated repo candidate names/relative paths.
+When a target contains multiple repo candidates, run plain `cartograph analyze <folder>` first. Analyze prints the candidate list and recommended follow-up commands.
 
 ---
 

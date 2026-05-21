@@ -92,6 +92,121 @@ func buildTestGraph() *lpg.Graph {
 	return g
 }
 
+func TestCodeIdentifierTokens(t *testing.T) {
+	got := codeIdentifierTokens("Client BaseClient dart route HTTP RequestContext")
+	want := []string{"Client", "BaseClient", "RequestContext"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("codeIdentifierTokens = %v, want %v", got, want)
+	}
+}
+
+func TestExactIdentifierMatches(t *testing.T) {
+	g := lpg.NewGraph()
+	graph.AddSymbolNode(g, graph.LabelClass, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "class:BaseRequest", Name: "BaseRequest"},
+		FilePath:      "lib/src/base_request.dart",
+		IsExported:    true,
+	})
+	graph.AddSymbolNode(g, graph.LabelClass, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "class:BaseClient", Name: "BaseClient"},
+		FilePath:      "lib/src/base_client.dart",
+		IsExported:    true,
+	})
+	graph.AddSymbolNode(g, graph.LabelMethod, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "method:finalize", Name: "finalize"},
+		FilePath:      "lib/src/base_request.dart",
+		IsExported:    true,
+	})
+
+	matches := exactIdentifierMatches(g, "Client BaseRequest BaseClient finalize", false, false)
+	if len(matches) != 2 {
+		t.Fatalf("exactIdentifierMatches length = %d, want 2: %#v", len(matches), matches)
+	}
+	if matches[0].Name != "BaseRequest" || matches[1].Name != "BaseClient" {
+		t.Fatalf("exactIdentifierMatches names = %q, %q; want BaseRequest, BaseClient", matches[0].Name, matches[1].Name)
+	}
+}
+
+func TestExactIdentifierMatches_RequiresIdentifierHeavyQuery(t *testing.T) {
+	g := lpg.NewGraph()
+	graph.AddSymbolNode(g, graph.LabelClass, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "class:RequestContext", Name: "RequestContext"},
+		FilePath:      "lib/src/context.dart",
+	})
+
+	matches := exactIdentifierMatches(g, "how does dart_frog model request state", false, false)
+	if len(matches) != 0 {
+		t.Fatalf("exactIdentifierMatches length = %d, want 0: %#v", len(matches), matches)
+	}
+}
+
+func TestExactIdentifierMatches_CompoundIdentifierPhrase(t *testing.T) {
+	g := lpg.NewGraph()
+	graph.AddSymbolNode(g, graph.LabelClass, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "class:RequestContext", Name: "RequestContext"},
+		FilePath:      "lib/src/context.dart",
+	})
+
+	matches := exactIdentifierMatches(g, "how does dart_frog model request context", false, false)
+	if len(matches) != 1 || matches[0].Name != "RequestContext" {
+		t.Fatalf("exactIdentifierMatches = %#v, want RequestContext", matches)
+	}
+}
+
+func TestExactIdentifierMatches_PrefersProductionBeforeUsageCap(t *testing.T) {
+	g := lpg.NewGraph()
+	const productionRequestContext = "lib/src/request_context.dart"
+	for _, filePath := range []string{
+		"test/request_context_test.dart",
+		"examples/request_context.dart",
+		"fixtures/request_context.dart",
+		productionRequestContext,
+	} {
+		graph.AddSymbolNode(g, graph.LabelClass, graph.SymbolProps{
+			BaseNodeProps: graph.BaseNodeProps{ID: "class:" + filePath, Name: "RequestContext"},
+			FilePath:      filePath,
+		})
+	}
+
+	matches := exactIdentifierMatches(g, "RequestContext", false, false)
+	if len(matches) != 1 || matches[0].FilePath != productionRequestContext {
+		t.Fatalf("exactIdentifierMatches = %#v, want only production RequestContext", matches)
+	}
+
+	matches = exactIdentifierMatches(g, "RequestContext", false, true)
+	if len(matches) != 3 || matches[0].FilePath != productionRequestContext {
+		t.Fatalf("exactIdentifierMatches include usage = %#v, want production first within cap", matches)
+	}
+}
+
+func TestExactIdentifierMatches_PrefersMentionedLanguageBeforeCap(t *testing.T) {
+	g := lpg.NewGraph()
+	for _, tc := range []struct {
+		id       string
+		filePath string
+		language string
+	}{
+		{id: "java", filePath: "src/main/java/RequestContext.java", language: "java"},
+		{id: "ts", filePath: "src/request_context.ts", language: "typescript"},
+		{id: "py", filePath: "request_context.py", language: "python"},
+		{id: "dart", filePath: "lib/src/request_context.dart", language: "dart"},
+	} {
+		node := graph.AddSymbolNode(g, graph.LabelClass, graph.SymbolProps{
+			BaseNodeProps: graph.BaseNodeProps{ID: "class:" + tc.id, Name: "RequestContext"},
+			FilePath:      tc.filePath,
+		})
+		node.SetProperty(graph.PropLanguage, tc.language)
+	}
+
+	matches := exactIdentifierMatches(g, "dart RequestContext", false, false)
+	if len(matches) == 0 || matches[0].FilePath != "lib/src/request_context.dart" {
+		t.Fatalf("exactIdentifierMatches = %#v, want Dart RequestContext first", matches)
+	}
+	if matches[0].Score <= matches[1].Score {
+		t.Fatalf("Dart score = %f, next score = %f; want language boost applied", matches[0].Score, matches[1].Score)
+	}
+}
+
 func TestQuery_NoIndex_FallbackNameSearch(t *testing.T) {
 	b := &Backend{Graph: buildTestGraph()}
 
@@ -444,6 +559,173 @@ func TestContext_ProcessMembership(t *testing.T) {
 	}
 	if len(result.Processes) == 0 {
 		t.Error("expected at least 1 process for handleRequest")
+	}
+}
+
+func TestContext_Relationships(t *testing.T) {
+	b := &Backend{Graph: buildTestGraph()}
+
+	result, err := b.Context(service.ContextRequest{
+		Repo:                 "test",
+		Name:                 testFuncHandleRequest,
+		Depth:                2,
+		IncludeRelationships: true,
+	})
+	if err != nil {
+		t.Fatalf("Context: %v", err)
+	}
+	if result.RelationshipStats == nil {
+		t.Fatal("expected relationship stats")
+	}
+	if result.RelationshipStats.Depth != 2 {
+		t.Fatalf("relationship depth = %d, want 2", result.RelationshipStats.Depth)
+	}
+
+	found := map[string]bool{}
+	for _, group := range result.RelationshipGroups {
+		for _, rel := range group.Relationships {
+			found[fmt.Sprintf("%s|%s|%s", rel.From.Name, group.Type, rel.To.Name)] = true
+		}
+	}
+	for _, want := range []string{
+		"main|CALLS|handleRequest",
+		"handleRequest|CALLS|validate",
+		"handleRequest|STEP_IN_PROCESS|main-flow",
+	} {
+		if !found[want] {
+			t.Fatalf("missing relationship %q in %#v", want, found)
+		}
+	}
+}
+
+func TestContext_RelationshipLimit(t *testing.T) {
+	b := &Backend{Graph: buildTestGraph()}
+
+	result, err := b.Context(service.ContextRequest{
+		Repo:                 "test",
+		Name:                 testFuncHandleRequest,
+		Depth:                2,
+		IncludeRelationships: true,
+		RelationshipLimit:    1,
+	})
+	if err != nil {
+		t.Fatalf("Context: %v", err)
+	}
+	if result.RelationshipStats == nil || !result.RelationshipStats.Truncated {
+		t.Fatal("expected truncated relationship stats")
+	}
+	if result.RelationshipStats.ReturnedRelationships != 1 {
+		t.Fatalf("relationships = %d, want 1", result.RelationshipStats.ReturnedRelationships)
+	}
+}
+
+func TestContext_RelationshipExactLimitIsNotTruncated(t *testing.T) {
+	g := lpg.NewGraph()
+	root := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "func:root", Name: "root"},
+		FilePath:      "root.go",
+		StartLine:     1,
+	})
+	callee := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "func:callee", Name: "callee"},
+		FilePath:      "root.go",
+		StartLine:     2,
+	})
+	graph.AddEdge(g, root, callee, graph.RelCalls, nil)
+	b := &Backend{Graph: g}
+
+	result, err := b.Context(service.ContextRequest{
+		Repo:                 "test",
+		Name:                 "root",
+		Depth:                1,
+		IncludeRelationships: true,
+		RelationshipLimit:    1,
+	})
+	if err != nil {
+		t.Fatalf("Context: %v", err)
+	}
+	if result.RelationshipStats == nil {
+		t.Fatal("expected relationship stats")
+	}
+	if result.RelationshipStats.ReturnedRelationships != 1 {
+		t.Fatalf("relationships = %d, want 1", result.RelationshipStats.ReturnedRelationships)
+	}
+	if result.RelationshipStats.Truncated {
+		t.Fatal("did not expect exact-limit result to be truncated")
+	}
+}
+
+func TestContext_RelationshipExactLimitDepthTwoIsNotTruncated(t *testing.T) {
+	g := lpg.NewGraph()
+	root := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "func:root", Name: "root"},
+		FilePath:      "root.go",
+		StartLine:     1,
+	})
+	callee := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "func:callee", Name: "callee"},
+		FilePath:      "root.go",
+		StartLine:     2,
+	})
+	graph.AddEdge(g, root, callee, graph.RelCalls, nil)
+	b := &Backend{Graph: g}
+
+	result, err := b.Context(service.ContextRequest{
+		Repo:                 "test",
+		Name:                 "root",
+		Depth:                2,
+		IncludeRelationships: true,
+		RelationshipLimit:    1,
+	})
+	if err != nil {
+		t.Fatalf("Context: %v", err)
+	}
+	if result.RelationshipStats == nil {
+		t.Fatal("expected relationship stats")
+	}
+	if result.RelationshipStats.ReturnedRelationships != 1 {
+		t.Fatalf("relationships = %d, want 1", result.RelationshipStats.ReturnedRelationships)
+	}
+	if result.RelationshipStats.Truncated {
+		t.Fatal("did not expect depth-2 exact-limit result to be truncated")
+	}
+}
+
+func TestContext_RelationshipsHighDegreeTruncates(t *testing.T) {
+	g := lpg.NewGraph()
+	root := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "func:root", Name: "root"},
+		FilePath:      "root.go",
+		StartLine:     1,
+	})
+	for i := range 20 {
+		callee := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
+			BaseNodeProps: graph.BaseNodeProps{ID: fmt.Sprintf("func:callee:%02d", i), Name: fmt.Sprintf("callee%d", i)},
+			FilePath:      "root.go",
+			StartLine:     i + 2,
+		})
+		graph.AddEdge(g, root, callee, graph.RelCalls, nil)
+	}
+	b := &Backend{Graph: g}
+
+	result, err := b.Context(service.ContextRequest{
+		Repo:                 "test",
+		Name:                 "root",
+		Depth:                1,
+		IncludeRelationships: true,
+		RelationshipLimit:    3,
+	})
+	if err != nil {
+		t.Fatalf("Context: %v", err)
+	}
+	if result.RelationshipStats == nil {
+		t.Fatal("expected relationship stats")
+	}
+	if result.RelationshipStats.ReturnedRelationships != 3 {
+		t.Fatalf("relationships = %d, want 3", result.RelationshipStats.ReturnedRelationships)
+	}
+	if !result.RelationshipStats.Truncated {
+		t.Fatal("expected high-degree relationships to be truncated")
 	}
 }
 

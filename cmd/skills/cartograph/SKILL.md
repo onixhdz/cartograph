@@ -157,10 +157,17 @@ inside Cartograph as long as possible:
 ```bash
 cartograph query "<theme>" -l 8
 cartograph tree [path] --depth 2
+cartograph context <symbol> --depth 2 --relationships
 cartograph context <symbol> --depth 2 --content
 cartograph impact <symbol> --direction upstream -d 3
 cartograph cat <file> -l <startLine>-<endLine>
 ```
+
+Use `context --relationships` (or `--rel`) when an agent needs to know where to
+look next without reading files. It returns all relationship types around the
+symbol, grouped by type, with truncation metadata. This is usually better than
+raw Cypher for focused symbol discovery; reserve Cypher for exact custom graph
+questions.
 
 Use `cartograph tree` to inspect the indexed file inventory before choosing
 paths for `cartograph cat`. `cartograph tree [path]` accepts a file or directory
@@ -206,6 +213,20 @@ listing the full names — use `-r acme/sdk` to disambiguate.
 - **Check before indexing:** Use `cartograph list` to see all indexed
   repos. If the user's current project already appears, skip re-indexing
   it (unless they ask for `--force`).
+
+### Folder Analysis & Repo Candidates
+
+When the user gives a local folder that may contain multiple repositories or
+projects, do **not** jump straight to `--repos auto` and do not ask the user
+before seeing Cartograph's recommendations. Run plain analyze on the folder:
+
+```bash
+cartograph analyze <folder>
+```
+
+If multiple repo candidates are detected, Cartograph prints the candidate table
+and follow-up commands. Follow the command recommendation printed by analyze;
+do not guess repo-selection flags from the skill text.
 
 ## Delegating Research to Sub-Agents
 

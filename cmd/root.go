@@ -2611,13 +2611,15 @@ func (c *QueryCmd) Run(cli *CLI) error {
 
 // ContextCmd provides a 360-degree view of a code symbol.
 type ContextCmd struct {
-	Name         string `arg:"" optional:"" help:"Symbol name to look up."`
-	Repo         string `help:"Repository name." short:"r"`
-	File         string `help:"File path to disambiguate symbol." short:"f"`
-	UID          string `help:"Unique symbol ID." name:"uid"`
-	Content      bool   `help:"Include source content in results."`
-	Depth        int    `help:"Callee traversal depth (1=direct only, 2+=call tree)." default:"1" short:"d"`
-	IncludeTests bool   `help:"Include test files in results." name:"include-tests"`
+	Name              string `arg:"" optional:"" help:"Symbol name to look up."`
+	Repo              string `help:"Repository name." short:"r"`
+	File              string `help:"File path to disambiguate symbol." short:"f"`
+	UID               string `help:"Unique symbol ID." name:"uid"`
+	Content           bool   `help:"Include source content in results."`
+	Depth             int    `help:"Callee traversal depth (1=direct only, 2+=call tree)." default:"1" short:"d"`
+	IncludeTests      bool   `help:"Include test files in results." name:"include-tests"`
+	Relationships     bool   `help:"Include bounded graph relationships around the symbol, grouped by type." name:"relationships" aliases:"rel"`
+	RelationshipLimit int    `help:"Maximum relationships to include with --relationships." name:"relationship-limit" default:"100"`
 }
 
 func (c *ContextCmd) Run(cli *CLI) error {
@@ -2632,13 +2634,15 @@ func (c *ContextCmd) Run(cli *CLI) error {
 	}
 
 	req := service.ContextRequest{
-		Repo:         repo,
-		Name:         c.Name,
-		File:         c.File,
-		UID:          c.UID,
-		Content:      c.Content,
-		Depth:        c.Depth,
-		IncludeTests: c.IncludeTests,
+		Repo:                 repo,
+		Name:                 c.Name,
+		File:                 c.File,
+		UID:                  c.UID,
+		Content:              c.Content,
+		Depth:                c.Depth,
+		IncludeTests:         c.IncludeTests,
+		IncludeRelationships: c.Relationships,
+		RelationshipLimit:    c.RelationshipLimit,
 	}
 	result, err := cli.Client.Context(req)
 	if err != nil {
@@ -2686,7 +2690,32 @@ func (c *ContextCmd) Run(cli *CLI) error {
 			fmt.Printf("  %s\n", formatSymbolMatch(s))
 		}
 	}
+	printContextRelationships(result)
 	return nil
+}
+
+func printContextRelationships(result *service.ContextResult) {
+	if len(result.RelationshipGroups) == 0 && result.RelationshipStats == nil {
+		return
+	}
+	if len(result.RelationshipGroups) > 0 {
+		fmt.Println("Relationships:")
+		for _, group := range result.RelationshipGroups {
+			fmt.Printf("  %s\n", group.Type)
+			for _, rel := range group.Relationships {
+				fmt.Printf("    %s -> %s\n", formatSymbolMatch(rel.From), formatSymbolMatch(rel.To))
+			}
+		}
+	}
+	if result.RelationshipStats != nil {
+		stats := result.RelationshipStats
+		fmt.Println("Relationship summary:")
+		fmt.Printf("  depth: %d\n", stats.Depth)
+		fmt.Printf("  relationships: %d\n", stats.ReturnedRelationships)
+		fmt.Printf("  nodes: %d\n", stats.ReturnedNodes)
+		fmt.Printf("  limit: %d\n", stats.Limit)
+		fmt.Printf("  truncated: %t\n", stats.Truncated)
+	}
 }
 
 func printCallTree(node *service.CallTreeNode, depth int) {
