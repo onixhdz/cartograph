@@ -363,7 +363,7 @@ graph to find the full call chain:
 ./cartograph-darwin-arm64 query "scheduling job evaluation worker" -r <owner/repo> -l 15
 
 # 2. Pick a promising symbol — expand its call graph to find related symbols
-./cartograph-darwin-arm64 context <SymbolName> -r <owner/repo> --depth 2
+./cartograph-darwin-arm64 context <SymbolName> -r <owner/repo> --depth 2 --relationships
 
 # 3. Read the actual source to verify what the symbol does
 ./cartograph-darwin-arm64 source <SymbolName> -r <owner/repo>
@@ -417,7 +417,7 @@ Use cartograph to get the high-level map, then send explore agents to
 verify and fill gaps:
 
 1. Run `cartograph query` for each area → get candidate symbol names
-2. Run `cartograph context <symbol> --depth 2` → discover callers/callees
+2. Run `cartograph context <symbol> --depth 2 --relationships` → discover callers/callees and all nearby graph relationship types
 3. Launch explore agents to read the cloned source and verify each symbol
    exists, confirm file paths, and write the one-line descriptions
 

@@ -157,10 +157,17 @@ inside Cartograph as long as possible:
 ```bash
 cartograph query "<theme>" -l 8
 cartograph tree [path] --depth 2
+cartograph context <symbol> --depth 2 --relationships
 cartograph context <symbol> --depth 2 --content
 cartograph impact <symbol> --direction upstream -d 3
 cartograph cat <file> -l <startLine>-<endLine>
 ```
+
+Use `context --relationships` (or `--rel`) when an agent needs to know where to
+look next without reading files. It returns all relationship types around the
+symbol, grouped by type, with truncation metadata. This is usually better than
+raw Cypher for focused symbol discovery; reserve Cypher for exact custom graph
+questions.
 
 Use `cartograph tree` to inspect the indexed file inventory before choosing
 paths for `cartograph cat`. `cartograph tree [path]` accepts a file or directory

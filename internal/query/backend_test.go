@@ -288,6 +288,173 @@ func TestContext_ProcessMembership(t *testing.T) {
 	}
 }
 
+func TestContext_Relationships(t *testing.T) {
+	b := &Backend{Graph: buildTestGraph()}
+
+	result, err := b.Context(service.ContextRequest{
+		Repo:                 "test",
+		Name:                 testFuncHandleRequest,
+		Depth:                2,
+		IncludeRelationships: true,
+	})
+	if err != nil {
+		t.Fatalf("Context: %v", err)
+	}
+	if result.RelationshipStats == nil {
+		t.Fatal("expected relationship stats")
+	}
+	if result.RelationshipStats.Depth != 2 {
+		t.Fatalf("relationship depth = %d, want 2", result.RelationshipStats.Depth)
+	}
+
+	found := map[string]bool{}
+	for _, group := range result.RelationshipGroups {
+		for _, rel := range group.Relationships {
+			found[fmt.Sprintf("%s|%s|%s", rel.From.Name, group.Type, rel.To.Name)] = true
+		}
+	}
+	for _, want := range []string{
+		"main|CALLS|handleRequest",
+		"handleRequest|CALLS|validate",
+		"handleRequest|STEP_IN_PROCESS|main-flow",
+	} {
+		if !found[want] {
+			t.Fatalf("missing relationship %q in %#v", want, found)
+		}
+	}
+}
+
+func TestContext_RelationshipLimit(t *testing.T) {
+	b := &Backend{Graph: buildTestGraph()}
+
+	result, err := b.Context(service.ContextRequest{
+		Repo:                 "test",
+		Name:                 testFuncHandleRequest,
+		Depth:                2,
+		IncludeRelationships: true,
+		RelationshipLimit:    1,
+	})
+	if err != nil {
+		t.Fatalf("Context: %v", err)
+	}
+	if result.RelationshipStats == nil || !result.RelationshipStats.Truncated {
+		t.Fatal("expected truncated relationship stats")
+	}
+	if result.RelationshipStats.ReturnedRelationships != 1 {
+		t.Fatalf("relationships = %d, want 1", result.RelationshipStats.ReturnedRelationships)
+	}
+}
+
+func TestContext_RelationshipExactLimitIsNotTruncated(t *testing.T) {
+	g := lpg.NewGraph()
+	root := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "func:root", Name: "root"},
+		FilePath:      "root.go",
+		StartLine:     1,
+	})
+	callee := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "func:callee", Name: "callee"},
+		FilePath:      "root.go",
+		StartLine:     2,
+	})
+	graph.AddEdge(g, root, callee, graph.RelCalls, nil)
+	b := &Backend{Graph: g}
+
+	result, err := b.Context(service.ContextRequest{
+		Repo:                 "test",
+		Name:                 "root",
+		Depth:                1,
+		IncludeRelationships: true,
+		RelationshipLimit:    1,
+	})
+	if err != nil {
+		t.Fatalf("Context: %v", err)
+	}
+	if result.RelationshipStats == nil {
+		t.Fatal("expected relationship stats")
+	}
+	if result.RelationshipStats.ReturnedRelationships != 1 {
+		t.Fatalf("relationships = %d, want 1", result.RelationshipStats.ReturnedRelationships)
+	}
+	if result.RelationshipStats.Truncated {
+		t.Fatal("did not expect exact-limit result to be truncated")
+	}
+}
+
+func TestContext_RelationshipExactLimitDepthTwoIsNotTruncated(t *testing.T) {
+	g := lpg.NewGraph()
+	root := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "func:root", Name: "root"},
+		FilePath:      "root.go",
+		StartLine:     1,
+	})
+	callee := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "func:callee", Name: "callee"},
+		FilePath:      "root.go",
+		StartLine:     2,
+	})
+	graph.AddEdge(g, root, callee, graph.RelCalls, nil)
+	b := &Backend{Graph: g}
+
+	result, err := b.Context(service.ContextRequest{
+		Repo:                 "test",
+		Name:                 "root",
+		Depth:                2,
+		IncludeRelationships: true,
+		RelationshipLimit:    1,
+	})
+	if err != nil {
+		t.Fatalf("Context: %v", err)
+	}
+	if result.RelationshipStats == nil {
+		t.Fatal("expected relationship stats")
+	}
+	if result.RelationshipStats.ReturnedRelationships != 1 {
+		t.Fatalf("relationships = %d, want 1", result.RelationshipStats.ReturnedRelationships)
+	}
+	if result.RelationshipStats.Truncated {
+		t.Fatal("did not expect depth-2 exact-limit result to be truncated")
+	}
+}
+
+func TestContext_RelationshipsHighDegreeTruncates(t *testing.T) {
+	g := lpg.NewGraph()
+	root := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "func:root", Name: "root"},
+		FilePath:      "root.go",
+		StartLine:     1,
+	})
+	for i := range 20 {
+		callee := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
+			BaseNodeProps: graph.BaseNodeProps{ID: fmt.Sprintf("func:callee:%02d", i), Name: fmt.Sprintf("callee%d", i)},
+			FilePath:      "root.go",
+			StartLine:     i + 2,
+		})
+		graph.AddEdge(g, root, callee, graph.RelCalls, nil)
+	}
+	b := &Backend{Graph: g}
+
+	result, err := b.Context(service.ContextRequest{
+		Repo:                 "test",
+		Name:                 "root",
+		Depth:                1,
+		IncludeRelationships: true,
+		RelationshipLimit:    3,
+	})
+	if err != nil {
+		t.Fatalf("Context: %v", err)
+	}
+	if result.RelationshipStats == nil {
+		t.Fatal("expected relationship stats")
+	}
+	if result.RelationshipStats.ReturnedRelationships != 3 {
+		t.Fatalf("relationships = %d, want 3", result.RelationshipStats.ReturnedRelationships)
+	}
+	if !result.RelationshipStats.Truncated {
+		t.Fatal("expected high-degree relationships to be truncated")
+	}
+}
+
 func TestContext_ByUID(t *testing.T) {
 	b := &Backend{Graph: buildTestGraph()}
 

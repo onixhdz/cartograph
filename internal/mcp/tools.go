@@ -19,10 +19,12 @@ type QueryInput struct {
 
 // ContextInput is the input schema for the cartograph_context tool.
 type ContextInput struct {
-	Repo   string `json:"repo,omitempty" jsonschema:"Repository name. Auto-detected from the working directory if omitted."`
-	Symbol string `json:"symbol" jsonschema:"Name of the symbol (function, class, method) to inspect."`
-	File   string `json:"file,omitempty" jsonschema:"File path to disambiguate when multiple symbols share the same name."`
-	Depth  int    `json:"depth,omitempty" jsonschema:"Transitive call-tree depth. 0 returns direct callees only."`
+	Repo                 string `json:"repo,omitempty" jsonschema:"Repository name. Auto-detected from the working directory if omitted."`
+	Symbol               string `json:"symbol" jsonschema:"Name of the symbol (function, class, method) to inspect."`
+	File                 string `json:"file,omitempty" jsonschema:"File path to disambiguate when multiple symbols share the same name."`
+	Depth                int    `json:"depth,omitempty" jsonschema:"Transitive call-tree depth. 0 returns direct callees only."`
+	IncludeRelationships bool   `json:"includeRelationships,omitempty" jsonschema:"Include bounded graph relationships around the symbol, grouped by type."`
+	RelationshipLimit    int    `json:"relationshipLimit,omitempty" jsonschema:"Maximum relationships to include when includeRelationships is true. Default 100."`
 }
 
 // ImpactInput is the input schema for the cartograph_impact tool.
@@ -122,10 +124,12 @@ func (s *Server) handleContext(ctx context.Context, _ *sdkmcp.CallToolRequest, i
 		return toolError("%v", err)
 	}
 	result, err := s.client.Context(service.ContextRequest{
-		Repo:  repo,
-		Name:  input.Symbol,
-		File:  input.File,
-		Depth: input.Depth,
+		Repo:                 repo,
+		Name:                 input.Symbol,
+		File:                 input.File,
+		Depth:                input.Depth,
+		IncludeRelationships: input.IncludeRelationships,
+		RelationshipLimit:    input.RelationshipLimit,
 	})
 	if err != nil {
 		return toolError("context failed: %v", err)

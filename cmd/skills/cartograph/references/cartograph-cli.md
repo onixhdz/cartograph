@@ -129,6 +129,8 @@ cartograph query "scheduler evaluation" -r nomad
 - `-d, --depth <N>` — Callee traversal depth (default: 1). Depth 1 shows direct callees; depth 2+ shows a transitive call tree
 - `--uid <id>` — Unique symbol ID
 - `--content` — Include source content
+- `--relationships`, `--rel` — Include bounded graph relationships around the symbol, grouped by relationship type
+- `--relationship-limit <N>` — Maximum relationships to include with `--relationships` (default: 100)
 - `--include-tests` — Include test and example files in results (excluded by default)
 
 **Examples:**
@@ -144,9 +146,12 @@ cartograph context NewServer --depth 3
 
 # Include source code
 cartograph context processOrder --content
+
+# Include every relationship type around the symbol for agent navigation
+cartograph context handleLogin --relationships -d 2
 ```
 
-**Output:** Symbol details + Callers (who calls this) + Callees (what this calls, flat at depth 1 or tree at depth 2+) + Processes (execution flows involving this symbol). The call tree follows CALLS, SPAWNS, and DELEGATES_TO edges.
+**Output:** Symbol details + Callers (who calls this) + Callees (what this calls, flat at depth 1 or tree at depth 2+) + Processes (execution flows involving this symbol). The call tree follows CALLS, SPAWNS, and DELEGATES_TO edges. With `--relationships`, context also returns all eligible incoming and outgoing graph relationship types in the bounded neighborhood, grouped by type, plus relationship counts and a `truncated` signal.
 
 ### `cartograph impact <target>`
 
@@ -541,15 +546,15 @@ available, it falls back to an in-process MemoryClient.
 
 **Available MCP tools:**
 
-| Tool                 | Description                                                |
-| -------------------- | ---------------------------------------------------------- |
-| `cartograph_query`   | Search the knowledge graph for execution flows and symbols |
-| `cartograph_context` | 360° view of a code symbol (callers, callees, processes)   |
-| `cartograph_impact`  | Blast radius analysis for a symbol                         |
-| `cartograph_cypher`  | Execute raw Cypher queries against the graph               |
-| `cartograph_cat`     | Read file contents from an indexed repository              |
-| `cartograph_schema`  | Show graph schema (node labels, edge types, counts)        |
-| `cartograph_status`  | Check server status and loaded repositories                |
+| Tool                 | Description                                                                                     |
+| -------------------- | ----------------------------------------------------------------------------------------------- |
+| `cartograph_query`   | Search the knowledge graph for execution flows and symbols                                      |
+| `cartograph_context` | 360° view of a code symbol; can include grouped graph relationships with `includeRelationships` |
+| `cartograph_impact`  | Blast radius analysis for a symbol                                                              |
+| `cartograph_cypher`  | Execute raw Cypher queries against the graph                                                    |
+| `cartograph_cat`     | Read file contents from an indexed repository                                                   |
+| `cartograph_schema`  | Show graph schema (node labels, edge types, counts)                                             |
+| `cartograph_status`  | Check server status and loaded repositories                                                     |
 
 **Editor configuration examples:**
 

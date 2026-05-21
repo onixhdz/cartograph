@@ -67,7 +67,7 @@ cartograph query "authentication middleware"
 # Inspect the indexed file tree
 cartograph tree internal/service --depth 2
 
-# See everything about a symbol — callers, callees, processes
+# See everything about a symbol — callers, callees, processes, relationships
 cartograph context UserService
 
 # What breaks if you change something?

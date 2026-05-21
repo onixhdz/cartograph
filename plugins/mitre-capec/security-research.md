@@ -18,7 +18,8 @@ graph is the proof.
 
 ## What Works Reliably
 
-- Use `cartograph query` and `cartograph context` on the target repository.
+- Use `cartograph query` and `cartograph context --relationships` on the target
+  repository before reading files.
 - Use `cartograph query -p mitre-capec` to find likely CAPEC attack patterns by
   name, description, or related CWE.
 - Use `cartograph cypher -p mitre-capec` for exact pattern reads,
@@ -83,6 +84,7 @@ Then drill into the most relevant symbols:
 cartograph context <guard-or-sink> --depth 2 --content
 cartograph context <boundary-function> --depth 2 --content
 cartograph context <shared-execution-path> --depth 3 --content
+cartograph context <guard-or-sink> --depth 2 --relationships
 ```
 
 Do not stop at the first matching symbol. Use the graph to enumerate nearby
@@ -92,6 +94,7 @@ coverage:
 - alternate callers of the same sink or guard
 - neighboring trust-boundary functions in the same process
 - related flows surfaced by `query`, `context`, and `impact`
+- all nearby relationship types surfaced by `context --relationships`
 
 The question is: have you covered the full reachable family of paths for this
 security theme, or only the first one you noticed?
@@ -170,6 +173,7 @@ Then return to the repo graph and source:
 ```sh
 cartograph context <shared-guard> --depth 2 --content
 cartograph context <shared-sink> --depth 2 --content
+cartograph context <shared-sink> --depth 2 --relationships
 cartograph cat <file> -l <start-end>
 ```
 
@@ -217,11 +221,13 @@ cartograph analyze .
 cartograph plugin ingest mitre-capec
 
 cartograph query "<security theme or suspicious code path>" -l 8
+cartograph context <symbol> --depth 2 --relationships
 cartograph context <symbol> --depth 2 --content
 
 cartograph query -p mitre-capec "<theme or CWE>"
 cartograph cypher -p mitre-capec "MATCH (m:CAPECMitigation)-[:MITIGATES]->(p:CAPECPattern {capec_id: '<CAPEC-ID>'}) RETURN m.id, m.name LIMIT 10"
 
+cartograph context <next-symbol> --depth 2 --relationships
 cartograph context <next-symbol> --depth 2 --content
 cartograph impact <shared-sink-or-guard> --direction upstream -d 3
 cartograph cat <file> -l <start-end>
@@ -236,6 +242,9 @@ cartograph cat <file> -l <start-end>
 - Expand with `CHILD_OF`, `PEER_OF`, and `CAN_PRECEDE` before concluding scope.
 - Read `MITIGATES` edges as review prompts for missing controls.
 - Keep the loop tight: `query` -> `context` -> CAPEC pivot -> confirm in code.
+- Use `context --relationships` or `context --rel` before source reads when you
+  need coverage of every nearby graph edge type around a guard, sink, or trust
+  boundary.
 - Use the graph to prove coverage: inspect sibling flows, alternate callers,
   and adjacent trust boundaries before deciding a control is present or absent.
 - Prefer shared sinks and shared guards over leaf functions when deciding where

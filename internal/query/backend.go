@@ -31,6 +31,12 @@ type QueryEmbedFn func(ctx context.Context, text string) ([]float32, error)
 
 const heuristicTestFlow = "Test flow"
 
+const (
+	defaultContextRelLimit = 100
+	maxContextRelLimit     = 1000
+	contextRelScanFactor   = 4
+)
+
 // Backend holds the graph and search index for a single repository
 // and exposes the tool implementations.
 type Backend struct {
@@ -646,7 +652,185 @@ func (b *Backend) Context(req service.ContextRequest) (*service.ContextResult, e
 		}
 	}
 
+	if req.IncludeRelationships {
+		result.RelationshipGroups, result.RelationshipStats = b.contextRelationships(node, depth, req.RelationshipLimit, req.Content, req.IncludeTests)
+	}
+
 	return result, nil
+}
+
+type contextRelationshipQueueEntry struct {
+	node  *lpg.Node
+	depth int
+}
+
+func (b *Backend) contextRelationships(root *lpg.Node, depth, limit int, includeContent, includeTests bool) ([]service.RelationshipGroup, *service.RelationshipStats) {
+	if root == nil {
+		return nil, &service.RelationshipStats{Depth: depth}
+	}
+	if limit <= 0 {
+		limit = defaultContextRelLimit
+	}
+	if limit > maxContextRelLimit {
+		limit = maxContextRelLimit
+	}
+	perNodeScanLimit := limit * contextRelScanFactor
+
+	visitedNodes := map[*lpg.Node]int{root: 0}
+	returnedNodes := map[*lpg.Node]bool{root: true}
+	seenEdges := make(map[*lpg.Edge]bool)
+	queue := []contextRelationshipQueueEntry{{node: root, depth: 0}}
+	groupsByType := make(map[string][]service.ContextRelationship)
+	var groupTypes []string
+	returnedRelationships := 0
+	truncated := false
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		if current.depth >= depth {
+			continue
+		}
+
+		edges, scanTruncated := boundedContextRelationshipEdges(current.node, perNodeScanLimit)
+		if scanTruncated {
+			truncated = true
+		}
+		sort.Slice(edges, func(i, j int) bool {
+			typeI := contextRelationshipType(edges[i])
+			typeJ := contextRelationshipType(edges[j])
+			if typeI != typeJ {
+				return typeI < typeJ
+			}
+			return contextRelationshipEdgeID(edges[i]) < contextRelationshipEdgeID(edges[j])
+		})
+
+		for _, edge := range edges {
+			if seenEdges[edge] {
+				continue
+			}
+			from := edge.GetFrom()
+			to := edge.GetTo()
+			if from == nil || to == nil {
+				continue
+			}
+			if !includeTests && (isUsageNode(from) || isUsageNode(to)) {
+				continue
+			}
+			if returnedRelationships >= limit {
+				truncated = true
+				break
+			}
+
+			seenEdges[edge] = true
+			typ := contextRelationshipType(edge)
+			if _, ok := groupsByType[typ]; !ok {
+				groupTypes = append(groupTypes, typ)
+			}
+			groupsByType[typ] = append(groupsByType[typ], service.ContextRelationship{
+				FromID: graph.GetStringProp(from, graph.PropID),
+				From:   nodeToSymbolMatch(from, includeContent),
+				ToID:   graph.GetStringProp(to, graph.PropID),
+				To:     nodeToSymbolMatch(to, includeContent),
+			})
+			returnedRelationships++
+			returnedNodes[from] = true
+			returnedNodes[to] = true
+
+			for _, neighbor := range []*lpg.Node{from, to} {
+				if neighbor == current.node {
+					continue
+				}
+				if _, ok := visitedNodes[neighbor]; ok {
+					continue
+				}
+				visitedNodes[neighbor] = current.depth + 1
+				queue = append(queue, contextRelationshipQueueEntry{node: neighbor, depth: current.depth + 1})
+			}
+		}
+		if returnedRelationships >= limit {
+			truncated = truncated || hasMoreContextRelationships(edges, seenEdges, includeTests) || contextQueueHasMoreRelationships(queue, depth, perNodeScanLimit, seenEdges, includeTests)
+			break
+		}
+	}
+	sort.Strings(groupTypes)
+	groups := make([]service.RelationshipGroup, 0, len(groupTypes))
+	for _, typ := range groupTypes {
+		groups = append(groups, service.RelationshipGroup{Type: typ, Relationships: groupsByType[typ]})
+	}
+
+	stats := &service.RelationshipStats{
+		Depth:                 depth,
+		ReturnedNodes:         len(returnedNodes),
+		ReturnedRelationships: returnedRelationships,
+		Limit:                 limit,
+		Truncated:             truncated,
+	}
+	return groups, stats
+}
+
+func contextQueueHasMoreRelationships(queue []contextRelationshipQueueEntry, maxDepth, perNodeScanLimit int, seenEdges map[*lpg.Edge]bool, includeTests bool) bool {
+	for _, entry := range queue {
+		if entry.depth >= maxDepth {
+			continue
+		}
+		edges, scanTruncated := boundedContextRelationshipEdges(entry.node, perNodeScanLimit)
+		if scanTruncated || hasMoreContextRelationships(edges, seenEdges, includeTests) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasMoreContextRelationships(edges []*lpg.Edge, seenEdges map[*lpg.Edge]bool, includeTests bool) bool {
+	for _, edge := range edges {
+		if seenEdges[edge] {
+			continue
+		}
+		from := edge.GetFrom()
+		to := edge.GetTo()
+		if from == nil || to == nil {
+			continue
+		}
+		if !includeTests && (isUsageNode(from) || isUsageNode(to)) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func boundedContextRelationshipEdges(node *lpg.Node, limit int) ([]*lpg.Edge, bool) {
+	edges := make([]*lpg.Edge, 0, min(limit, 16))
+	truncated := false
+	for _, dir := range []lpg.EdgeDir{lpg.IncomingEdge, lpg.OutgoingEdge} {
+		for iter := node.GetEdges(dir); iter.Next(); {
+			if len(edges) >= limit {
+				truncated = true
+				return edges, truncated
+			}
+			edges = append(edges, iter.Edge())
+		}
+	}
+	return edges, truncated
+}
+
+func contextRelationshipType(edge *lpg.Edge) string {
+	if typ, err := graph.GetEdgeRelType(edge); err == nil {
+		return string(typ)
+	}
+	return edge.GetLabel()
+}
+
+func contextRelationshipEdgeID(edge *lpg.Edge) string {
+	fromID, toID := "", ""
+	if edge.GetFrom() != nil {
+		fromID = graph.GetStringProp(edge.GetFrom(), graph.PropID)
+	}
+	if edge.GetTo() != nil {
+		toID = graph.GetStringProp(edge.GetTo(), graph.PropID)
+	}
+	return fromID + ":" + contextRelationshipType(edge) + ":" + toID
 }
 
 const (

@@ -34,6 +34,9 @@ cartograph query "authentication"
 # Drill into a specific symbol — 360° view
 cartograph context handleLogin --content
 
+# Show all graph relationship types around a symbol before reading files
+cartograph context handleLogin --relationships -d 2
+
 # Trace 3 levels deep into the call tree (follows CALLS, SPAWNS, DELEGATES_TO)
 cartograph context handleLogin --depth 3
 
@@ -44,7 +47,7 @@ cartograph cypher "MATCH (f:Function) WHERE NOT ()-[:CALLS]->(f) AND f.isExporte
 cartograph cypher "MATCH (p:Process) RETURN p.name, p.importance, p.heuristicLabel ORDER BY p.importance DESC LIMIT 20"
 ```
 
-**Approach:** Start with `schema` to understand the graph shape → `query` for orientation → `context --depth 3` to trace flows → `cypher` for custom structural queries.
+**Approach:** Start with `schema` to understand the graph shape → `query` for orientation → `context --relationships -d 2` to map all nearby relationship types → `context --depth 3` to trace flows → `cypher` for exact custom structural queries.
 
 ## Debugging
 
@@ -136,7 +139,7 @@ The fastest way to understand any part of an indexed codebase. Use this
 iterative loop instead of grep/view when exploring architecture, tracing
 flows, or answering "how does X work?" questions.
 
-### The Loop: query → context --depth → source
+### The Loop: query → context --relationships → context --depth → source
 
 ```bash
 # Step 1: SEARCH — find the right symbols and flows
@@ -144,7 +147,12 @@ cartograph query "authentication middleware"
 # → Returns: Process matches (execution flows) + Definition matches (symbols)
 # → Pick the most relevant symbol names from the results
 
-# Step 2: DRILL DOWN — trace the call tree 3 levels deep
+# Step 2: MAP RELATIONSHIPS — see every graph relationship type nearby
+cartograph context handleAuth --relationships -d 2
+# → Returns: relationship groups based on the graph schema for this index
+# → Use this before reading files to choose the best next symbol/file.
+
+# Step 3: DRILL DOWN — trace the call tree 3 levels deep
 cartograph context handleAuth --depth 3
 # → Returns: Callers, transitive call tree (with SPAWNS ⇢ and DELEGATES_TO ⤳),
 #            and which execution flows include this symbol
@@ -153,11 +161,11 @@ cartograph context handleAuth --depth 3
 #     - High fan-out nodes (orchestrators that coordinate subsystems)
 #     - Cross-package hops (file paths change directories = architectural boundary)
 
-# Step 3: READ SOURCE — only for the 2-3 functions that need source-level detail
+# Step 4: READ SOURCE — only for the 2-3 functions that need source-level detail
 cartograph cat src/auth/middleware.go -l 40-80
 # → Or use: cartograph context handleAuth --content (includes inline source)
 
-# Step 4: REPEAT — each context output reveals new symbols to trace
+# Step 5: REPEAT — each context output reveals new symbols to trace
 cartograph context validateToken --depth 3
 cartograph context sessionStore.Get --depth 2
 # → Keep following until you've mapped the complete flow
@@ -192,10 +200,11 @@ cartograph cypher "MATCH path = (entry)-[:CALLS*1..5]->(target:Function {name: '
 |---|---|---|
 | **Speed** | ~100ms per query | ~10-15s per search |
 | **Call trees** | `context -d 3` shows full transitive tree | Must trace manually file-by-file |
+| **Relationship map** | `context --relationships` groups all nearby graph edge types | Must infer relationships from many files |
 | **Execution flows** | Surfaces process labels and flow membership | No flow awareness |
 | **Async edges** | Shows SPAWNS (⇢) and DELEGATES_TO (⤳) | Invisible — must read source to find |
 | **Cross-package** | Call tree shows hops across directories | Must search each package separately |
-| **Source code** | `source -l` for specific lines | `view` or `cat` (needs file on disk) |
+| **Source code** | `cartograph cat -l` for specific lines | `view` or `cat` (needs file on disk) |
 | **When to prefer** | Architecture, flows, "how does X work?" | Exact string matching, config files, non-code |
 
 **Rule of thumb:** Start with cartograph. Fall back to grep only when
