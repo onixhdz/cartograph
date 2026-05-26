@@ -41,6 +41,15 @@ type Meta struct {
 	// compatibility decisions.
 	BinaryVersion string `json:"binaryVersion,omitempty"`
 
+	// RegexIndexVersion is the raw source regex index version used at analysis time.
+	RegexIndexVersion string `json:"regexIndexVersion,omitempty"`
+
+	// RegexIndexFiles is the number of source files added to the regex index.
+	RegexIndexFiles int `json:"regexIndexFiles,omitempty"`
+
+	// RegexIndexBytes is the total source bytes added to the regex index.
+	RegexIndexBytes int64 `json:"regexIndexBytes,omitempty"`
+
 	// ClonedOnly is true when the repo was cloned to disk via
 	// 'cartograph clone' but has not been indexed yet.
 	ClonedOnly bool `json:"clonedOnly,omitempty"`

@@ -118,12 +118,17 @@ Use `context` to understand what each security-sensitive symbol does and who
 calls it:
 
 ```sh
+cartograph context VerifyChecksum --depth 2 --relationships
 cartograph context VerifyChecksum --depth 2 --content
+cartograph context LaunchPlugin --depth 3 --relationships
 cartograph context LaunchPlugin --depth 3 --content
 cartograph context parseHandshake --depth 2 --content
 cartograph context probePluginInfo --depth 2 --content
 cartograph context runIngest --depth 2 --content
 ```
+
+Use `--relationships` before reading source when you need coverage of every
+nearby graph relationship type around a guard, sink, or trust boundary.
 
 What to look for:
 

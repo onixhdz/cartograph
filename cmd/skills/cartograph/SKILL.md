@@ -150,17 +150,26 @@ exists for the target repo, run `cartograph analyze` first.
 
 ### Prefer `cartograph cat` for Real Code
 
-When inspecting source code in an indexed repository, prefer `cartograph cat`
-over builtin file-reading tools. The normal investigation loop should stay
-inside Cartograph as long as possible:
+When inspecting source code in an indexed repository, keep the investigation
+inside Cartograph. Prefer `cartograph search` for exact source evidence and
+`cartograph cat` for targeted line ranges over builtin file-reading or text
+search tools:
 
 ```bash
 cartograph query "<theme>" -l 8
 cartograph tree [path] --depth 2
+cartograph context <symbol> --depth 2 --relationships
 cartograph context <symbol> --depth 2 --content
 cartograph impact <symbol> --direction upstream -d 3
+cartograph search "<exact text or regex>" --context 5
 cartograph cat <file> -l <startLine>-<endLine>
 ```
+
+Use `context --relationships` (or `--rel`) when an agent needs to know where to
+look next without reading files. It returns all relationship types around the
+symbol, grouped by type, with truncation metadata. This is usually better than
+raw Cypher for focused symbol discovery; reserve Cypher for exact custom graph
+questions.
 
 Use `cartograph tree` to inspect the indexed file inventory before choosing
 paths for `cartograph cat`. `cartograph tree [path]` accepts a file or directory
@@ -173,8 +182,9 @@ Avoid builtin file reads for indexed repositories unless one of these is true:
 - You need a file operation that Cartograph does not provide.
 - The user explicitly asks for direct file reads outside the Cartograph loop.
 
-If the repo was not cloned by Cartograph, do not fall back to builtin file
-reads just to inspect source that `cartograph cat` can show.
+If the repo was not cloned by Cartograph, do not fall back to builtin file reads
+or text search just to inspect source that `cartograph search` or `cartograph
+cat` can show.
 
 ### Re-index After Code Changes
 
@@ -206,6 +216,20 @@ listing the full names — use `-r acme/sdk` to disambiguate.
 - **Check before indexing:** Use `cartograph list` to see all indexed
   repos. If the user's current project already appears, skip re-indexing
   it (unless they ask for `--force`).
+
+### Folder Analysis & Repo Candidates
+
+When the user gives a local folder that may contain multiple repositories or
+projects, do **not** jump straight to `--repos auto` and do not ask the user
+before seeing Cartograph's recommendations. Run plain analyze on the folder:
+
+```bash
+cartograph analyze <folder>
+```
+
+If multiple repo candidates are detected, Cartograph prints the candidate table
+and follow-up commands. Follow the command recommendation printed by analyze;
+do not guess repo-selection flags from the skill text.
 
 ## Delegating Research to Sub-Agents
 
@@ -361,7 +385,7 @@ or mentions "wiki" in the context of documentation generation.
 
 ### 2. CLI Commands
 
-**Triggers:** User mentions a specific command (`analyze`, `query`, `context`,
+**Triggers:** User mentions a specific command (`analyze`, `search`, `query`, `context`,
 `impact`, `cypher`, `schema`, `cat`, `tree`, `clone`, `models`, `serve`, `mcp`,
 `skills`, `list`, `status`, `clean`, `wiki`), command flags, graph schema,
 Cypher syntax, node labels, relationship types, embedding configuration,
@@ -388,6 +412,7 @@ do. Do NOT guess — force disambiguation. Cartograph can help with:
 
 - Indexing repositories into a knowledge graph of code
 - Searching execution flows and symbols (BM25 + semantic vector search)
+- Searching exact raw source text and regex patterns (`cartograph search`)
 - 360° context views of any code symbol
 - Blast radius / impact analysis before changes
 - Raw Cypher queries against the code graph

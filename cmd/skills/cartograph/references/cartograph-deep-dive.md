@@ -94,9 +94,13 @@ end-to-end execution paths. This is cartograph's most powerful capability.
 ### 3a. Trace entry points with `context --depth`
 
 For each of the top 5 flows from Phase 1 and the key entry points from
-Phase 2, use `context --depth 3` to see the full transitive call tree:
+Phase 2, use `context --relationships` to map every nearby graph edge type,
+then use `context --depth 3` to see the full transitive call tree:
 
 ```bash
+# Map all relationship types around the entry point before reading files
+cartograph context <entryPointName> --relationships -d 2
+
 # Trace 3 levels deep from an entry point — reveals the full execution path
 cartograph context <entryPointName> --depth 3
 
@@ -135,8 +139,9 @@ cartograph context monitorLeadership --depth 3
 
 ### 3c. Use Cypher for targeted graph queries
 
-Use Cypher when you need specific structural queries that `context --depth`
-doesn't cover — cross-package boundaries, multi-flow membership, or
+Use `context --relationships` for focused symbol neighborhoods before writing
+Cypher. Use Cypher when you need specific structural queries that focused
+context doesn't cover — cross-package boundaries, multi-flow membership, or
 upstream tracing:
 
 ```bash

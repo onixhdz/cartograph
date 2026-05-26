@@ -12,10 +12,13 @@ import (
 	"github.com/realxen/cartograph/internal/service"
 )
 
+const mcpTestRepo = "myrepo"
+
 // mockClient implements the Client interface with canned responses
 // for testing the MCP tool handlers without needing a real graph.
 type mockClient struct {
 	queryResult   *service.QueryResult
+	searchResult  *service.SearchResult
 	contextResult *service.ContextResult
 	impactResult  *service.ImpactResult
 	cypherResult  *service.CypherResult
@@ -26,6 +29,7 @@ type mockClient struct {
 
 	// capture last request for assertions
 	lastQueryReq   service.QueryRequest
+	lastSearchReq  service.SearchRequest
 	lastContextReq service.ContextRequest
 	lastImpactReq  service.ImpactRequest
 	lastCypherReq  service.CypherRequest
@@ -36,6 +40,11 @@ type mockClient struct {
 func (m *mockClient) Query(req service.QueryRequest) (*service.QueryResult, error) {
 	m.lastQueryReq = req
 	return m.queryResult, m.err
+}
+
+func (m *mockClient) Search(req service.SearchRequest) (*service.SearchResult, error) {
+	m.lastSearchReq = req
+	return m.searchResult, m.err
 }
 
 func (m *mockClient) Context(req service.ContextRequest) (*service.ContextResult, error) {
@@ -109,6 +118,7 @@ func TestToolsList(t *testing.T) {
 
 	expectedTools := map[string]bool{
 		"cartograph_query":   false,
+		"cartograph_search":  false,
 		"cartograph_context": false,
 		"cartograph_impact":  false,
 		"cartograph_cypher":  false,
@@ -149,7 +159,7 @@ func TestQueryTool(t *testing.T) {
 	ctx := context.Background()
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name:      "cartograph_query",
-		Arguments: map[string]any{"repo": "myrepo", "query": "HTTP handler", "limit": float64(5)},
+		Arguments: map[string]any{"repo": mcpTestRepo, "query": "HTTP handler", "limit": float64(5)},
 	})
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
@@ -158,8 +168,8 @@ func TestQueryTool(t *testing.T) {
 		t.Fatalf("tool returned error: %v", res.Content)
 	}
 
-	if mock.lastQueryReq.Repo != "myrepo" {
-		t.Errorf("repo = %q, want %q", mock.lastQueryReq.Repo, "myrepo")
+	if mock.lastQueryReq.Repo != mcpTestRepo {
+		t.Errorf("repo = %q, want %q", mock.lastQueryReq.Repo, mcpTestRepo)
 	}
 	if mock.lastQueryReq.Text != "HTTP handler" {
 		t.Errorf("text = %q, want %q", mock.lastQueryReq.Text, "HTTP handler")
@@ -178,6 +188,62 @@ func TestQueryTool(t *testing.T) {
 	}
 }
 
+func TestSearchTool(t *testing.T) {
+	mock := &mockClient{
+		searchResult: &service.SearchResult{
+			Repo:         mcpTestRepo,
+			Pattern:      "SearchMulti",
+			FixedStrings: true,
+			IndexStatus:  service.IndexStatusIndexed,
+			MatchCount:   1,
+			FileCount:    1,
+			Matches: []service.SearchMatch{{
+				FilePath: "internal/query/backend.go",
+				Line:     10,
+				Column:   5,
+				LineText: "results := SearchMulti()",
+			}},
+		},
+	}
+	session := connectTestServer(t, mock)
+	defer session.Close()
+
+	ctx := context.Background()
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "cartograph_search",
+		Arguments: map[string]any{
+			"repo":         mcpTestRepo,
+			"pattern":      "SearchMulti",
+			"fixedStrings": true,
+			"ignoreCase":   true,
+			"limit":        float64(5),
+			"context":      float64(2),
+			"files":        "internal/**/*.go",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("tool returned error: %v", res.Content)
+	}
+	if mock.lastSearchReq.Repo != mcpTestRepo || mock.lastSearchReq.Pattern != "SearchMulti" {
+		t.Fatalf("request not forwarded: %+v", mock.lastSearchReq)
+	}
+	if !mock.lastSearchReq.FixedStrings || !mock.lastSearchReq.IgnoreCase || mock.lastSearchReq.Limit != 5 || mock.lastSearchReq.ContextLines != 2 {
+		t.Fatalf("flags not forwarded: %+v", mock.lastSearchReq)
+	}
+
+	text := extractText(t, res)
+	var result service.SearchResult
+	if err := json.Unmarshal([]byte(text), &result); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if result.IndexStatus != service.IndexStatusIndexed || len(result.Matches) != 1 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+}
+
 func TestContextTool(t *testing.T) {
 	mock := &mockClient{
 		contextResult: &service.ContextResult{
@@ -193,7 +259,7 @@ func TestContextTool(t *testing.T) {
 	ctx := context.Background()
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name:      "cartograph_context",
-		Arguments: map[string]any{"repo": "myrepo", "symbol": "Serve"},
+		Arguments: map[string]any{"repo": mcpTestRepo, "symbol": "Serve"},
 	})
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
@@ -202,8 +268,8 @@ func TestContextTool(t *testing.T) {
 		t.Fatalf("tool returned error: %v", res.Content)
 	}
 
-	if mock.lastContextReq.Repo != "myrepo" {
-		t.Errorf("repo = %q, want %q", mock.lastContextReq.Repo, "myrepo")
+	if mock.lastContextReq.Repo != mcpTestRepo {
+		t.Errorf("repo = %q, want %q", mock.lastContextReq.Repo, mcpTestRepo)
 	}
 	if mock.lastContextReq.Name != "Serve" {
 		t.Errorf("name = %q, want %q", mock.lastContextReq.Name, "Serve")
@@ -224,7 +290,7 @@ func TestImpactTool(t *testing.T) {
 	ctx := context.Background()
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name:      "cartograph_impact",
-		Arguments: map[string]any{"repo": "myrepo", "target": "Connect"},
+		Arguments: map[string]any{"repo": mcpTestRepo, "target": "Connect"},
 	})
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
@@ -254,7 +320,7 @@ func TestCypherTool(t *testing.T) {
 	ctx := context.Background()
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name:      "cartograph_cypher",
-		Arguments: map[string]any{"repo": "myrepo", "query": "MATCH (n:Function) RETURN n.name LIMIT 1"},
+		Arguments: map[string]any{"repo": mcpTestRepo, "query": "MATCH (n:Function) RETURN n.name LIMIT 1"},
 	})
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
@@ -282,7 +348,7 @@ func TestCatTool(t *testing.T) {
 	ctx := context.Background()
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name:      "cartograph_cat",
-		Arguments: map[string]any{"repo": "myrepo", "files": []any{"main.go"}, "lines": "1-10"},
+		Arguments: map[string]any{"repo": mcpTestRepo, "files": []any{"main.go"}, "lines": "1-10"},
 	})
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
@@ -307,7 +373,7 @@ func TestCatToolNoFiles(t *testing.T) {
 	ctx := context.Background()
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name:      "cartograph_cat",
-		Arguments: map[string]any{"repo": "myrepo", "files": []any{}},
+		Arguments: map[string]any{"repo": mcpTestRepo, "files": []any{}},
 	})
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
@@ -332,7 +398,7 @@ func TestSchemaTool(t *testing.T) {
 	ctx := context.Background()
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name:      "cartograph_schema",
-		Arguments: map[string]any{"repo": "myrepo"},
+		Arguments: map[string]any{"repo": mcpTestRepo},
 	})
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
@@ -420,7 +486,7 @@ func TestQueryDefaultLimit(t *testing.T) {
 	ctx := context.Background()
 	_, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name:      "cartograph_query",
-		Arguments: map[string]any{"repo": "myrepo", "query": "test"},
+		Arguments: map[string]any{"repo": mcpTestRepo, "query": "test"},
 	})
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
@@ -485,13 +551,13 @@ func TestStreamableHTTPTransport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
 	}
-	if len(tools.Tools) != 7 {
-		t.Errorf("tool count = %d, want 7", len(tools.Tools))
+	if len(tools.Tools) != 8 {
+		t.Errorf("tool count = %d, want 8", len(tools.Tools))
 	}
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name:      "cartograph_query",
-		Arguments: map[string]any{"repo": "myrepo", "query": "HTTP handler"},
+		Arguments: map[string]any{"repo": mcpTestRepo, "query": "HTTP handler"},
 	})
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)

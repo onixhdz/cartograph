@@ -59,6 +59,42 @@ func TestContextBoost_PrefersCloserOverlap(t *testing.T) {
 	}
 }
 
+func TestContextBoost_CLICommandSignals(t *testing.T) {
+	queryText := "how does the cli register commands and exchange daemon protocol messages"
+	commandSymbol := service.SymbolMatch{
+		Name:     "BuildCommand",
+		FilePath: "packages/tool/lib/src/commands/build/build.dart",
+	}
+	genericSymbol := service.SymbolMatch{
+		Name:     "Message",
+		FilePath: "packages/tool/lib/src/model/message.dart",
+	}
+
+	commandBoost := contextBoost(queryText, commandSymbol)
+	genericBoost := contextBoost(queryText, genericSymbol)
+	if commandBoost <= genericBoost {
+		t.Fatalf("expected command boost (%f) > generic boost (%f)", commandBoost, genericBoost)
+	}
+}
+
+func TestContextBoost_CLIDoesNotMatchClientSubstring(t *testing.T) {
+	queryText := "how does the http client send requests"
+	commandSymbol := service.SymbolMatch{
+		Name:     "BuildCommand",
+		FilePath: "packages/tool/lib/src/commands/build/build.dart",
+	}
+	genericSymbol := service.SymbolMatch{
+		Name:     "Sender",
+		FilePath: "packages/http/lib/src/client.dart",
+	}
+
+	commandBoost := contextBoost(queryText, commandSymbol)
+	genericBoost := contextBoost(queryText, genericSymbol)
+	if commandBoost > genericBoost {
+		t.Fatalf("client substring should not activate CLI command boost: command=%f generic=%f", commandBoost, genericBoost)
+	}
+}
+
 func TestProcessBoost_ConfigProcessSignals(t *testing.T) {
 	queryText := configBuildersQuery
 
@@ -104,6 +140,34 @@ func TestTokenOverlapBoost_UsesSignatureAndCanonicalTokens(t *testing.T) {
 	got := tokenOverlapBoost(queryText, sm)
 	if got <= 1.15 {
 		t.Fatalf("expected signature overlap boost > 1.15, got %f", got)
+	}
+}
+
+func TestLanguageMentionBoost_ExplicitLanguageMention(t *testing.T) {
+	got := languageMentionBoost("how does dart_frog route requests", "dart")
+	if got <= 1.0 {
+		t.Fatalf("expected explicit Dart mention to boost Dart symbols, got %f", got)
+	}
+}
+
+func TestLanguageMentionBoost_PunctuationAlias(t *testing.T) {
+	got := languageMentionBoost("how does C# route requests", "csharp")
+	if got <= 1.0 {
+		t.Fatalf("expected explicit C# mention to boost C# symbols, got %f", got)
+	}
+}
+
+func TestLanguageMentionBoost_DoesNotBoostUnmentionedLanguage(t *testing.T) {
+	got := languageMentionBoost("how does the router handle requests", "dart")
+	if got != 1.0 {
+		t.Fatalf("expected no language boost without an explicit language mention, got %f", got)
+	}
+}
+
+func TestLanguageMentionBoost_DoesNotInferAmbiguousGo(t *testing.T) {
+	got := languageMentionBoost("how does the request go through middleware", "go")
+	if got != 1.0 {
+		t.Fatalf("expected no boost for ambiguous Go mention, got %f", got)
 	}
 }
 

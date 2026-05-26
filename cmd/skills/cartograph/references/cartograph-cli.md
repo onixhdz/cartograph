@@ -8,6 +8,7 @@ Complete command reference for the cartograph CLI tool.
 
 Index one or more repositories — builds the knowledge graph from source code.
 Accepts multiple targets in a single command; each is indexed independently.
+Analyze builds the graph plus search artifacts for `cartograph query` and raw source `cartograph search`.
 
 **Arguments:**
 - `path|url ...` — One or more local paths or Git URLs (defaults to current directory)
@@ -44,12 +45,8 @@ cartograph analyze hashicorp/nomad@v1.8.0
 cartograph analyze hashicorp/nomad@release/1.7.x
 cartograph analyze github.com/gorilla/mux@v1.8.0
 
-# Split an umbrella folder into recommended child repo indexes
-cartograph analyze --repos auto ~/repos
-
-# Keep an umbrella folder as one index, or manually select children
-cartograph analyze --repos none ~/repos
-cartograph analyze --repos apps/api,apps/web ~/repos
+# Inspect an umbrella folder and show recommended repo candidates first
+cartograph analyze ~/repos
 
 # Host-prefixed URL — auto-expands to https://github.com/org/repo
 cartograph analyze github.com/org/repo
@@ -86,9 +83,32 @@ cartograph analyze <path|url> --embed sync \
   --embed-model text-embedding-3-small
 ```
 
+For local folders that may contain multiple projects, agents should run plain
+`cartograph analyze <folder>` first to see Cartograph's recommended repo
+candidates. If candidates are found, follow the next command printed by analyze
+instead of guessing repo-selection flags.
+
+### `cartograph search "<pattern>"`
+
+Search indexed raw source text. Regex is the default; use fixed-string mode for punctuation-heavy literals. Use this for identifiers, literals, errors, config keys, route strings, TODOs, and regex-shaped code.
+
+**Arguments:**
+- `pattern` — Go/RE2 regex pattern by default, or fixed substring with `-F`
+
+**Useful flags:** `-r/--repo`, `-F/--fixed-strings`, `--files <glob>`, `-l/--limit`, `--context`, `--json`.
+
+**Examples:**
+```bash
+cartograph search 'func .*Handler'
+cartograph search 'panic(' -F
+cartograph search 'route:' --files 'internal/**/*.go'
+```
+
+**Output:** Grouped source-line matches with file paths, line numbers, context, and truncation status. JSON output includes `indexStatus` (`indexed`, `degraded`, `missing`, or `invalid`).
+
 ### `cartograph query "<search>"`
 
-Search the knowledge graph for execution flows and symbols. Uses BM25 full-text search, or hybrid BM25 + vector search when embeddings are available.
+Search the knowledge graph for execution flows and symbols. Use `cartograph search` instead for exact source text and regex patterns.
 
 **Arguments:**
 - `search` — Search query text (required)
@@ -129,6 +149,8 @@ cartograph query "scheduler evaluation" -r nomad
 - `-d, --depth <N>` — Callee traversal depth (default: 1). Depth 1 shows direct callees; depth 2+ shows a transitive call tree
 - `--uid <id>` — Unique symbol ID
 - `--content` — Include source content
+- `--relationships`, `--rel` — Include bounded graph relationships around the symbol, grouped by relationship type
+- `--relationship-limit <N>` — Maximum relationships to include with `--relationships` (default: 100)
 - `--include-tests` — Include test and example files in results (excluded by default)
 
 **Examples:**
@@ -144,9 +166,12 @@ cartograph context NewServer --depth 3
 
 # Include source code
 cartograph context processOrder --content
+
+# Include every relationship type around the symbol for agent navigation
+cartograph context handleLogin --relationships -d 2
 ```
 
-**Output:** Symbol details + Callers (who calls this) + Callees (what this calls, flat at depth 1 or tree at depth 2+) + Processes (execution flows involving this symbol). The call tree follows CALLS, SPAWNS, and DELEGATES_TO edges.
+**Output:** Symbol details + Callers (who calls this) + Callees (what this calls, flat at depth 1 or tree at depth 2+) + Processes (execution flows involving this symbol). The call tree follows CALLS, SPAWNS, and DELEGATES_TO edges. With `--relationships`, context also returns all eligible incoming and outgoing graph relationship types in the bounded neighborhood, grouped by type, plus relationship counts and a `truncated` signal.
 
 ### `cartograph impact <target>`
 
@@ -353,6 +378,8 @@ cartograph schema hashicorp/nomad
 | `Enum`        | Enum definition                           |
 | `File`        | Source file                               |
 | `Folder`      | Directory                                 |
+| `Dependency`  | External package/module dependency        |
+| `Module`      | Repository/module manifest                |
 | `Community`   | Leiden community cluster                  |
 | `Process`     | Execution flow (entry point → call chain) |
 | `Namespace`   | Namespace/module                          |
@@ -386,6 +413,9 @@ cartograph schema hashicorp/nomad
 | `STEP_IN_PROCESS` | Symbol is a step in an execution flow       |
 | `ACCESSES`        | Function accesses a property/field          |
 | `USES`            | Symbol uses another symbol                  |
+| `DEPENDS_ON`      | Module depends on an external dependency    |
+| `SPAWNS`          | Function starts async/concurrent work       |
+| `DELEGATES_TO`    | Function registers or delegates to handler  |
 
 ### Key Properties
 
@@ -541,15 +571,17 @@ available, it falls back to an in-process MemoryClient.
 
 **Available MCP tools:**
 
-| Tool                 | Description                                                |
-| -------------------- | ---------------------------------------------------------- |
-| `cartograph_query`   | Search the knowledge graph for execution flows and symbols |
-| `cartograph_context` | 360° view of a code symbol (callers, callees, processes)   |
-| `cartograph_impact`  | Blast radius analysis for a symbol                         |
-| `cartograph_cypher`  | Execute raw Cypher queries against the graph               |
-| `cartograph_cat`     | Read file contents from an indexed repository              |
-| `cartograph_schema`  | Show graph schema (node labels, edge types, counts)        |
-| `cartograph_status`  | Check server status and loaded repositories                |
+| Tool                 | Description                                                                                     |
+| -------------------- | ----------------------------------------------------------------------------------------------- |
+| `cartograph_query`   | Search the knowledge graph for execution flows and symbols                                      |
+| `cartograph_context` | 360° view of a code symbol; can include grouped graph relationships with `includeRelationships` |
+| `cartograph_impact`  | Blast radius analysis for a symbol                                                              |
+| `cartograph_cypher`  | Execute raw Cypher queries against the graph                                                    |
+| `cartograph_search`  | Search indexed raw source text with regex or fixed strings                                      |
+| `cartograph_cat`     | Read file contents from an indexed repository                                                   |
+| `cartograph_tree`    | Show indexed repository file tree                                                               |
+| `cartograph_schema`  | Show graph schema (node labels, edge types, counts)                                             |
+| `cartograph_status`  | Check server status and loaded repositories                                                     |
 
 **Editor configuration examples:**
 

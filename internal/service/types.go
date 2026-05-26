@@ -6,6 +6,12 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+
+	"github.com/cloudprivacylabs/lpg/v2"
+
+	"github.com/realxen/cartograph/internal/search"
+	"github.com/realxen/cartograph/internal/storage"
+	"github.com/realxen/cartograph/plugin"
 )
 
 // ErrWriteQuery is returned when a Cypher query contains write keywords.
@@ -61,6 +67,8 @@ const (
 
 	// RouteQuery is the endpoint for hybrid search queries.
 	RouteQuery = APIPrefix + "/query"
+	// RouteSearch is the endpoint for raw source regex search.
+	RouteSearch = APIPrefix + "/search"
 	// RouteContext is the endpoint for 360° symbol context.
 	RouteContext = APIPrefix + "/context"
 	// RouteCypher is the endpoint for raw Cypher queries.
@@ -93,6 +101,7 @@ const (
 
 const (
 	MethodQuery              = "query"
+	MethodSearch             = "search"
 	MethodContext            = "context"
 	MethodCypher             = "cypher"
 	MethodImpact             = "impact"
@@ -170,7 +179,7 @@ func AnalyzePreflightCommands(target string) []string {
 
 // AllMethods lists every valid method name.
 var AllMethods = []string{
-	MethodQuery, MethodContext, MethodCypher, MethodImpact,
+	MethodQuery, MethodSearch, MethodContext, MethodCypher, MethodImpact,
 	MethodCat, MethodTree, MethodReload, MethodStatus, MethodShutdown,
 	MethodSchema, MethodEmbed, MethodEmbedStatus, MethodAnalyzePreflight, MethodPluginIngest, MethodPluginIngestStatus,
 }
@@ -178,6 +187,7 @@ var AllMethods = []string{
 // MethodToRoute maps method names to their HTTP route.
 var MethodToRoute = map[string]string{
 	MethodQuery:              RouteQuery,
+	MethodSearch:             RouteSearch,
 	MethodContext:            RouteContext,
 	MethodCypher:             RouteCypher,
 	MethodImpact:             RouteImpact,
@@ -240,6 +250,50 @@ type QueryResult struct {
 	PluginResults  []PluginQueryMatch `json:"pluginResults,omitempty"`
 }
 
+const (
+	IndexStatusIndexed  = "indexed"
+	IndexStatusDegraded = "degraded"
+	IndexStatusMissing  = "missing"
+	IndexStatusInvalid  = "invalid"
+)
+
+// SearchRequest is the JSON body for POST /api/search.
+type SearchRequest struct {
+	Repo         string `json:"repo"`
+	Pattern      string `json:"pattern"`
+	FixedStrings bool   `json:"fixedStrings,omitempty"`
+	IgnoreCase   bool   `json:"ignoreCase,omitempty"`
+	Limit        int    `json:"limit"`
+	ContextLines int    `json:"contextLines,omitempty"`
+	Files        string `json:"files,omitempty"`
+	ExcludeTests bool   `json:"excludeTests,omitempty"`
+}
+
+// SearchResult is the result payload for a raw source search response.
+type SearchResult struct {
+	Repo         string        `json:"repo"`
+	Pattern      string        `json:"pattern"`
+	FixedStrings bool          `json:"fixedStrings"`
+	IndexStatus  string        `json:"indexStatus"`
+	Message      string        `json:"message,omitempty"`
+	DurationMS   int64         `json:"durationMs"`
+	MatchCount   int           `json:"matchCount"`
+	FileCount    int           `json:"fileCount"`
+	Truncated    bool          `json:"truncated"`
+	Matches      []SearchMatch `json:"matches"`
+}
+
+// SearchMatch is one matching source line plus bounded context.
+type SearchMatch struct {
+	FilePath string       `json:"filePath"`
+	Line     int          `json:"line"`
+	Column   int          `json:"column,omitempty"`
+	LineText string       `json:"lineText"`
+	Before   []string     `json:"before,omitempty"`
+	After    []string     `json:"after,omitempty"`
+	Symbol   *SymbolMatch `json:"symbol,omitempty"`
+}
+
 type PluginQueryMatch struct {
 	EntityLabel string               `json:"entityLabel"`
 	NodeID      string               `json:"nodeId"`
@@ -278,13 +332,15 @@ type SymbolMatch struct {
 
 // ContextRequest is the JSON body for POST /api/context.
 type ContextRequest struct {
-	Repo         string `json:"repo"`
-	Name         string `json:"name"`
-	File         string `json:"file,omitempty"`
-	UID          string `json:"uid,omitempty"`
-	Content      bool   `json:"content,omitempty"`
-	Depth        int    `json:"depth,omitempty"`
-	IncludeTests bool   `json:"includeTests,omitempty"`
+	Repo                 string `json:"repo"`
+	Name                 string `json:"name"`
+	File                 string `json:"file,omitempty"`
+	UID                  string `json:"uid,omitempty"`
+	Content              bool   `json:"content,omitempty"`
+	Depth                int    `json:"depth,omitempty"`
+	IncludeTests         bool   `json:"includeTests,omitempty"`
+	IncludeRelationships bool   `json:"includeRelationships,omitempty"`
+	RelationshipLimit    int    `json:"relationshipLimit,omitempty"`
 }
 
 // CallTreeNode is a node in a transitive call tree returned by context --depth.
@@ -297,15 +353,40 @@ type CallTreeNode struct {
 
 // ContextResult is the result payload for a context response.
 type ContextResult struct {
-	Symbol       SymbolMatch   `json:"symbol"`
-	Callers      []SymbolMatch `json:"callers"`
-	Callees      []SymbolMatch `json:"callees"`
-	CallTree     *CallTreeNode `json:"callTree,omitempty"`
-	Importers    []SymbolMatch `json:"importers"`
-	Imports      []SymbolMatch `json:"imports"`
-	Processes    []SymbolMatch `json:"processes"`
-	Implementors []SymbolMatch `json:"implementors,omitempty"`
-	Extends      []SymbolMatch `json:"extends,omitempty"`
+	Symbol             SymbolMatch         `json:"symbol"`
+	Callers            []SymbolMatch       `json:"callers"`
+	Callees            []SymbolMatch       `json:"callees"`
+	CallTree           *CallTreeNode       `json:"callTree,omitempty"`
+	Importers          []SymbolMatch       `json:"importers"`
+	Imports            []SymbolMatch       `json:"imports"`
+	Processes          []SymbolMatch       `json:"processes"`
+	Implementors       []SymbolMatch       `json:"implementors,omitempty"`
+	Extends            []SymbolMatch       `json:"extends,omitempty"`
+	RelationshipGroups []RelationshipGroup `json:"relationshipGroups,omitempty"`
+	RelationshipStats  *RelationshipStats  `json:"relationshipStats,omitempty"`
+}
+
+// RelationshipGroup contains context relationships grouped by graph relationship type.
+type RelationshipGroup struct {
+	Type          string                `json:"type"`
+	Relationships []ContextRelationship `json:"relationships"`
+}
+
+// ContextRelationship is a graph edge returned by context relationship mode.
+type ContextRelationship struct {
+	FromID string      `json:"fromId"`
+	From   SymbolMatch `json:"from"`
+	ToID   string      `json:"toId"`
+	To     SymbolMatch `json:"to"`
+}
+
+// RelationshipStats describes the bounded graph neighborhood returned with context.
+type RelationshipStats struct {
+	Depth                 int  `json:"depth"`
+	ReturnedNodes         int  `json:"returnedNodes"`
+	ReturnedRelationships int  `json:"returnedRelationships"`
+	Limit                 int  `json:"limit"`
+	Truncated             bool `json:"truncated"`
 }
 
 // CypherRequest is the JSON body for POST /api/cypher.
@@ -393,6 +474,7 @@ type RepoStatus struct {
 // It breaks the import cycle: service defines the interface, query implements it.
 type ToolBackend interface {
 	Query(QueryRequest) (*QueryResult, error)
+	Search(SearchRequest) (*SearchResult, error)
 	Context(ContextRequest) (*ContextResult, error)
 	Cypher(CypherRequest) (*CypherResult, error)
 	Impact(ImpactRequest) (*ImpactResult, error)
@@ -439,6 +521,17 @@ type RelationshipPatternSummary struct {
 // BackendFactory creates a ToolBackend for the given repo.
 // Returns nil if the repo is not loaded.
 type BackendFactory func(repo string) ToolBackend
+
+// BackendResources is the repo state needed to construct a query backend.
+type BackendResources struct {
+	Graph              *lpg.Graph
+	Index              *search.Index
+	Resolver           func() *storage.ContentResolver
+	RepoDir            string
+	PluginName         string
+	EmbeddingsComplete bool
+	Entities           []plugin.Entity
+}
 
 // EmbedRequest is the JSON body for POST /api/embed.
 type EmbedRequest struct {

@@ -2,10 +2,10 @@
 
 When launching **explore** or **task** agents to research an indexed codebase,
 include cartograph CLI instructions in the agent prompt so they use the
-knowledge graph instead of raw grep/glob/view. **Instruct sub-agents to
+knowledge graph instead of raw text search/glob/view. **Instruct sub-agents to
 start the background service** if it isn't already running -- this ensures
 warm caches for the entire research session. Cartograph queries return
-results in ms compared to grep-based exploration, and they surface
+results in ms compared to raw text-search exploration, and they surface
 structural relationships (call trees, execution flows, process labels)
 that text search cannot discover.
 
@@ -29,7 +29,7 @@ Include this block in the agent prompt (adapt the repo name):
 ````
 You have access to `cartograph`, a graph-powered code intelligence CLI.
 The repository "{repo_name}" is already indexed. Use cartograph as your
-PRIMARY search tool -- it is 100x faster than grep and surfaces structural
+PRIMARY research tool -- it is fast and surfaces structural
 relationships.
 
 If you were given a bare project name, verify it with `cartograph list` before
@@ -74,8 +74,8 @@ cartograph serve start   # start if not running
 - `cartograph schema -r {repo_name}` -- see available node labels and edge types
 
 **Rules:**
-- Start with `cartograph query`, NOT grep. Use grep only as a fallback
-  if cartograph returns no results.
+- Start with `cartograph query` or `cartograph search`. Do not fall back to
+  builtin text search for indexed source.
 - Always use `-d 3` (not `-d 1`) when tracing call trees -- depth 1 only
   shows direct callees and misses the architecture.
 - Use `cartograph cat` to read code -- it works

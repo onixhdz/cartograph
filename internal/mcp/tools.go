@@ -17,12 +17,24 @@ type QueryInput struct {
 	Limit int    `json:"limit,omitempty" jsonschema:"Maximum number of results to return (default 10)."`
 }
 
+type SearchInput struct {
+	Repo         string `json:"repo,omitempty" jsonschema:"Repository name. Auto-detected from the working directory if omitted."`
+	Pattern      string `json:"pattern" jsonschema:"Go/RE2 regex to search in source files by default, or fixed substring text when fixedStrings is true."`
+	FixedStrings bool   `json:"fixedStrings,omitempty" jsonschema:"Treat pattern as a fixed substring. Regex search is used by default."`
+	IgnoreCase   bool   `json:"ignoreCase,omitempty" jsonschema:"Use case-insensitive matching."`
+	Limit        int    `json:"limit,omitempty" jsonschema:"Maximum matching lines to return. Default 20."`
+	Context      int    `json:"context,omitempty" jsonschema:"Number of context lines around each match. Default 1, maximum 5."`
+	Files        string `json:"files,omitempty" jsonschema:"Optional glob for file paths to include, for example internal/**/*.go."`
+}
+
 // ContextInput is the input schema for the cartograph_context tool.
 type ContextInput struct {
-	Repo   string `json:"repo,omitempty" jsonschema:"Repository name. Auto-detected from the working directory if omitted."`
-	Symbol string `json:"symbol" jsonschema:"Name of the symbol (function, class, method) to inspect."`
-	File   string `json:"file,omitempty" jsonschema:"File path to disambiguate when multiple symbols share the same name."`
-	Depth  int    `json:"depth,omitempty" jsonschema:"Transitive call-tree depth. 0 returns direct callees only."`
+	Repo                 string `json:"repo,omitempty" jsonschema:"Repository name. Auto-detected from the working directory if omitted."`
+	Symbol               string `json:"symbol" jsonschema:"Name of the symbol (function, class, method) to inspect."`
+	File                 string `json:"file,omitempty" jsonschema:"File path to disambiguate when multiple symbols share the same name."`
+	Depth                int    `json:"depth,omitempty" jsonschema:"Transitive call-tree depth. 0 returns direct callees only."`
+	IncludeRelationships bool   `json:"includeRelationships,omitempty" jsonschema:"Include bounded graph relationships around the symbol, grouped by type."`
+	RelationshipLimit    int    `json:"relationshipLimit,omitempty" jsonschema:"Maximum relationships to include when includeRelationships is true. Default 100."`
 }
 
 // ImpactInput is the input schema for the cartograph_impact tool.
@@ -60,8 +72,13 @@ type StatusInput struct{}
 func (s *Server) registerTools() {
 	sdkmcp.AddTool(s.server, &sdkmcp.Tool{
 		Name:        "cartograph_query",
-		Description: "Search the knowledge graph for execution flows, functions, and code patterns. Returns matched processes (execution flows) and symbol definitions ranked by relevance. Use this to discover how code works or find specific functionality.",
+		Description: "Search the knowledge graph for execution flows, functions, behavior, and architecture. Returns matched processes and symbol definitions ranked by relevance. Use cartograph_search instead for exact source text, literals, TODOs, route strings, and regex patterns.",
 	}, s.handleQuery)
+
+	sdkmcp.AddTool(s.server, &sdkmcp.Tool{
+		Name:        "cartograph_search",
+		Description: "Search raw source text in an indexed repository using Go/RE2 regex matching by default, or fixed substring matching when fixedStrings is enabled. Use this when you need exact identifiers, string literals, error messages, route patterns, TODOs, config keys, or regex patterns. Use cartograph_query instead for semantic or graph-aware questions about behavior, execution flows, or architecture.",
+	}, s.handleSearch)
 
 	sdkmcp.AddTool(s.server, &sdkmcp.Tool{
 		Name:        "cartograph_context",
@@ -116,16 +133,44 @@ func (s *Server) handleQuery(ctx context.Context, _ *sdkmcp.CallToolRequest, inp
 	return jsonResult(result)
 }
 
+func (s *Server) handleSearch(ctx context.Context, _ *sdkmcp.CallToolRequest, input SearchInput) (*sdkmcp.CallToolResult, any, error) {
+	repo, err := resolveRepo(ctx, input.Repo)
+	if err != nil {
+		return toolError("%v", err)
+	}
+	limit := input.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	contextLines := input.Context
+	contextLines = max(contextLines, 0)
+	result, err := s.client.Search(service.SearchRequest{
+		Repo:         repo,
+		Pattern:      input.Pattern,
+		FixedStrings: input.FixedStrings,
+		IgnoreCase:   input.IgnoreCase,
+		Limit:        limit,
+		ContextLines: contextLines,
+		Files:        input.Files,
+	})
+	if err != nil {
+		return toolError("search failed: %v", err)
+	}
+	return jsonResult(result)
+}
+
 func (s *Server) handleContext(ctx context.Context, _ *sdkmcp.CallToolRequest, input ContextInput) (*sdkmcp.CallToolResult, any, error) {
 	repo, err := resolveRepo(ctx, input.Repo)
 	if err != nil {
 		return toolError("%v", err)
 	}
 	result, err := s.client.Context(service.ContextRequest{
-		Repo:  repo,
-		Name:  input.Symbol,
-		File:  input.File,
-		Depth: input.Depth,
+		Repo:                 repo,
+		Name:                 input.Symbol,
+		File:                 input.File,
+		Depth:                input.Depth,
+		IncludeRelationships: input.IncludeRelationships,
+		RelationshipLimit:    input.RelationshipLimit,
 	})
 	if err != nil {
 		return toolError("context failed: %v", err)

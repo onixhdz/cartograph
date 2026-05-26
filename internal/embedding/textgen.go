@@ -31,8 +31,12 @@ var EmbeddableLabels = []graph.NodeLabel{
 	graph.LabelMethod,
 	graph.LabelInterface,
 	graph.LabelStruct,
+	graph.LabelEnum,
+	graph.LabelTypeAlias,
 	graph.LabelConstructor,
 	graph.LabelCodeElement,
+	graph.LabelTrait,
+	graph.LabelTypedef,
 }
 
 // Embedding priority tiers. Lower value = higher priority.
@@ -49,7 +53,11 @@ const (
 func EmbedPriority(node *lpg.Node, g *lpg.Graph) int {
 	if node.HasLabel(string(graph.LabelClass)) ||
 		node.HasLabel(string(graph.LabelInterface)) ||
-		node.HasLabel(string(graph.LabelStruct)) {
+		node.HasLabel(string(graph.LabelStruct)) ||
+		node.HasLabel(string(graph.LabelEnum)) ||
+		node.HasLabel(string(graph.LabelTypeAlias)) ||
+		node.HasLabel(string(graph.LabelTypedef)) ||
+		node.HasLabel(string(graph.LabelTrait)) {
 		return PriorityArchitectural
 	}
 
@@ -82,7 +90,11 @@ func ShouldEmbed(node *lpg.Node, g *lpg.Graph) bool {
 	// Structural types always define architecture worth searching.
 	if node.HasLabel(string(graph.LabelClass)) ||
 		node.HasLabel(string(graph.LabelInterface)) ||
-		node.HasLabel(string(graph.LabelStruct)) {
+		node.HasLabel(string(graph.LabelStruct)) ||
+		node.HasLabel(string(graph.LabelEnum)) ||
+		node.HasLabel(string(graph.LabelTypeAlias)) ||
+		node.HasLabel(string(graph.LabelTypedef)) ||
+		node.HasLabel(string(graph.LabelTrait)) {
 		return true
 	}
 	if node.HasLabel(string(graph.LabelCodeElement)) && isStructuralCodeElement(node) {

@@ -31,6 +31,10 @@ func (stubBackend) Query(req QueryRequest) (*QueryResult, error) {
 	}, nil
 }
 
+func (stubBackend) Search(req SearchRequest) (*SearchResult, error) {
+	return &SearchResult{Repo: req.Repo, Pattern: req.Pattern, IndexStatus: IndexStatusIndexed, Matches: []SearchMatch{}}, nil
+}
+
 func (stubBackend) Context(req ContextRequest) (*ContextResult, error) {
 	return &ContextResult{
 		Symbol:    SymbolMatch{},
@@ -479,6 +483,22 @@ func TestHandleQuery_AmbiguousShortName(t *testing.T) {
 	}
 	if !strings.Contains(resp.Error.Message, "acme/sdk") || !strings.Contains(resp.Error.Message, "corp/sdk") {
 		t.Errorf("error should list both repos, got: %s", resp.Error.Message)
+	}
+}
+
+func TestHandleSearch_AmbiguousShortName(t *testing.T) {
+	s := newTestServerWithRegistry(t)
+	body := jsonBody(t, SearchRequest{Repo: "sdk", Pattern: "TODO"})
+	req := httptest.NewRequestWithContext(context.Background(), "POST", RouteSearch, body)
+	rec := httptest.NewRecorder()
+	s.handleSearch(rec, req)
+
+	resp := decodeResponse(t, rec)
+	if resp.Error == nil {
+		t.Fatal("expected error for ambiguous short name")
+	}
+	if !strings.Contains(resp.Error.Message, "ambiguous") {
+		t.Errorf("error should mention 'ambiguous', got: %s", resp.Error.Message)
 	}
 }
 

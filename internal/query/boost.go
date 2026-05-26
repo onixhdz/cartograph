@@ -3,6 +3,7 @@ package query
 import (
 	"math"
 	"strings"
+	"unicode"
 
 	"github.com/cloudprivacylabs/lpg/v2"
 
@@ -91,6 +92,24 @@ var domainBoosts = []domainBoost{
 		},
 		pathMul: 1.5, sigMul: 1.3, affixMul: 1.5,
 	},
+	{
+		name: "cli",
+		triggers: []string{
+			"cli", "command", "commands", "subcommand", "daemon", "protocol",
+			"terminal", "console",
+		},
+		paths: []string{
+			"cli", "cmd", "command", "commands", "subcommand", "daemon",
+			"protocol", "terminal", "console",
+		},
+		prefixes: []string{
+			"command", "cmd", "daemon", "protocol",
+		},
+		suffixes: []string{
+			"command", "commands", "runner", "daemon", "server", "protocol",
+		},
+		pathMul: 1.5, sigMul: 1.3, affixMul: 1.5,
+	},
 }
 
 // Auth-flow signals are kept separate from the regular domain table because
@@ -107,13 +126,14 @@ var (
 // symbol's name or file path signals relevance to the query's domain.
 func contextBoost(queryText string, sm service.SymbolMatch) float64 {
 	ql := strings.ToLower(queryText)
+	queryTokens := tokenSet(ql)
 	nameL := strings.ToLower(sm.Name)
 	pathL := strings.ToLower(sm.FilePath)
 	sigL := strings.ToLower(sm.Signature)
 	boost := tokenOverlapBoost(queryText, sm)
 
 	for _, d := range domainBoosts {
-		if !containsAny(ql, d.triggers...) {
+		if !containsAnyTokenOrSubstring(ql, queryTokens, d.triggers...) {
 			continue
 		}
 		if containsAny(pathL, d.paths...) {
@@ -140,6 +160,74 @@ func contextBoost(queryText string, sm service.SymbolMatch) float64 {
 	}
 
 	return boost
+}
+
+func tokenSet(s string) map[string]bool {
+	tokens := make(map[string]bool)
+	for _, tok := range strings.FieldsFunc(s, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}) {
+		if tok != "" {
+			tokens[tok] = true
+		}
+	}
+	return tokens
+}
+
+func containsAnyTokenOrSubstring(s string, tokens map[string]bool, subs ...string) bool {
+	for _, sub := range subs {
+		if len(sub) <= 3 {
+			if tokens[sub] {
+				return true
+			}
+			continue
+		}
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+	return false
+}
+
+var languageQueryAliases = map[string][]string{
+	"csharp":     {"csharp", "c#"},
+	"dart":       {"dart"},
+	"java":       {"java"},
+	"javascript": {"javascript"},
+	"kotlin":     {"kotlin"},
+	"php":        {"php"},
+	"python":     {"python"},
+	"ruby":       {"ruby"},
+	"rust":       {"rust"},
+	"scala":      {"scala"},
+	"solidity":   {"solidity"},
+	"swift":      {"swift"},
+	"typescript": {"typescript"},
+}
+
+func languageMentionBoost(queryText, nodeLanguage string) float64 {
+	nodeLanguage = strings.ToLower(strings.TrimSpace(nodeLanguage))
+	aliases := languageQueryAliases[nodeLanguage]
+	if len(aliases) == 0 {
+		return 1.0
+	}
+
+	queryLower := strings.ToLower(queryText)
+	queryTokens := tokenSet(queryLower)
+	for _, alias := range aliases {
+		if strings.IndexFunc(alias, func(r rune) bool {
+			return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+		}) >= 0 {
+			if strings.Contains(queryLower, alias) {
+				return 1.5
+			}
+			continue
+		}
+		if queryTokens[alias] {
+			return 1.5
+		}
+	}
+	return 1.0
 }
 
 func tokenOverlapBoost(queryText string, sm service.SymbolMatch) float64 {

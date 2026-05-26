@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +16,7 @@ import (
 
 	"github.com/realxen/cartograph/internal/search"
 	"github.com/realxen/cartograph/internal/storage"
+	"github.com/realxen/cartograph/internal/storage/bbolt"
 )
 
 // mockStore implements storage.GraphStore for tests.
@@ -29,6 +33,17 @@ func (m *mockStore) LoadGraph() (*lpg.Graph, error) {
 	return m.g, nil
 }
 func (m *mockStore) Close() error { return nil }
+
+type closeCountingStore struct {
+	count int
+}
+
+func (s *closeCountingStore) Get(string) ([]byte, error) { return nil, nil }
+func (s *closeCountingStore) Has(string) bool            { return false }
+func (s *closeCountingStore) Close() error {
+	s.count++
+	return nil
+}
 
 func TestServerLoadGetDropGraph(t *testing.T) {
 	s := &Server{
@@ -53,6 +68,142 @@ func TestServerLoadGetDropGraph(t *testing.T) {
 	_, ok = s.GetGraph("myrepo")
 	if ok {
 		t.Error("expected graph to be dropped")
+	}
+}
+
+func TestServerDropGraphClosesResolverAliases(t *testing.T) {
+	dataDir := t.TempDir()
+	registry, err := storage.NewRegistry(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Add(storage.RegistryEntry{Name: "acme/repo", Hash: "hash123"}); err != nil {
+		t.Fatal(err)
+	}
+	closed := &closeCountingStore{}
+	s := &Server{
+		graph:     map[string]*lpg.Graph{"hash123": lpg.NewGraph()},
+		searchIdx: make(map[string]*search.Index),
+		resolvers: map[string]*storage.ContentResolver{
+			"repo": {Store: closed},
+		},
+		dataDir: dataDir,
+	}
+
+	s.DropGraph("hash123")
+
+	if closed.count != 1 {
+		t.Fatalf("resolver close count = %d, want 1", closed.count)
+	}
+	if _, ok := s.graph["hash123"]; ok {
+		t.Fatal("graph was not dropped")
+	}
+	if len(s.resolvers) != 0 {
+		t.Fatalf("resolvers not cleared: %#v", s.resolvers)
+	}
+}
+
+func TestServerGetContentResolverConcurrentUsesOneResolver(t *testing.T) {
+	dataDir := t.TempDir()
+	registry, err := storage.NewRegistry(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Add(storage.RegistryEntry{Name: "acme/repo", Hash: "hash123"}); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{
+		resolvers: make(map[string]*storage.ContentResolver),
+		dataDir:   dataDir,
+	}
+
+	const goroutines = 32
+	results := make(chan *storage.ContentResolver, goroutines)
+	var wg sync.WaitGroup
+	for range goroutines {
+		wg.Go(func() {
+			results <- s.GetContentResolver("repo")
+		})
+	}
+	wg.Wait()
+	close(results)
+
+	var first *storage.ContentResolver
+	for resolver := range results {
+		if resolver == nil {
+			t.Fatal("expected resolver")
+		}
+		if first == nil {
+			first = resolver
+			continue
+		}
+		if resolver != first {
+			t.Fatal("concurrent calls returned different resolvers")
+		}
+	}
+	if len(s.resolvers) != 1 {
+		t.Fatalf("resolver cache size = %d, want 1", len(s.resolvers))
+	}
+	if s.resolvers["hash123"] != first {
+		t.Fatal("resolver was not cached by canonical hash")
+	}
+}
+
+func TestServerGetContentResolverConcurrentContentBucket(t *testing.T) {
+	dataDir := t.TempDir()
+	registry, err := storage.NewRegistry(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoDir := filepath.Join(dataDir, "acme/repo", "hash123")
+	if err := os.MkdirAll(repoDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	cs, err := bbolt.NewContentStore(filepath.Join(repoDir, "graph.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cs.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Add(storage.RegistryEntry{
+		Name: "acme/repo",
+		Hash: "hash123",
+		Meta: storage.Meta{HasContentBucket: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{
+		resolvers: make(map[string]*storage.ContentResolver),
+		dataDir:   dataDir,
+	}
+
+	const goroutines = 32
+	results := make(chan *storage.ContentResolver, goroutines)
+	var wg sync.WaitGroup
+	for range goroutines {
+		wg.Go(func() {
+			results <- s.GetContentResolver("repo")
+		})
+	}
+	wg.Wait()
+	close(results)
+
+	var first *storage.ContentResolver
+	for resolver := range results {
+		if resolver == nil || resolver.Store == nil {
+			t.Fatalf("expected resolver with store, got %#v", resolver)
+		}
+		if first == nil {
+			first = resolver
+			continue
+		}
+		if resolver != first {
+			t.Fatal("concurrent calls returned different resolvers")
+		}
+	}
+	if len(s.resolvers) != 1 || s.resolvers["hash123"] != first {
+		t.Fatalf("unexpected resolver cache: %#v", s.resolvers)
 	}
 }
 

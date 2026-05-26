@@ -36,6 +36,7 @@ type mockClient struct {
 	shutdownCalled bool
 
 	lastQueryReq   service.QueryRequest
+	lastSearchReq  service.SearchRequest
 	lastContextReq service.ContextRequest
 	lastCypherReq  service.CypherRequest
 	lastImpactReq  service.ImpactRequest
@@ -64,14 +65,46 @@ func (m *mockClient) Query(req service.QueryRequest) (*service.QueryResult, erro
 	}, nil
 }
 
+func (m *mockClient) Search(req service.SearchRequest) (*service.SearchResult, error) {
+	m.lastSearchReq = req
+	return &service.SearchResult{
+		Repo:         req.Repo,
+		Pattern:      req.Pattern,
+		FixedStrings: req.FixedStrings,
+		IndexStatus:  service.IndexStatusIndexed,
+		DurationMS:   4,
+		MatchCount:   1,
+		FileCount:    1,
+		Matches: []service.SearchMatch{{
+			FilePath: "internal/query/backend.go",
+			Line:     10,
+			Column:   5,
+			LineText: "results := SearchMulti()",
+			Before:   []string{"func run() {"},
+			After:    []string{"}"},
+		}},
+	}, nil
+}
+
 func (m *mockClient) Context(req service.ContextRequest) (*service.ContextResult, error) {
 	m.contextCalled = true
 	m.lastContextReq = req
-	return &service.ContextResult{
+	result := &service.ContextResult{
 		Symbol:  service.SymbolMatch{Name: "Foo", Label: "Function", FilePath: "foo.go", StartLine: 1},
 		Callers: []service.SymbolMatch{{Name: "main", Label: "Function", FilePath: "main.go", StartLine: 5}},
 		Callees: []service.SymbolMatch{{Name: "bar", Label: "Function", FilePath: "bar.go", StartLine: 3}},
-	}, nil
+	}
+	if req.IncludeRelationships {
+		result.RelationshipGroups = []service.RelationshipGroup{{
+			Type: "CALLS",
+			Relationships: []service.ContextRelationship{{
+				From: service.SymbolMatch{Name: "Foo", Label: "Function", FilePath: "foo.go", StartLine: 1},
+				To:   service.SymbolMatch{Name: "bar", Label: "Function", FilePath: "bar.go", StartLine: 3},
+			}},
+		}}
+		result.RelationshipStats = &service.RelationshipStats{Depth: req.Depth, ReturnedNodes: 2, ReturnedRelationships: 1, Limit: req.RelationshipLimit}
+	}
+	return result, nil
 }
 
 func (m *mockClient) Cypher(req service.CypherRequest) (*service.CypherResult, error) {
@@ -251,15 +284,61 @@ func TestQueryCmd(t *testing.T) {
 	})
 }
 
+func TestSearchCmd(t *testing.T) {
+	t.Run("forwards request and prints grouped output", func(t *testing.T) {
+		mc := &mockClient{}
+		cmd := &SearchCmd{
+			Pattern:      "SearchMulti",
+			Repo:         testRepo,
+			FixedStrings: true,
+			IgnoreCase:   true,
+			Limit:        50,
+			Context:      2,
+			Files:        "internal/**/*.go",
+		}
+		out := captureStdout(t, func() {
+			if err := cmd.Run(&CLI{Client: mc}); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+		})
+		if mc.lastSearchReq.Pattern != "SearchMulti" || !mc.lastSearchReq.FixedStrings || !mc.lastSearchReq.IgnoreCase {
+			t.Fatalf("request not forwarded: %+v", mc.lastSearchReq)
+		}
+		if mc.lastSearchReq.Limit != 50 || mc.lastSearchReq.ContextLines != 2 || mc.lastSearchReq.Files != "internal/**/*.go" {
+			t.Fatalf("request flags not forwarded: %+v", mc.lastSearchReq)
+		}
+		for _, want := range []string{"1 matches in 1 files", "internal/query/backend.go", ">   10  results := SearchMulti()"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("output missing %q:\n%s", want, out)
+			}
+		}
+	})
+
+	t.Run("prints json", func(t *testing.T) {
+		mc := &mockClient{}
+		cmd := &SearchCmd{Pattern: "TODO", Repo: testRepo, JSON: true}
+		out := captureStdout(t, func() {
+			if err := cmd.Run(&CLI{Client: mc}); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+		})
+		if !strings.Contains(out, `"indexStatus": "indexed"`) || !strings.Contains(out, `"filePath": "internal/query/backend.go"`) {
+			t.Fatalf("unexpected json output:\n%s", out)
+		}
+	})
+}
+
 func TestContextCmd(t *testing.T) {
 	t.Run("calls client with correct params", func(t *testing.T) {
 		mc := &mockClient{}
 		cli := &CLI{Client: mc}
 		cmd := &ContextCmd{
-			Name: "Foo",
-			Repo: testRepo,
-			File: "foo.go",
-			UID:  "uid-123",
+			Name:              "Foo",
+			Repo:              testRepo,
+			File:              "foo.go",
+			UID:               "uid-123",
+			Relationships:     true,
+			RelationshipLimit: 50,
 		}
 
 		out := captureStdout(t, func() {
@@ -283,6 +362,12 @@ func TestContextCmd(t *testing.T) {
 		if mc.lastContextReq.UID != "uid-123" {
 			t.Errorf("uid: got %q, want %q", mc.lastContextReq.UID, "uid-123")
 		}
+		if !mc.lastContextReq.IncludeRelationships {
+			t.Error("expected relationships to be requested")
+		}
+		if mc.lastContextReq.RelationshipLimit != 50 {
+			t.Errorf("relationship limit: got %d, want 50", mc.lastContextReq.RelationshipLimit)
+		}
 		if !strings.Contains(out, "Symbol:") {
 			t.Error("expected output to contain 'Symbol:'")
 		}
@@ -291,6 +376,12 @@ func TestContextCmd(t *testing.T) {
 		}
 		if !strings.Contains(out, "Callees:") {
 			t.Error("expected output to contain 'Callees:'")
+		}
+		if !strings.Contains(out, "Relationships:") {
+			t.Error("expected output to contain 'Relationships:'")
+		}
+		if !strings.Contains(out, "Relationship summary:") {
+			t.Error("expected output to contain 'Relationship summary:'")
 		}
 	})
 }
