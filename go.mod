@@ -5,13 +5,15 @@ go 1.25.6
 require (
 	github.com/alecthomas/kong v1.14.0
 	github.com/blevesearch/bleve/v2 v2.5.7
+	github.com/charmbracelet/bubbles v0.21.1-0.20250623103423-23b8fd6302d7
 	github.com/charmbracelet/huh v1.0.0
 	github.com/cloudprivacylabs/lpg/v2 v2.0.2
 	github.com/cloudprivacylabs/opencypher v1.0.0
 	github.com/fwcd/tree-sitter-kotlin v0.0.0-20260411204054-55622a49bd59
-	github.com/go-git/go-billy/v6 v6.0.0-20260226131633-45bd0956d66f
+	github.com/go-git/go-billy/v6 v6.0.0-alpha.1
 	github.com/go-git/go-git/v6 v6.0.0-20260323155804-7ae1cb62d6b7
 	github.com/gofrs/flock v0.13.0
+	github.com/google/codesearch v1.2.0
 	github.com/gortexhq/tree-sitter-dart v0.1.0
 	github.com/gortexhq/tree-sitter-swift v0.1.1-0.20260424235305-8dde3a3327dd
 	github.com/klauspost/compress v1.18.4
@@ -36,7 +38,7 @@ require (
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	go.etcd.io/bbolt v1.4.3
 	golang.org/x/mod v0.32.0
-	golang.org/x/sys v0.42.0
+	golang.org/x/sys v0.44.0
 	golang.org/x/term v0.41.0
 )
 
@@ -66,7 +68,6 @@ require (
 	github.com/blevesearch/zapx/v15 v15.4.2 // indirect
 	github.com/blevesearch/zapx/v16 v16.2.8 // indirect
 	github.com/catppuccin/go v0.3.0 // indirect
-	github.com/charmbracelet/bubbles v0.21.1-0.20250623103423-23b8fd6302d7 // indirect
 	github.com/charmbracelet/bubbletea v1.3.6 // indirect
 	github.com/charmbracelet/colorprofile v0.2.3-0.20250311203215-f60798e515dc // indirect
 	github.com/charmbracelet/lipgloss v1.1.0 // indirect
@@ -75,14 +76,12 @@ require (
 	github.com/charmbracelet/x/exp/strings v0.0.0-20240722160745-212f7b056ed0 // indirect
 	github.com/charmbracelet/x/term v0.2.1 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
-	github.com/cyphar/filepath-securejoin v0.6.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/go-git/gcfg/v2 v2.0.2 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
-	github.com/google/codesearch v1.2.0 // indirect
 	github.com/google/jsonschema-go v0.4.2 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
