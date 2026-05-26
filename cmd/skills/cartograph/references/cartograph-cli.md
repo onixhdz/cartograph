@@ -8,6 +8,7 @@ Complete command reference for the cartograph CLI tool.
 
 Index one or more repositories — builds the knowledge graph from source code.
 Accepts multiple targets in a single command; each is indexed independently.
+Analyze builds the graph plus search artifacts for `cartograph query` and raw source `cartograph search`.
 
 **Arguments:**
 - `path|url ...` — One or more local paths or Git URLs (defaults to current directory)
@@ -87,9 +88,27 @@ For local folders that may contain multiple projects, agents should run plain
 candidates. If candidates are found, follow the next command printed by analyze
 instead of guessing repo-selection flags.
 
+### `cartograph search "<pattern>"`
+
+Search indexed raw source text. Regex is the default; use fixed-string mode for punctuation-heavy literals. Use this for identifiers, literals, errors, config keys, route strings, TODOs, and regex-shaped code.
+
+**Arguments:**
+- `pattern` — Go/RE2 regex pattern by default, or fixed substring with `-F`
+
+**Useful flags:** `-r/--repo`, `-F/--fixed-strings`, `--files <glob>`, `-l/--limit`, `--context`, `--json`.
+
+**Examples:**
+```bash
+cartograph search 'func .*Handler'
+cartograph search 'panic(' -F
+cartograph search 'route:' --files 'internal/**/*.go'
+```
+
+**Output:** Grouped source-line matches with file paths, line numbers, context, and truncation status. JSON output includes `indexStatus` (`indexed`, `degraded`, `missing`, or `invalid`).
+
 ### `cartograph query "<search>"`
 
-Search the knowledge graph for execution flows and symbols. Uses BM25 full-text search, or hybrid BM25 + vector search when embeddings are available.
+Search the knowledge graph for execution flows and symbols. Use `cartograph search` instead for exact source text and regex patterns.
 
 **Arguments:**
 - `search` — Search query text (required)
@@ -359,6 +378,8 @@ cartograph schema hashicorp/nomad
 | `Enum`        | Enum definition                           |
 | `File`        | Source file                               |
 | `Folder`      | Directory                                 |
+| `Dependency`  | External package/module dependency        |
+| `Module`      | Repository/module manifest                |
 | `Community`   | Leiden community cluster                  |
 | `Process`     | Execution flow (entry point → call chain) |
 | `Namespace`   | Namespace/module                          |
@@ -392,6 +413,9 @@ cartograph schema hashicorp/nomad
 | `STEP_IN_PROCESS` | Symbol is a step in an execution flow       |
 | `ACCESSES`        | Function accesses a property/field          |
 | `USES`            | Symbol uses another symbol                  |
+| `DEPENDS_ON`      | Module depends on an external dependency    |
+| `SPAWNS`          | Function starts async/concurrent work       |
+| `DELEGATES_TO`    | Function registers or delegates to handler  |
 
 ### Key Properties
 
@@ -553,7 +577,9 @@ available, it falls back to an in-process MemoryClient.
 | `cartograph_context` | 360° view of a code symbol; can include grouped graph relationships with `includeRelationships` |
 | `cartograph_impact`  | Blast radius analysis for a symbol                                                              |
 | `cartograph_cypher`  | Execute raw Cypher queries against the graph                                                    |
+| `cartograph_search`  | Search indexed raw source text with regex or fixed strings                                      |
 | `cartograph_cat`     | Read file contents from an indexed repository                                                   |
+| `cartograph_tree`    | Show indexed repository file tree                                                               |
 | `cartograph_schema`  | Show graph schema (node labels, edge types, counts)                                             |
 | `cartograph_status`  | Check server status and loaded repositories                                                     |
 

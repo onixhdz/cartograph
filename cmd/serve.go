@@ -17,7 +17,6 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	mcpserver "github.com/realxen/cartograph/internal/mcp"
-	"github.com/realxen/cartograph/internal/query"
 	"github.com/realxen/cartograph/internal/service"
 	"github.com/realxen/cartograph/internal/sysutil"
 )
@@ -174,7 +173,7 @@ func (c *ServeStartCmd) runForeground(cli *CLI) error {
 		_ = lf.Release()
 		return fmt.Errorf("serve: %w", err)
 	}
-	srv.SetBackendFactory(newServerBackendFactory(srv))
+	srv.SetBackendFactory(NewQueryBackendFactory(srv))
 
 	if !c.NoMCP {
 		appVersion := cli.AppVersion
@@ -484,33 +483,6 @@ func isAlive(network, addr string) bool {
 	return true
 }
 
-// newServerBackendFactory returns a BackendFactory that creates
-// query.Backend instances from the server's cached graphs and search
-// indexes.
-func newServerBackendFactory(s *service.Server) service.BackendFactory {
-	return func(repo string) service.ToolBackend {
-		g, idx, ok := s.GetRepoResources(repo)
-		if !ok {
-			return nil
-		}
-		var (
-			embedDir string
-			embedFn  query.QueryEmbedFn
-		)
-		if s.HasCompleteEmbeddings(repo) {
-			embedDir = s.GetRepoDir(repo)
-			embedFn = s.QueryEmbed
-		}
-		return &query.Backend{
-			Graph:    g,
-			Index:    idx,
-			EmbedDir: embedDir,
-			EmbedFn:  embedFn,
-			Entities: s.GetPluginEntities(repo),
-		}
-	}
-}
-
 // serverMCPClient adapts *service.Server to the mcp.Client interface,
 // allowing the MCP handler to call server backends directly without
 // HTTP round-tripping.
@@ -545,6 +517,19 @@ func (c *serverMCPClient) Query(req service.QueryRequest) (*service.QueryResult,
 	res, err := be.Query(req)
 	if err != nil {
 		return nil, fmt.Errorf("query: %w", err)
+	}
+	return res, nil
+}
+
+func (c *serverMCPClient) Search(req service.SearchRequest) (*service.SearchResult, error) {
+	repo, be, err := c.resolveBackend(req.Repo)
+	if err != nil {
+		return nil, err
+	}
+	req.Repo = repo
+	res, err := be.Search(req)
+	if err != nil {
+		return nil, fmt.Errorf("search: %w", err)
 	}
 	return res, nil
 }

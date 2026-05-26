@@ -18,6 +18,7 @@ import (
 // lets us swap the real HTTP client in later.
 type ServiceClient interface {
 	Query(service.QueryRequest) (*service.QueryResult, error)
+	Search(service.SearchRequest) (*service.SearchResult, error)
 	Context(service.ContextRequest) (*service.ContextResult, error)
 	Cypher(service.CypherRequest) (*service.CypherResult, error)
 	Impact(service.ImpactRequest) (*service.ImpactResult, error)

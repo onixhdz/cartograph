@@ -64,6 +64,10 @@ cartograph analyze ~/repos
 # Search for execution flows
 cartograph query "authentication middleware"
 
+# Search exact source text or regex patterns
+cartograph search 'func .*Handler'
+cartograph grep 'panic(' -F
+
 # Inspect the indexed file tree
 cartograph tree internal/service --depth 2
 
@@ -74,7 +78,9 @@ cartograph context UserService
 cartograph impact validateUser
 ```
 
-That's it. The graph is built, persisted locally, and ready to query.
+That's it. The graph and search indexes are built, persisted locally, and ready to query. Analyze prints a combined search-index summary, for example `Search indexes: BM25 5481 documents, regex 4185 files`.
+
+Use `cartograph search` when you know the text shape: identifiers, string literals, errors, TODOs, config keys, route strings, or regex patterns. Use `cartograph query` when you need meaning: behavior, execution flows, ownership, impact, or architecture.
 
 When a target contains multiple repo candidates, run plain `cartograph analyze <folder>` first. Analyze prints the candidate list and recommended follow-up commands.
 
@@ -156,9 +162,11 @@ Go · TypeScript · JavaScript · Python · Java · Rust · C++ · C · Ruby · 
 3. **Resolution** — Resolve imports, calls, and inheritance across files
 4. **Clustering** — Group related symbols into communities (Leiden algorithm)
 5. **Processes** — Trace execution flows from entry points through call chains
-6. **Search** — Build BM25 + vector indexes for hybrid retrieval
+6. **Search** — Build BM25 indexes for graph query and regex indexes for raw source search
 
 Everything is persisted locally — no external services needed.
+
+`cartograph query` uses the knowledge graph plus `search.bleve` (BM25, and vectors when embeddings are complete). `cartograph search` and `cartograph grep` use `search.regex` plus stored source content for exact raw source matches.
 
 ---
 

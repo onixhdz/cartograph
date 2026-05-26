@@ -98,6 +98,7 @@ func TestAPIErrorImplementsError(t *testing.T) {
 func TestAllMethodsComplete(t *testing.T) {
 	expected := map[string]bool{
 		MethodQuery:              true,
+		MethodSearch:             true,
 		MethodContext:            true,
 		MethodCypher:             true,
 		MethodImpact:             true,
@@ -143,6 +144,7 @@ func TestMethodToRouteComplete(t *testing.T) {
 func TestRouteConstants(t *testing.T) {
 	routes := map[string]string{
 		"query":    RouteQuery,
+		"search":   RouteSearch,
 		"context":  RouteContext,
 		"cypher":   RouteCypher,
 		"impact":   RouteImpact,
