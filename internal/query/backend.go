@@ -5,6 +5,7 @@ package query
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/cloudprivacylabs/lpg/v2"
@@ -22,6 +24,7 @@ import (
 	"github.com/realxen/cartograph/internal/ingestion"
 	"github.com/realxen/cartograph/internal/search"
 	"github.com/realxen/cartograph/internal/service"
+	"github.com/realxen/cartograph/internal/storage"
 	"github.com/realxen/cartograph/internal/storage/bbolt"
 	"github.com/realxen/cartograph/plugin"
 )
@@ -70,11 +73,103 @@ var graphExploreRelWeights = map[string]float64{
 // Backend holds the graph and search index for a single repository
 // and exposes the tool implementations.
 type Backend struct {
-	Graph    *lpg.Graph    // in-memory knowledge graph for the repository
-	Index    *search.Index // may be nil if FTS not available
-	EmbedDir string        // repo data dir containing embeddings.db (optional)
-	EmbedFn  QueryEmbedFn  // embeds query text for vector search (optional)
-	Entities []plugin.Entity
+	Graph      *lpg.Graph    // in-memory knowledge graph for the repository
+	Index      *search.Index // may be nil if FTS not available
+	Resolver   *storage.ContentResolver
+	ResolverFn func() *storage.ContentResolver
+	RepoDir    string
+	PluginName string
+	EmbedDir   string       // repo data dir containing embeddings.db (optional)
+	EmbedFn    QueryEmbedFn // embeds query text for vector search (optional)
+	Entities   []plugin.Entity
+}
+
+func (b *Backend) Search(req service.SearchRequest) (*service.SearchResult, error) {
+	started := time.Now()
+	result := &service.SearchResult{
+		Repo:         req.Repo,
+		Pattern:      req.Pattern,
+		FixedStrings: req.FixedStrings,
+		IndexStatus:  service.IndexStatusIndexed,
+		Matches:      []service.SearchMatch{},
+	}
+	if req.Pattern == "" {
+		return nil, errors.New("missing pattern")
+	}
+	if b.PluginName != "" {
+		return nil, errors.New("raw source search is not available for plugin datasets")
+	}
+	if b.RepoDir == "" {
+		result.IndexStatus = service.IndexStatusMissing
+		result.Message = "regex index missing; run cartograph analyze --force to build it"
+		result.DurationMS = time.Since(started).Milliseconds()
+		return result, nil
+	}
+	regexIndex, err := search.OpenRegexIndex(filepath.Join(b.RepoDir, "search.regex"))
+	if err != nil {
+		result.IndexStatus = service.IndexStatusMissing
+		result.Message = "regex index missing; run cartograph analyze --force to build it"
+		if !errors.Is(err, search.ErrRegexIndexMissing) {
+			result.IndexStatus = service.IndexStatusInvalid
+			result.Message = "regex index invalid; run cartograph analyze --force to rebuild it"
+		}
+		result.DurationMS = time.Since(started).Milliseconds()
+		return result, nil
+	}
+	resolver := b.Resolver
+	if resolver == nil && b.ResolverFn != nil {
+		resolver = b.ResolverFn()
+	}
+	if resolver == nil {
+		return nil, errors.New("repository has no source content available; re-run analyze with source content available")
+	}
+
+	searchResult, err := regexIndex.Search(search.RegexSearchOptions{
+		Pattern:      req.Pattern,
+		FixedStrings: req.FixedStrings,
+		IgnoreCase:   req.IgnoreCase,
+		Limit:        req.Limit,
+		ContextLines: req.ContextLines,
+		FilesGlob:    req.Files,
+		ExcludeTests: req.ExcludeTests,
+		AllFiles:     b.filePaths(),
+		ReadFile:     resolver.ReadFile,
+		IsTestFile:   ingestion.IsTestFile,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("search source: %w", err)
+	}
+	result.IndexStatus = searchResult.Status
+	result.DurationMS = searchResult.Duration.Milliseconds()
+	result.FileCount = searchResult.FileCount
+	result.Truncated = searchResult.Truncated
+	result.Matches = make([]service.SearchMatch, 0, len(searchResult.Matches))
+	for _, match := range searchResult.Matches {
+		result.Matches = append(result.Matches, service.SearchMatch{
+			FilePath: match.FilePath,
+			Line:     match.Line,
+			Column:   match.Column,
+			LineText: match.LineText,
+			Before:   match.Before,
+			After:    match.After,
+		})
+	}
+	result.MatchCount = len(result.Matches)
+	return result, nil
+}
+
+func (b *Backend) filePaths() []string {
+	if b.Graph == nil {
+		return nil
+	}
+	paths := make([]string, 0)
+	for _, node := range graph.FindNodesByLabel(b.Graph, graph.LabelFile) {
+		if fp := graph.GetStringProp(node, graph.PropFilePath); fp != "" {
+			paths = append(paths, fp)
+		}
+	}
+	sort.Strings(paths)
+	return paths
 }
 
 // Query executes a hybrid BM25 search, maps results to process memberships,

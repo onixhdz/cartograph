@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -24,6 +25,21 @@ type ContentResolver struct {
 	// Store is an optional content store (BBolt content bucket).
 	// Non-nil only for repos that have a persisted content bucket.
 	Store ContentReader
+}
+
+// Close releases resources held by the fallback content store, if any.
+func (cr *ContentResolver) Close() error {
+	if cr == nil || cr.Store == nil {
+		return nil
+	}
+	closer, ok := cr.Store.(io.Closer)
+	if !ok {
+		return nil
+	}
+	if err := closer.Close(); err != nil {
+		return fmt.Errorf("content resolver: close store: %w", err)
+	}
+	return nil
 }
 
 // ReadFile returns the content of a file at the given relative path.

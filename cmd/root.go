@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -81,6 +82,7 @@ type CLI struct {
 	Status     StatusCmd        `cmd:"" help:"Show index status for a repository (defaults to current directory)."`
 	Clean      CleanCmd         `cmd:"" help:"Delete index for a repository (defaults to current directory)."`
 	Wiki       WikiCmd          `cmd:"" help:"Wiki generation: generate context or bundle markdown into HTML viewer."`
+	Search     SearchCmd        `cmd:"" help:"Search raw source text with regex or fixed strings." aliases:"grep"`
 	Query      QueryCmd         `cmd:"" help:"Search the knowledge graph for execution flows."`
 	Context    ContextCmd       `cmd:"" help:"360-degree view of a code symbol."`
 	Impact     ImpactCmd        `cmd:"" help:"Blast radius: what breaks if you change a symbol."`
@@ -552,29 +554,12 @@ func (c *AnalyzeCmd) runLocalSingle(cli *CLI, abs, repoName, repoHash string, al
 	store.Close() //nolint:gosec
 	spGraph.StopWithSuccess("Graph persisted")
 
-	blevePath := filepath.Join(repoDir, "search.bleve")
-	if c.Force {
-		// Remove stale FTS index so we build fresh instead of merging.
-		// NOTE: embeddings.db is intentionally preserved — embedding is
-		// expensive and node IDs are deterministic, so existing vectors
-		// remain valid. Orphaned vectors are cleaned on next embed run.
-		os.RemoveAll(blevePath) //nolint:gosec
-	}
-	spSearch := newSpinner("Building search index...")
-	spSearch.Start()
-	idx, err := search.NewIndex(blevePath)
+	regexStats, err := buildAnalyzeIndexes(repoDir, g, c.Force, func(relPath string) (io.ReadCloser, error) {
+		return os.Open(filepath.Join(abs, relPath))
+	})
 	if err != nil {
-		spSearch.StopWithFailure("Failed to create search index")
-		return fmt.Errorf("analyze: create search index: %w", err)
+		return err
 	}
-	indexed, err := idx.IndexGraph(g)
-	if err != nil {
-		idx.Close() //nolint:gosec
-		spSearch.StopWithFailure("Failed to index graph")
-		return fmt.Errorf("analyze: index graph: %w", err)
-	}
-	idx.Close() //nolint:gosec
-	spSearch.StopWithSuccess(fmt.Sprintf("Search index: %d documents", indexed))
 
 	langs := collectLanguages(g)
 
@@ -599,6 +584,9 @@ func (c *AnalyzeCmd) runLocalSingle(cli *CLI, abs, repoName, repoHash string, al
 			AlgorithmVersion:     version.AlgorithmVersion,
 			EmbeddingTextVersion: version.EmbeddingTextVersion,
 			BinaryVersion:        version.BuildVersion,
+			RegexIndexVersion:    search.RegexIndexVersion,
+			RegexIndexFiles:      regexStats.Files,
+			RegexIndexBytes:      regexStats.Bytes,
 		},
 	}); err != nil {
 		return fmt.Errorf("analyze: update registry: %w", err)
@@ -1174,29 +1162,12 @@ func (c *AnalyzeCmd) indexMemoryClone(
 	store.Close() //nolint:gosec
 	spPersist.StopWithSuccess(fmt.Sprintf("Graph persisted, content stored: %d files", fileCount))
 
-	blevePath := filepath.Join(repoDir, "search.bleve")
-	if c.Force {
-		// Remove stale FTS index so we build fresh instead of merging.
-		// NOTE: embeddings.db is intentionally preserved — embedding is
-		// expensive and node IDs are deterministic, so existing vectors
-		// remain valid. Orphaned vectors are cleaned on next embed run.
-		os.RemoveAll(blevePath) //nolint:gosec
-	}
-	spSearch := newSpinner("Building search index...")
-	spSearch.Start()
-	idx, err := search.NewIndex(blevePath)
+	regexStats, err := buildAnalyzeIndexes(repoDir, g, c.Force, func(relPath string) (io.ReadCloser, error) {
+		return result.FS.Open(path.Join(analyzeRoot, relPath))
+	})
 	if err != nil {
-		spSearch.StopWithFailure("Failed to create search index")
-		return fmt.Errorf("analyze: create search index: %w", err)
+		return err
 	}
-	indexed, err := idx.IndexGraph(g)
-	if err != nil {
-		idx.Close() //nolint:gosec
-		spSearch.StopWithFailure("Failed to index graph")
-		return fmt.Errorf("analyze: index graph: %w", err)
-	}
-	idx.Close() //nolint:gosec
-	spSearch.StopWithSuccess(fmt.Sprintf("Search index: %d documents", indexed))
 
 	langs := collectLanguages(g)
 	duration := time.Since(start)
@@ -1222,6 +1193,9 @@ func (c *AnalyzeCmd) indexMemoryClone(
 			AlgorithmVersion:     version.AlgorithmVersion,
 			EmbeddingTextVersion: version.EmbeddingTextVersion,
 			BinaryVersion:        version.BuildVersion,
+			RegexIndexVersion:    search.RegexIndexVersion,
+			RegexIndexFiles:      regexStats.Files,
+			RegexIndexBytes:      regexStats.Bytes,
 		},
 	}); err != nil {
 		return fmt.Errorf("analyze: update registry: %w", err)
@@ -1352,29 +1326,12 @@ func (c *AnalyzeCmd) indexDiskClone(
 	store.Close() //nolint:gosec
 	spGraph.StopWithSuccess("Graph persisted")
 
-	blevePath := filepath.Join(repoDir, "search.bleve")
-	if c.Force {
-		// Remove stale FTS index so we build fresh instead of merging.
-		// NOTE: embeddings.db is intentionally preserved — embedding is
-		// expensive and node IDs are deterministic, so existing vectors
-		// remain valid. Orphaned vectors are cleaned on next embed run.
-		os.RemoveAll(blevePath) //nolint:gosec
-	}
-	spSearch := newSpinner("Building search index...")
-	spSearch.Start()
-	idx, err := search.NewIndex(blevePath)
+	regexStats, err := buildAnalyzeIndexes(repoDir, g, c.Force, func(relPath string) (io.ReadCloser, error) {
+		return os.Open(filepath.Join(srcDir, relPath))
+	})
 	if err != nil {
-		spSearch.StopWithFailure("Failed to create search index")
-		return fmt.Errorf("analyze: create search index: %w", err)
+		return err
 	}
-	indexed, err := idx.IndexGraph(g)
-	if err != nil {
-		idx.Close() //nolint:gosec
-		spSearch.StopWithFailure("Failed to index graph")
-		return fmt.Errorf("analyze: index graph: %w", err)
-	}
-	idx.Close() //nolint:gosec
-	spSearch.StopWithSuccess(fmt.Sprintf("Search index: %d documents", indexed))
 
 	langs := collectLanguages(g)
 	duration := time.Since(start)
@@ -1400,6 +1357,9 @@ func (c *AnalyzeCmd) indexDiskClone(
 			AlgorithmVersion:     version.AlgorithmVersion,
 			EmbeddingTextVersion: version.EmbeddingTextVersion,
 			BinaryVersion:        version.BuildVersion,
+			RegexIndexVersion:    search.RegexIndexVersion,
+			RegexIndexFiles:      regexStats.Files,
+			RegexIndexBytes:      regexStats.Bytes,
 		},
 	}); err != nil {
 		return fmt.Errorf("analyze: update registry: %w", err)
@@ -1585,6 +1545,53 @@ func collectLanguages(g *lpg.Graph) []string {
 		langs = append(langs, l)
 	}
 	return langs
+}
+
+func buildAnalyzeIndexes(repoDir string, g *lpg.Graph, force bool, openFile func(string) (io.ReadCloser, error)) (search.RegexBuildStats, error) {
+	blevePath := filepath.Join(repoDir, "search.bleve")
+	if force {
+		// Embeddings are intentionally preserved; node IDs are deterministic,
+		// and orphaned vectors are cleaned on the next embed run.
+		os.RemoveAll(blevePath) //nolint:gosec
+	}
+	spSearch := newSpinner("Building search indexes...")
+	spSearch.Start()
+	idx, err := search.NewIndex(blevePath)
+	if err != nil {
+		spSearch.StopWithFailure("Failed to create BM25 search index")
+		return search.RegexBuildStats{}, fmt.Errorf("analyze: create search index: %w", err)
+	}
+	indexed, err := idx.IndexGraph(g)
+	if err != nil {
+		idx.Close() //nolint:gosec
+		spSearch.StopWithFailure("Failed to build BM25 search index")
+		return search.RegexBuildStats{}, fmt.Errorf("analyze: index graph: %w", err)
+	}
+	idx.Close() //nolint:gosec
+
+	regexStats, err := buildRegexIndexForGraph(repoDir, g, openFile)
+	if err != nil {
+		spSearch.StopWithFailure("Failed to build regex search index")
+		return search.RegexBuildStats{}, fmt.Errorf("analyze: build regex search index: %w", err)
+	}
+	spSearch.StopWithSuccess(fmt.Sprintf("Search indexes: BM25 %d documents, regex %d files", indexed, regexStats.Files))
+	return regexStats, nil
+}
+
+func buildRegexIndexForGraph(repoDir string, g *lpg.Graph, openFile func(string) (io.ReadCloser, error)) (search.RegexBuildStats, error) {
+	paths := make([]string, 0)
+	for _, node := range graph.FindNodesByLabel(g, graph.LabelFile) {
+		fp := graph.GetStringProp(node, graph.PropFilePath)
+		if fp != "" {
+			paths = append(paths, fp)
+		}
+	}
+	sort.Strings(paths)
+	stats, err := search.BuildRegexIndexFromOpener(filepath.Join(repoDir, "search.regex"), paths, openFile)
+	if err != nil {
+		return search.RegexBuildStats{}, fmt.Errorf("build regex index: %w", err)
+	}
+	return stats, nil
 }
 
 // populateContentBucket walks the billy filesystem and stores all files
@@ -2042,7 +2049,7 @@ func (c *StatusCmd) writeStatus(w io.Writer, cli *CLI, repo string) (string, err
 			embedProvider, embedModel, embedDims)
 	}
 
-	for _, name := range []string{"graph.db", "search.bleve", "embeddings.db"} {
+	for _, name := range []string{"graph.db", "search.bleve", "search.regex", "embeddings.db"} {
 		p := filepath.Join(repoDir, name)
 		if info, err := os.Stat(p); err == nil {
 			if info.IsDir() {
@@ -2255,6 +2262,102 @@ func (c *WikiBundleCmd) Run(_ *CLI) error {
 	}
 	fmt.Printf("Wiki viewer written to %s\n", outputPath)
 	return nil
+}
+
+type SearchCmd struct {
+	Pattern      string `arg:"" help:"Go/RE2 regex pattern to search for. Use -F for fixed strings."`
+	Repo         string `help:"Repository name." short:"r"`
+	FixedStrings bool   `help:"Treat pattern as a fixed substring instead of a regex." short:"F" name:"fixed-strings"`
+	IgnoreCase   bool   `help:"Case-insensitive search." short:"i" name:"ignore-case"`
+	Limit        int    `help:"Maximum matching lines." default:"20" short:"l"`
+	Context      int    `help:"Context lines before and after each match." default:"1"`
+	Files        string `help:"Optional repo-relative path glob to include, for example internal/**/*.go."`
+	ExcludeTests bool   `help:"Exclude test/example files." name:"exclude-tests"`
+	JSON         bool   `help:"Emit service JSON result." name:"json"`
+}
+
+func (c *SearchCmd) Run(cli *CLI) error {
+	if cli.Client == nil {
+		fmt.Println(errNoService)
+		return nil
+	}
+	repo, err := resolveRepo(c.Repo)
+	if err != nil {
+		return err
+	}
+	result, err := cli.Client.Search(service.SearchRequest{
+		Repo:         repo,
+		Pattern:      c.Pattern,
+		FixedStrings: c.FixedStrings,
+		IgnoreCase:   c.IgnoreCase,
+		Limit:        c.Limit,
+		ContextLines: c.Context,
+		Files:        c.Files,
+		ExcludeTests: c.ExcludeTests,
+	})
+	if err != nil {
+		return fmt.Errorf("search: %w", err)
+	}
+	if c.JSON {
+		data, err := json.MarshalIndent(result, "", "  ")
+		if err != nil {
+			return fmt.Errorf("search: encode json: %w", err)
+		}
+		fmt.Println(string(data))
+		return nil
+	}
+	printSearchResult(os.Stdout, result)
+	return nil
+}
+
+func printSearchResult(w io.Writer, result *service.SearchResult) {
+	if result == nil {
+		return
+	}
+	plus := ""
+	if result.Truncated {
+		plus = "+"
+	}
+	status := ""
+	if result.IndexStatus != "" && result.IndexStatus != service.IndexStatusIndexed {
+		status = ", " + result.IndexStatus
+	}
+	fmt.Fprintf(w, "%d%s matches in %d files in %dms%s", result.MatchCount, plus, result.FileCount, result.DurationMS, status)
+	if result.Truncated {
+		fmt.Fprint(w, " (result limit hit; use --limit to show more)")
+	}
+	fmt.Fprintln(w)
+	if result.Message != "" {
+		fmt.Fprintln(w, result.Message)
+	}
+	if len(result.Matches) == 0 {
+		return
+	}
+	byFile := make(map[string][]service.SearchMatch)
+	var files []string
+	for _, match := range result.Matches {
+		if _, ok := byFile[match.FilePath]; !ok {
+			files = append(files, match.FilePath)
+		}
+		byFile[match.FilePath] = append(byFile[match.FilePath], match)
+	}
+	fmt.Fprintln(w)
+	for i, file := range files {
+		if i > 0 {
+			fmt.Fprintln(w)
+		}
+		fmt.Fprintln(w, file)
+		for _, match := range byFile[file] {
+			startLine := match.Line - len(match.Before)
+			for j, line := range match.Before {
+				fmt.Fprintf(w, "  %4d  %s\n", startLine+j, line)
+			}
+			fmt.Fprintf(w, "> %4d  %s\n", match.Line, match.LineText)
+			for j, line := range match.After {
+				fmt.Fprintf(w, "  %4d  %s\n", match.Line+j+1, line)
+			}
+		}
+	}
 }
 
 // CatCmd retrieves file source code from an indexed repository.

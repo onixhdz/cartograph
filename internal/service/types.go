@@ -6,6 +6,12 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+
+	"github.com/cloudprivacylabs/lpg/v2"
+
+	"github.com/realxen/cartograph/internal/search"
+	"github.com/realxen/cartograph/internal/storage"
+	"github.com/realxen/cartograph/plugin"
 )
 
 // ErrWriteQuery is returned when a Cypher query contains write keywords.
@@ -61,6 +67,8 @@ const (
 
 	// RouteQuery is the endpoint for hybrid search queries.
 	RouteQuery = APIPrefix + "/query"
+	// RouteSearch is the endpoint for raw source regex search.
+	RouteSearch = APIPrefix + "/search"
 	// RouteContext is the endpoint for 360° symbol context.
 	RouteContext = APIPrefix + "/context"
 	// RouteCypher is the endpoint for raw Cypher queries.
@@ -97,6 +105,7 @@ const (
 
 const (
 	MethodQuery              = "query"
+	MethodSearch             = "search"
 	MethodContext            = "context"
 	MethodCypher             = "cypher"
 	MethodGraphExplore       = "graph_explore"
@@ -176,7 +185,7 @@ func AnalyzePreflightCommands(target string) []string {
 
 // AllMethods lists every valid method name.
 var AllMethods = []string{
-	MethodQuery, MethodContext, MethodCypher, MethodGraphExplore, MethodImpact,
+	MethodQuery, MethodSearch, MethodContext, MethodCypher, MethodGraphExplore, MethodImpact,
 	MethodCat, MethodTree, MethodList, MethodReload, MethodStatus, MethodShutdown,
 	MethodSchema, MethodEmbed, MethodEmbedStatus, MethodAnalyzePreflight, MethodPluginIngest, MethodPluginIngestStatus,
 }
@@ -184,6 +193,7 @@ var AllMethods = []string{
 // MethodToRoute maps method names to their HTTP route.
 var MethodToRoute = map[string]string{
 	MethodQuery:              RouteQuery,
+	MethodSearch:             RouteSearch,
 	MethodContext:            RouteContext,
 	MethodCypher:             RouteCypher,
 	MethodGraphExplore:       RouteGraphExplore,
@@ -246,6 +256,50 @@ type QueryResult struct {
 	UsageExamples  []SymbolMatch      `json:"usageExamples,omitempty"`
 	TestFlows      []ProcessMatch     `json:"testFlows,omitempty"`
 	PluginResults  []PluginQueryMatch `json:"pluginResults,omitempty"`
+}
+
+const (
+	IndexStatusIndexed  = "indexed"
+	IndexStatusDegraded = "degraded"
+	IndexStatusMissing  = "missing"
+	IndexStatusInvalid  = "invalid"
+)
+
+// SearchRequest is the JSON body for POST /api/search.
+type SearchRequest struct {
+	Repo         string `json:"repo"`
+	Pattern      string `json:"pattern"`
+	FixedStrings bool   `json:"fixedStrings,omitempty"`
+	IgnoreCase   bool   `json:"ignoreCase,omitempty"`
+	Limit        int    `json:"limit"`
+	ContextLines int    `json:"contextLines,omitempty"`
+	Files        string `json:"files,omitempty"`
+	ExcludeTests bool   `json:"excludeTests,omitempty"`
+}
+
+// SearchResult is the result payload for a raw source search response.
+type SearchResult struct {
+	Repo         string        `json:"repo"`
+	Pattern      string        `json:"pattern"`
+	FixedStrings bool          `json:"fixedStrings"`
+	IndexStatus  string        `json:"indexStatus"`
+	Message      string        `json:"message,omitempty"`
+	DurationMS   int64         `json:"durationMs"`
+	MatchCount   int           `json:"matchCount"`
+	FileCount    int           `json:"fileCount"`
+	Truncated    bool          `json:"truncated"`
+	Matches      []SearchMatch `json:"matches"`
+}
+
+// SearchMatch is one matching source line plus bounded context.
+type SearchMatch struct {
+	FilePath string       `json:"filePath"`
+	Line     int          `json:"line"`
+	Column   int          `json:"column,omitempty"`
+	LineText string       `json:"lineText"`
+	Before   []string     `json:"before,omitempty"`
+	After    []string     `json:"after,omitempty"`
+	Symbol   *SymbolMatch `json:"symbol,omitempty"`
 }
 
 type PluginQueryMatch struct {
@@ -497,6 +551,7 @@ type RepoStatus struct {
 // It breaks the import cycle: service defines the interface, query implements it.
 type ToolBackend interface {
 	Query(QueryRequest) (*QueryResult, error)
+	Search(SearchRequest) (*SearchResult, error)
 	Context(ContextRequest) (*ContextResult, error)
 	Cypher(CypherRequest) (*CypherResult, error)
 	GraphExplore(GraphExploreRequest) (*GraphExploreResult, error)
@@ -544,6 +599,17 @@ type RelationshipPatternSummary struct {
 // BackendFactory creates a ToolBackend for the given repo.
 // Returns nil if the repo is not loaded.
 type BackendFactory func(repo string) ToolBackend
+
+// BackendResources is the repo state needed to construct a query backend.
+type BackendResources struct {
+	Graph              *lpg.Graph
+	Index              *search.Index
+	Resolver           func() *storage.ContentResolver
+	RepoDir            string
+	PluginName         string
+	EmbeddingsComplete bool
+	Entities           []plugin.Entity
+}
 
 // EmbedRequest is the JSON body for POST /api/embed.
 type EmbedRequest struct {

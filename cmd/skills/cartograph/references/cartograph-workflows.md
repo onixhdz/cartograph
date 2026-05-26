@@ -25,6 +25,10 @@ cartograph query "scheduler" -r hashicorp/nomad
 Use when you need to understand architecture, trace execution flows, or find components.
 
 ```bash
+# Use raw source search when you know the exact text or regex shape
+cartograph search 'TODO|FIXME'
+cartograph search 'panic(' -F
+
 # First, see what's in the graph (node labels, edge types, properties)
 cartograph schema
 
@@ -47,7 +51,7 @@ cartograph cypher "MATCH (f:Function) WHERE NOT ()-[:CALLS]->(f) AND f.isExporte
 cartograph cypher "MATCH (p:Process) RETURN p.name, p.importance, p.heuristicLabel ORDER BY p.importance DESC LIMIT 20"
 ```
 
-**Approach:** Start with `schema` to understand the graph shape → `query` for orientation → `context --relationships -d 2` to map all nearby relationship types → `context --depth 3` to trace flows → `cypher` for exact custom structural queries.
+**Approach:** Use `search` for exact text or regex-shaped code. Use `query`, `context`, and `cypher` for behavior, relationships, and execution flows.
 
 ## Debugging
 
@@ -136,39 +140,26 @@ cartograph context newName
 ## Research Loop — Understanding Unknown Code
 
 The fastest way to understand any part of an indexed codebase. Use this
-iterative loop instead of grep/view when exploring architecture, tracing
+iterative loop instead of plain text search/view when exploring architecture, tracing
 flows, or answering "how does X work?" questions.
 
-### The Loop: query → context --relationships → context --depth → source
+### The Loop: search/query → context --relationships → context --depth → source
 
 ```bash
-# Step 1: SEARCH — find the right symbols and flows
+# Step 1: SOURCE SEARCH when you know exact text or regex shape
+cartograph search 'route:' --files 'internal/**/*.go'
+
+# Step 2: GRAPH QUERY when you need meaning, behavior, or flows
 cartograph query "authentication middleware"
-# → Returns: Process matches (execution flows) + Definition matches (symbols)
-# → Pick the most relevant symbol names from the results
 
-# Step 2: MAP RELATIONSHIPS — see every graph relationship type nearby
+# Step 3: MAP RELATIONSHIPS — see every graph relationship type nearby
 cartograph context handleAuth --relationships -d 2
-# → Returns: relationship groups based on the graph schema for this index
-# → Use this before reading files to choose the best next symbol/file.
 
-# Step 3: DRILL DOWN — trace the call tree 3 levels deep
+# Step 4: DRILL DOWN — trace the call tree 3 levels deep
 cartograph context handleAuth --depth 3
-# → Returns: Callers, transitive call tree (with SPAWNS ⇢ and DELEGATES_TO ⤳),
-#            and which execution flows include this symbol
-# → Follow the most interesting branches:
-#     - ⇢ SPAWNS edges (async/concurrent — architecturally significant)
-#     - High fan-out nodes (orchestrators that coordinate subsystems)
-#     - Cross-package hops (file paths change directories = architectural boundary)
 
-# Step 4: READ SOURCE — only for the 2-3 functions that need source-level detail
+# Step 5: READ SOURCE — only for the functions that need source-level detail
 cartograph cat src/auth/middleware.go -l 40-80
-# → Or use: cartograph context handleAuth --content (includes inline source)
-
-# Step 5: REPEAT — each context output reveals new symbols to trace
-cartograph context validateToken --depth 3
-cartograph context sessionStore.Get --depth 2
-# → Keep following until you've mapped the complete flow
 ```
 
 ### When to use each depth
@@ -194,19 +185,6 @@ cartograph cypher "MATCH (p:Process)-[:STEP_IN_PROCESS]->(f:Function {name: 'han
 cartograph cypher "MATCH path = (entry)-[:CALLS*1..5]->(target:Function {name: 'handleAuth'}) RETURN [n IN nodes(path) | n.name] AS chain"
 ```
 
-### Research loop vs grep
+**Rule of thumb:** Use `cartograph search` for exact indexed source text and regex patterns. Use graph commands when you need behavior, relationships, or execution flows. Use `context --rel` when you need quick research context around a specific symbol before reading source. Use `cypher` for custom graph-wide questions. If you need more source evidence, use narrower `cartograph search` or `cartograph cat`.
 
-| | cartograph research loop | grep/view |
-|---|---|---|
-| **Speed** | ~100ms per query | ~10-15s per search |
-| **Call trees** | `context -d 3` shows full transitive tree | Must trace manually file-by-file |
-| **Relationship map** | `context --relationships` groups all nearby graph edge types | Must infer relationships from many files |
-| **Execution flows** | Surfaces process labels and flow membership | No flow awareness |
-| **Async edges** | Shows SPAWNS (⇢) and DELEGATES_TO (⤳) | Invisible — must read source to find |
-| **Cross-package** | Call tree shows hops across directories | Must search each package separately |
-| **Source code** | `cartograph cat -l` for specific lines | `view` or `cat` (needs file on disk) |
-| **When to prefer** | Architecture, flows, "how does X work?" | Exact string matching, config files, non-code |
-
-**Rule of thumb:** Start with cartograph. Fall back to grep only when
-searching for string literals, configuration values, or non-code files
-that aren't in the knowledge graph.
+For trust-boundary investigations: search exact boundary/guard/token terms with `--context 5` → `query` for flow names → `context --depth 2/3` for topology → `impact --direction upstream` for caller/entry coverage → only `cat` if a branch remains ambiguous.

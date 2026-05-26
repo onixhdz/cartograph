@@ -150,7 +150,7 @@ Tell each sub-agent explicitly:
 - Do NOT read additional files unless the context has an obvious gap
   (e.g., a truncated config reference). If you do read, read ONE
   specific file, then finish writing.
-- Do NOT use search/grep tools to explore the codebase.
+- Do NOT use source-search tools to explore the codebase.
 - Write the full page content using the Write tool in a single call.
 - If you received multiple context files, read all of them first, then
   write a single unified page that covers the combined scope.

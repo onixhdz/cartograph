@@ -132,6 +132,14 @@ func (c *Client) Query(req QueryRequest) (*QueryResult, error) {
 	return &res, nil
 }
 
+func (c *Client) Search(req SearchRequest) (*SearchResult, error) {
+	var res SearchResult
+	if err := c.do(http.MethodPost, RouteSearch, req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
 // Context retrieves 360° symbol context.
 func (c *Client) Context(req ContextRequest) (*ContextResult, error) {
 	var res ContextResult

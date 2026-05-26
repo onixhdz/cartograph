@@ -124,6 +124,55 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, result)
 }
 
+func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
+	s.resetIdleTimer(r.Context())
+	if !requirePOST(w, r) {
+		return
+	}
+	var req SearchRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Repo == "" {
+		writeError(w, http.StatusBadRequest, "missing repo")
+		return
+	}
+	if req.Pattern == "" {
+		writeError(w, http.StatusBadRequest, "missing pattern")
+		return
+	}
+
+	repo, err := s.ResolveRepoName(req.Repo)
+	if err != nil {
+		writeError(w, ErrCodeRepoNotFound, err.Error())
+		return
+	}
+	req.Repo = repo
+	if registry, err := storage.NewRegistry(s.dataDir); err == nil {
+		if entry, ok := registry.Get(req.Repo); ok && entry.Meta.PluginName != "" {
+			writeError(w, ErrCodeQueryBlocked, "raw source search is not available for plugin datasets")
+			return
+		}
+	}
+
+	backend, err := s.GetBackend(req.Repo)
+	if err != nil {
+		writeError(w, ErrCodeIncompatible, err.Error())
+		return
+	}
+	if backend == nil {
+		writeError(w, ErrCodeRepoNotFound, fmt.Sprintf("repository %q not indexed", req.Repo))
+		return
+	}
+	result, err := backend.Search(req)
+	if err != nil {
+		writeError(w, ErrCodeInternal, err.Error())
+		return
+	}
+	writeJSON(w, result)
+}
+
 func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 	s.resetIdleTimer(r.Context())
 	if !requirePOST(w, r) {

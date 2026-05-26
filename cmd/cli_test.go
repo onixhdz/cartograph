@@ -36,6 +36,7 @@ type mockClient struct {
 	shutdownCalled bool
 
 	lastQueryReq   service.QueryRequest
+	lastSearchReq  service.SearchRequest
 	lastContextReq service.ContextRequest
 	lastCypherReq  service.CypherRequest
 	lastImpactReq  service.ImpactRequest
@@ -61,6 +62,27 @@ func (m *mockClient) Query(req service.QueryRequest) (*service.QueryResult, erro
 		Definitions: []service.SymbolMatch{
 			{Name: "handler", Label: "Function", FilePath: "server.go", StartLine: 10},
 		},
+	}, nil
+}
+
+func (m *mockClient) Search(req service.SearchRequest) (*service.SearchResult, error) {
+	m.lastSearchReq = req
+	return &service.SearchResult{
+		Repo:         req.Repo,
+		Pattern:      req.Pattern,
+		FixedStrings: req.FixedStrings,
+		IndexStatus:  service.IndexStatusIndexed,
+		DurationMS:   4,
+		MatchCount:   1,
+		FileCount:    1,
+		Matches: []service.SearchMatch{{
+			FilePath: "internal/query/backend.go",
+			Line:     10,
+			Column:   5,
+			LineText: "results := SearchMulti()",
+			Before:   []string{"func run() {"},
+			After:    []string{"}"},
+		}},
 	}, nil
 }
 
@@ -262,6 +284,50 @@ func TestQueryCmd(t *testing.T) {
 		}
 		if !strings.Contains(out, "Definitions:") {
 			t.Error("expected output to contain 'Definitions:'")
+		}
+	})
+}
+
+func TestSearchCmd(t *testing.T) {
+	t.Run("forwards request and prints grouped output", func(t *testing.T) {
+		mc := &mockClient{}
+		cmd := &SearchCmd{
+			Pattern:      "SearchMulti",
+			Repo:         testRepo,
+			FixedStrings: true,
+			IgnoreCase:   true,
+			Limit:        50,
+			Context:      2,
+			Files:        "internal/**/*.go",
+		}
+		out := captureStdout(t, func() {
+			if err := cmd.Run(&CLI{Client: mc}); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+		})
+		if mc.lastSearchReq.Pattern != "SearchMulti" || !mc.lastSearchReq.FixedStrings || !mc.lastSearchReq.IgnoreCase {
+			t.Fatalf("request not forwarded: %+v", mc.lastSearchReq)
+		}
+		if mc.lastSearchReq.Limit != 50 || mc.lastSearchReq.ContextLines != 2 || mc.lastSearchReq.Files != "internal/**/*.go" {
+			t.Fatalf("request flags not forwarded: %+v", mc.lastSearchReq)
+		}
+		for _, want := range []string{"1 matches in 1 files", "internal/query/backend.go", ">   10  results := SearchMulti()"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("output missing %q:\n%s", want, out)
+			}
+		}
+	})
+
+	t.Run("prints json", func(t *testing.T) {
+		mc := &mockClient{}
+		cmd := &SearchCmd{Pattern: "TODO", Repo: testRepo, JSON: true}
+		out := captureStdout(t, func() {
+			if err := cmd.Run(&CLI{Client: mc}); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+		})
+		if !strings.Contains(out, `"indexStatus": "indexed"`) || !strings.Contains(out, `"filePath": "internal/query/backend.go"`) {
+			t.Fatalf("unexpected json output:\n%s", out)
 		}
 	})
 }

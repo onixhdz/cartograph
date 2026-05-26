@@ -27,6 +27,7 @@ import (
 // Both service.MemoryClient and service.Client satisfy this interface.
 type Client interface {
 	Query(service.QueryRequest) (*service.QueryResult, error)
+	Search(service.SearchRequest) (*service.SearchResult, error)
 	Context(service.ContextRequest) (*service.ContextResult, error)
 	Cypher(service.CypherRequest) (*service.CypherResult, error)
 	Impact(service.ImpactRequest) (*service.ImpactResult, error)

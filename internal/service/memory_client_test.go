@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/cloudprivacylabs/lpg/v2"
@@ -12,6 +13,7 @@ import (
 	"github.com/realxen/cartograph/internal/graph"
 	"github.com/realxen/cartograph/internal/search"
 	"github.com/realxen/cartograph/internal/storage"
+	"github.com/realxen/cartograph/internal/storage/bbolt"
 )
 
 // newTestMemoryClient creates a MemoryClient with a stub backend for
@@ -242,6 +244,131 @@ func TestMemoryClient_Reload_NoDataDir(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when reloading with no data dir")
 		return
+	}
+}
+
+func TestMemoryClientReloadClosesResolverAliases(t *testing.T) {
+	dataDir := t.TempDir()
+	registry, err := storage.NewRegistry(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Add(storage.RegistryEntry{Name: "acme/repo", Hash: "hash123"}); err != nil {
+		t.Fatal(err)
+	}
+	closed := &closeCountingStore{}
+	mc := NewMemoryClient(dataDir)
+	mc.graphs["hash123"] = lpg.NewGraph()
+	mc.resolvers["repo"] = &storage.ContentResolver{Store: closed}
+
+	_ = mc.Reload(ReloadRequest{Repo: "hash123"})
+
+	if closed.count != 1 {
+		t.Fatalf("resolver close count = %d, want 1", closed.count)
+	}
+	if _, ok := mc.graphs["hash123"]; ok {
+		t.Fatal("graph was not dropped before reload")
+	}
+	if len(mc.resolvers) != 0 {
+		t.Fatalf("resolvers not cleared: %#v", mc.resolvers)
+	}
+}
+
+func TestMemoryClientGetContentResolverConcurrentUsesOneResolver(t *testing.T) {
+	dataDir := t.TempDir()
+	registry, err := storage.NewRegistry(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Add(storage.RegistryEntry{Name: "acme/repo", Hash: "hash123"}); err != nil {
+		t.Fatal(err)
+	}
+	mc := NewMemoryClient(dataDir)
+
+	const goroutines = 32
+	results := make(chan *storage.ContentResolver, goroutines)
+	var wg sync.WaitGroup
+	for range goroutines {
+		wg.Go(func() {
+			results <- mc.GetContentResolver("repo")
+		})
+	}
+	wg.Wait()
+	close(results)
+
+	var first *storage.ContentResolver
+	for resolver := range results {
+		if resolver == nil {
+			t.Fatal("expected resolver")
+		}
+		if first == nil {
+			first = resolver
+			continue
+		}
+		if resolver != first {
+			t.Fatal("concurrent calls returned different resolvers")
+		}
+	}
+	if len(mc.resolvers) != 1 {
+		t.Fatalf("resolver cache size = %d, want 1", len(mc.resolvers))
+	}
+	if mc.resolvers["hash123"] != first {
+		t.Fatal("resolver was not cached by canonical hash")
+	}
+}
+
+func TestMemoryClientGetContentResolverConcurrentContentBucket(t *testing.T) {
+	dataDir := t.TempDir()
+	registry, err := storage.NewRegistry(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoDir := filepath.Join(dataDir, "acme/repo", "hash123")
+	if err := os.MkdirAll(repoDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	cs, err := bbolt.NewContentStore(filepath.Join(repoDir, "graph.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cs.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Add(storage.RegistryEntry{
+		Name: "acme/repo",
+		Hash: "hash123",
+		Meta: storage.Meta{HasContentBucket: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	mc := NewMemoryClient(dataDir)
+
+	const goroutines = 32
+	results := make(chan *storage.ContentResolver, goroutines)
+	var wg sync.WaitGroup
+	for range goroutines {
+		wg.Go(func() {
+			results <- mc.GetContentResolver("repo")
+		})
+	}
+	wg.Wait()
+	close(results)
+
+	var first *storage.ContentResolver
+	for resolver := range results {
+		if resolver == nil || resolver.Store == nil {
+			t.Fatalf("expected resolver with store, got %#v", resolver)
+		}
+		if first == nil {
+			first = resolver
+			continue
+		}
+		if resolver != first {
+			t.Fatal("concurrent calls returned different resolvers")
+		}
+	}
+	if len(mc.resolvers) != 1 || mc.resolvers["hash123"] != first {
+		t.Fatalf("unexpected resolver cache: %#v", mc.resolvers)
 	}
 }
 

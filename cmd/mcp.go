@@ -46,7 +46,7 @@ func (c *McpCmd) Run(cli *CLI) error {
 	// reachable. Cold start is ~27ms.
 	if backend == nil {
 		mc := service.NewMemoryClient(dataDir)
-		mc.SetBackendFactory(newQueryBackendFactory(mc))
+		mc.SetBackendFactory(NewQueryBackendFactory(mc))
 		_ = mc.LoadAllFromRegistry()
 		defer mc.Close()
 		backend = mc

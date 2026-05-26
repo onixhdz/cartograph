@@ -10,7 +10,6 @@ import (
 	"github.com/alecthomas/kong"
 
 	"github.com/realxen/cartograph/cmd"
-	"github.com/realxen/cartograph/internal/query"
 	"github.com/realxen/cartograph/internal/service"
 	"github.com/realxen/cartograph/internal/version"
 )
@@ -78,7 +77,7 @@ func main() {
 
 	// Fall back to an in-process MemoryClient when no service is reachable.
 	mc := service.NewMemoryClient(dataDir)
-	mc.SetBackendFactory(newMemoryBackendFactory(mc))
+	mc.SetBackendFactory(cmd.NewQueryBackendFactory(mc))
 	_ = mc.LoadAllFromRegistry() // best-effort preload
 	cli.Client = mc
 
@@ -87,29 +86,6 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
-	}
-}
-
-func newMemoryBackendFactory(mc *service.MemoryClient) service.BackendFactory {
-	return func(repo string) service.ToolBackend {
-		g, idx, ok := mc.GetRepoResources(repo)
-		if !ok {
-			return nil
-		}
-		var (
-			embedDir string
-			embedFn  query.QueryEmbedFn
-		)
-		if mc.HasCompleteEmbeddings(repo) {
-			embedDir = mc.GetRepoDir(repo)
-			embedFn = mc.QueryEmbed
-		}
-		return &query.Backend{
-			Graph:    g,
-			Index:    idx,
-			EmbedDir: embedDir,
-			EmbedFn:  embedFn,
-		}
 	}
 }
 

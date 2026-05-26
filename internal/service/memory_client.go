@@ -32,6 +32,7 @@ type MemoryClient struct {
 	repoDirs       map[string]string // repo → resolved data dir (cached)
 	startTime      time.Time
 	mu             sync.RWMutex
+	resolverLocks  sync.Map
 
 	// queryProvider is a lazily initialized embedding provider for
 	// embedding query text at search time (hybrid search).
@@ -90,32 +91,32 @@ func (mc *MemoryClient) GetRepoResources(repo string) (*lpg.Graph, *search.Index
 	return g, mc.indexes[repo], true
 }
 
-// GetRepoDir returns the on-disk data directory for a repo. Uses a cache
-// populated during graph loading to avoid re-opening the registry on every query.
-func (mc *MemoryClient) GetRepoDir(repo string) string {
+func (mc *MemoryClient) GetBackendResources(repo string) (BackendResources, bool) {
 	mc.mu.RLock()
-	if dir, ok := mc.repoDirs[repo]; ok {
-		mc.mu.RUnlock()
-		return dir
-	}
+	g, ok := mc.graphs[repo]
+	idx := mc.indexes[repo]
+	repoDir := mc.repoDirs[repo]
 	mc.mu.RUnlock()
-
-	if mc.dataDir == "" {
-		return ""
+	if !ok {
+		return BackendResources{}, false
 	}
-	registry, err := storage.NewRegistry(mc.dataDir)
-	if err != nil {
-		return ""
+	var entry storage.RegistryEntry
+	if mc.dataDir != "" {
+		if registry, err := storage.NewRegistry(mc.dataDir); err == nil {
+			entry, _ = registry.Resolve(repo)
+		}
 	}
-	entry, err := registry.Resolve(repo)
-	if err != nil {
-		return ""
+	if repoDir == "" && entry.Hash != "" {
+		repoDir = filepath.Join(mc.dataDir, entry.Name, entry.Hash)
 	}
-	dir := filepath.Join(mc.dataDir, entry.Name, entry.Hash)
-	mc.mu.Lock()
-	mc.repoDirs[repo] = dir
-	mc.mu.Unlock()
-	return dir
+	return BackendResources{
+		Graph:              g,
+		Index:              idx,
+		Resolver:           func() *storage.ContentResolver { return mc.GetContentResolver(repo) },
+		RepoDir:            repoDir,
+		PluginName:         entry.Meta.PluginName,
+		EmbeddingsComplete: embeddingComplete(mc.dataDir, repo),
+	}, true
 }
 
 // HasCompleteEmbeddings reports whether the repo's persisted registry
@@ -218,6 +219,18 @@ func (mc *MemoryClient) Query(req QueryRequest) (*QueryResult, error) {
 	res, err := be.Query(req)
 	if err != nil {
 		return nil, fmt.Errorf("memory client: query %q: %w", req.Repo, err)
+	}
+	return res, nil
+}
+
+func (mc *MemoryClient) Search(req SearchRequest) (*SearchResult, error) {
+	be, err := mc.getBackend(req.Repo)
+	if err != nil {
+		return nil, err
+	}
+	res, err := be.Search(req)
+	if err != nil {
+		return nil, fmt.Errorf("memory client: search %q: %w", req.Repo, err)
 	}
 	return res, nil
 }
@@ -329,6 +342,10 @@ func (mc *MemoryClient) Cat(req CatRequest) (*CatResult, error) {
 	return result, nil
 }
 
+func (mc *MemoryClient) GetContentResolver(repo string) *storage.ContentResolver {
+	return mc.getContentResolver(repo)
+}
+
 // Tree retrieves indexed file paths from a repository graph.
 func (mc *MemoryClient) Tree(req TreeRequest) (*TreeResult, error) {
 	if req.Repo == "" {
@@ -356,16 +373,64 @@ func (mc *MemoryClient) Tree(req TreeRequest) (*TreeResult, error) {
 
 // Reload drops and re-loads a repo's graph from disk.
 func (mc *MemoryClient) Reload(req ReloadRequest) error {
+	entry, hasEntry := mc.registryEntry(req.Repo)
 	mc.mu.Lock()
-	delete(mc.graphs, req.Repo)
-	if idx, ok := mc.indexes[req.Repo]; ok && idx != nil {
-		_ = idx.Close() // best-effort close before reload
+	resolvers := mc.takeResolversLocked(req.Repo, entry, hasEntry)
+	mc.dropLoadedRepoLocked(req.Repo)
+	if hasEntry {
+		mc.dropLoadedRepoLocked(entry.Hash)
 	}
-	delete(mc.indexes, req.Repo)
-	delete(mc.resolvers, req.Repo)
 	mc.mu.Unlock()
+	for _, resolver := range resolvers {
+		if resolver != nil {
+			_ = resolver.Close() // best-effort cleanup of fallback content store
+		}
+	}
 
 	return mc.loadFromDisk(req.Repo)
+}
+
+func (mc *MemoryClient) dropLoadedRepoLocked(repo string) {
+	delete(mc.graphs, repo)
+	if idx, ok := mc.indexes[repo]; ok && idx != nil {
+		_ = idx.Close() // best-effort close before reload
+	}
+	delete(mc.indexes, repo)
+	delete(mc.repoDirs, repo)
+}
+
+func (mc *MemoryClient) registryEntry(repo string) (storage.RegistryEntry, bool) {
+	if mc.dataDir == "" {
+		return storage.RegistryEntry{}, false
+	}
+	registry, err := storage.NewRegistry(mc.dataDir)
+	if err != nil {
+		return storage.RegistryEntry{}, false
+	}
+	entry, err := registry.Resolve(repo)
+	if err != nil {
+		return storage.RegistryEntry{}, false
+	}
+	return entry, true
+}
+
+func (mc *MemoryClient) takeResolversLocked(repo string, entry storage.RegistryEntry, hasEntry bool) []*storage.ContentResolver {
+	seen := make(map[*storage.ContentResolver]bool)
+	var resolvers []*storage.ContentResolver
+	remove := func(key string) {
+		if resolver := mc.resolvers[key]; resolver != nil && !seen[resolver] {
+			seen[resolver] = true
+			resolvers = append(resolvers, resolver)
+		}
+		delete(mc.resolvers, key)
+	}
+	remove(repo)
+	if hasEntry {
+		remove(entry.Hash)
+		remove(entry.Name)
+		remove(repoNameBase(entry.Name))
+	}
+	return resolvers
 }
 
 // Status returns a status snapshot.
@@ -451,6 +516,16 @@ func (mc *MemoryClient) Close() {
 	for _, idx := range mc.indexes {
 		if idx != nil {
 			_ = idx.Close() // best-effort close
+		}
+	}
+	seenResolvers := make(map[*storage.ContentResolver]bool)
+	for _, cr := range mc.resolvers {
+		if cr != nil {
+			if seenResolvers[cr] {
+				continue
+			}
+			seenResolvers[cr] = true
+			_ = cr.Close() // best-effort cleanup of fallback content store
 		}
 	}
 	mc.graphs = make(map[string]*lpg.Graph)
@@ -571,7 +646,6 @@ func (mc *MemoryClient) loadFromDisk(repo string) error {
 			return fmt.Errorf("memory client: index graph %q: %w", repo, err)
 		}
 	}
-
 	mc.mu.Lock()
 	mc.graphs[entry.Hash] = g
 	mc.indexes[entry.Hash] = idx
@@ -603,6 +677,22 @@ func (mc *MemoryClient) getContentResolver(repo string) *storage.ContentResolver
 	if err != nil {
 		return nil
 	}
+	cacheKey := entry.Hash
+	mc.mu.RLock()
+	cr = mc.resolvers[cacheKey]
+	mc.mu.RUnlock()
+	if cr != nil {
+		return cr
+	}
+	resolverMu := mc.resolverLock(cacheKey)
+	resolverMu.Lock()
+	defer resolverMu.Unlock()
+	mc.mu.RLock()
+	cr = mc.resolvers[cacheKey]
+	mc.mu.RUnlock()
+	if cr != nil {
+		return cr
+	}
 
 	repoDir := filepath.Join(mc.dataDir, entry.Name, entry.Hash)
 
@@ -612,13 +702,25 @@ func (mc *MemoryClient) getContentResolver(repo string) *storage.ContentResolver
 	if entry.Meta.HasContentBucket {
 		dbPath := filepath.Join(repoDir, "graph.db")
 		cs, err := bbolt.NewContentStore(dbPath)
-		if err == nil {
-			cr.Store = cs
+		if err != nil {
+			return nil
 		}
+		cr.Store = cs
 	}
 
 	mc.mu.Lock()
-	mc.resolvers[repo] = cr
+	if existing := mc.resolvers[cacheKey]; existing != nil {
+		mc.mu.Unlock()
+		_ = cr.Close() // duplicate lazy init raced; keep the cached resolver
+		return existing
+	}
+	mc.resolvers[cacheKey] = cr
 	mc.mu.Unlock()
 	return cr
+}
+
+func (mc *MemoryClient) resolverLock(repo string) *sync.Mutex {
+	mu, _ := mc.resolverLocks.LoadOrStore(repo, &sync.Mutex{})
+	resolverMu, _ := mu.(*sync.Mutex)
+	return resolverMu
 }

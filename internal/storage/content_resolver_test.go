@@ -9,7 +9,8 @@ import (
 
 // mockContentReader is a simple in-memory ContentReader for testing.
 type mockContentReader struct {
-	files map[string][]byte
+	files  map[string][]byte
+	closed bool
 }
 
 func (m *mockContentReader) Get(relPath string) ([]byte, error) {
@@ -23,6 +24,11 @@ func (m *mockContentReader) Get(relPath string) ([]byte, error) {
 func (m *mockContentReader) Has(relPath string) bool {
 	_, ok := m.files[relPath]
 	return ok
+}
+
+func (m *mockContentReader) Close() error {
+	m.closed = true
+	return nil
 }
 
 func TestContentResolver_DiskFirst(t *testing.T) {
@@ -138,5 +144,16 @@ func TestContentResolver_HasFile_NoStoreNoPath(t *testing.T) {
 	cr := &ContentResolver{}
 	if cr.HasFile("anything") {
 		t.Error("expected false with empty resolver")
+	}
+}
+
+func TestContentResolver_CloseClosesStore(t *testing.T) {
+	store := &mockContentReader{files: map[string][]byte{}}
+	cr := &ContentResolver{Store: store}
+	if err := cr.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if !store.closed {
+		t.Fatal("expected store to be closed")
 	}
 }

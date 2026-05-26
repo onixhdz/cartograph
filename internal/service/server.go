@@ -205,8 +205,23 @@ func (s *Server) Stop(ctx context.Context) error {
 		}
 		s.queryProviderMu.Unlock()
 		s.queryProviderOnce = sync.Once{}
+		s.closeCachedContentResolvers()
 	})
 	return stopErr
+}
+
+func (s *Server) closeCachedContentResolvers() {
+	s.mu.Lock()
+	resolvers := s.resolvers
+	s.resolvers = make(map[string]*storage.ContentResolver)
+	s.mu.Unlock()
+	seen := make(map[*storage.ContentResolver]bool)
+	for _, cr := range resolvers {
+		if cr != nil && !seen[cr] {
+			seen[cr] = true
+			_ = cr.Close() // best-effort cleanup of fallback content store
+		}
+	}
 }
 
 // resetIdleTimer resets (or starts) the idle shutdown timer.
@@ -269,6 +284,12 @@ func (s *Server) LoadGraph(repo string, store storage.GraphStore) error {
 // directly without reading from a store. Used by analyze.
 func (s *Server) LoadGraphDirect(repo string, g *lpg.Graph, idx *search.Index) {
 	s.mu.Lock()
+	if s.graph == nil {
+		s.graph = make(map[string]*lpg.Graph)
+	}
+	if s.searchIdx == nil {
+		s.searchIdx = make(map[string]*search.Index)
+	}
 	if prev, ok := s.searchIdx[repo]; ok && prev != nil {
 		_ = prev.Close() // best-effort close old index
 	}
@@ -290,33 +311,28 @@ func (s *Server) GetRepoResources(repo string) (*lpg.Graph, *search.Index, bool)
 	return g, s.searchIdx[repo], true
 }
 
-// GetRepoDir returns the on-disk data directory for a repo (e.g.
-// {dataDir}/{name}/{hash}). Uses a cache populated during graph loading
-// to avoid re-opening the registry on every query.
-func (s *Server) GetRepoDir(repo string) string {
+func (s *Server) GetBackendResources(repo string) (BackendResources, bool) {
 	s.mu.RLock()
-	if dir, ok := s.repoDirs[repo]; ok {
-		s.mu.RUnlock()
-		return dir
-	}
+	g, ok := s.graph[repo]
+	idx := s.searchIdx[repo]
+	repoDir := s.repoDirs[repo]
 	s.mu.RUnlock()
-
-	if s.dataDir == "" {
-		return ""
-	}
-	registry, err := storage.NewRegistry(s.dataDir)
-	if err != nil {
-		return ""
-	}
-	entry, ok := registry.Get(repo)
 	if !ok {
-		return ""
+		return BackendResources{}, false
 	}
-	dir := filepath.Join(s.dataDir, entry.Name, entry.Hash)
-	s.mu.Lock()
-	s.repoDirs[repo] = dir
-	s.mu.Unlock()
-	return dir
+	entry, _ := s.registryEntry(repo)
+	if repoDir == "" && entry.Hash != "" {
+		repoDir = filepath.Join(s.dataDir, entry.Name, entry.Hash)
+	}
+	return BackendResources{
+		Graph:              g,
+		Index:              idx,
+		Resolver:           func() *storage.ContentResolver { return s.GetContentResolver(repo) },
+		RepoDir:            repoDir,
+		PluginName:         entry.Meta.PluginName,
+		EmbeddingsComplete: embeddingComplete(s.dataDir, repo),
+		Entities:           installedPluginEntities(s.dataDir, entry.Meta.PluginName),
+	}, true
 }
 
 // HasCompleteEmbeddings reports whether the repo's persisted registry
@@ -375,15 +391,54 @@ func (s *Server) GetGraph(repo string) (*lpg.Graph, bool) {
 
 // DropGraph evicts the cached graph and search index for a repo.
 func (s *Server) DropGraph(repo string) {
+	entry, hasEntry := s.registryEntry(repo)
 	s.mu.Lock()
+	resolvers := s.takeResolversLocked(repo, entry, hasEntry)
+	s.dropLoadedRepoLocked(repo)
+	if hasEntry {
+		s.dropLoadedRepoLocked(entry.Hash)
+	}
+	s.mu.Unlock()
+	for _, resolver := range resolvers {
+		if resolver != nil {
+			_ = resolver.Close() // best-effort cleanup of fallback content store
+		}
+	}
+}
+
+func (s *Server) dropLoadedRepoLocked(repo string) {
 	delete(s.graph, repo)
 	if idx, ok := s.searchIdx[repo]; ok && idx != nil {
 		_ = idx.Close() // best-effort
 	}
 	delete(s.searchIdx, repo)
-	delete(s.resolvers, repo)
 	delete(s.repoDirs, repo)
-	s.mu.Unlock()
+}
+
+func (s *Server) takeResolversLocked(repo string, entry storage.RegistryEntry, hasEntry bool) []*storage.ContentResolver {
+	seen := make(map[*storage.ContentResolver]bool)
+	var resolvers []*storage.ContentResolver
+	remove := func(key string) {
+		if resolver := s.resolvers[key]; resolver != nil && !seen[resolver] {
+			seen[resolver] = true
+			resolvers = append(resolvers, resolver)
+		}
+		delete(s.resolvers, key)
+	}
+	remove(repo)
+	if hasEntry {
+		remove(entry.Hash)
+		remove(entry.Name)
+		remove(repoNameBase(entry.Name))
+	}
+	return resolvers
+}
+
+func repoNameBase(name string) string {
+	if i := strings.LastIndex(name, "/"); i >= 0 {
+		return name[i+1:]
+	}
+	return name
 }
 
 // ReloadGraph invalidates the in-memory graph cache for a repo so the
@@ -482,7 +537,6 @@ func (s *Server) loadGraphFromRegistry(repo string) error {
 			return nil      //nolint:nilerr // index build failure — skip
 		}
 	}
-
 	s.mu.Lock()
 	s.graph[entry.Hash] = g
 	s.searchIdx[entry.Hash] = idx
@@ -494,6 +548,9 @@ func (s *Server) loadGraphFromRegistry(repo string) error {
 }
 
 func (s *Server) registryEntry(repo string) (storage.RegistryEntry, bool) {
+	if s.dataDir == "" {
+		return storage.RegistryEntry{}, false
+	}
 	registry, err := storage.NewRegistry(s.dataDir)
 	if err != nil {
 		return storage.RegistryEntry{}, false
@@ -570,21 +627,6 @@ func (s *Server) GetContentResolver(repo string) *storage.ContentResolver {
 	return cr
 }
 
-func (s *Server) GetPluginEntities(repo string) []plugin.Entity {
-	if s.dataDir == "" {
-		return nil
-	}
-	registry, err := storage.NewRegistry(s.dataDir)
-	if err != nil {
-		return nil
-	}
-	entry, ok := registry.Get(repo)
-	if !ok || entry.Meta.PluginName == "" {
-		return nil
-	}
-	return installedPluginEntities(s.dataDir, entry.Meta.PluginName)
-}
-
 // lazyInitResolver builds a ContentResolver from the registry entry
 // if available. This handles the common case where the service starts
 // and a source command arrives before anyone explicitly registers a resolver.
@@ -601,23 +643,45 @@ func (s *Server) lazyInitResolver(repo string) *storage.ContentResolver {
 	if !ok {
 		return nil
 	}
+	cacheKey := entry.Hash
+	s.mu.RLock()
+	cr := s.resolvers[cacheKey]
+	s.mu.RUnlock()
+	if cr != nil {
+		return cr
+	}
+	resolverMu := s.repoLoadLock("resolver:" + cacheKey)
+	resolverMu.Lock()
+	defer resolverMu.Unlock()
+	s.mu.RLock()
+	cr = s.resolvers[cacheKey]
+	s.mu.RUnlock()
+	if cr != nil {
+		return cr
+	}
 
 	repoDir := filepath.Join(s.dataDir, entry.Name, entry.Hash)
 
-	cr := &storage.ContentResolver{
+	cr = &storage.ContentResolver{
 		SourcePath: entry.Meta.SourcePath,
 	}
 
 	if entry.Meta.HasContentBucket {
 		dbPath := filepath.Join(repoDir, "graph.db")
 		cs, err := bbolt.NewContentStore(dbPath)
-		if err == nil {
-			cr.Store = cs
+		if err != nil {
+			return nil
 		}
+		cr.Store = cs
 	}
 
 	s.mu.Lock()
-	s.resolvers[repo] = cr
+	if existing := s.resolvers[cacheKey]; existing != nil {
+		s.mu.Unlock()
+		_ = cr.Close() // duplicate lazy init raced; keep the cached resolver
+		return existing
+	}
+	s.resolvers[cacheKey] = cr
 	s.mu.Unlock()
 	return cr
 }
@@ -744,6 +808,7 @@ func (s *Server) GetBackend(repo string) (ToolBackend, error) {
 func (s *Server) setupRoutes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc(RouteQuery, s.handleQuery)
+	mux.HandleFunc(RouteSearch, s.handleSearch)
 	mux.HandleFunc(RouteContext, s.handleContext)
 	mux.HandleFunc(RouteCypher, s.handleCypher)
 	mux.HandleFunc(RouteGraphExplore, s.handleGraphExplore)
