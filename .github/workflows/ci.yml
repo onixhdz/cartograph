@@ -24,18 +24,18 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      - uses: mlugg/setup-zig@v2
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         with:
           version: 0.15.2
           use-cache: false
-      - uses: go-task/setup-task@v1
+      - uses: go-task/setup-task@70f2430ad412f838533de8c0515c749ffb2b8bd3 # v1
         with:
           version: 3.x
       - name: Clean generated artifacts
         run: task clean
       - name: Build native embedding prereqs
         run: task build:embedding:lib
-      - uses: golangci/golangci-lint-action@v9
+      - uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee # v9
         with:
           version: v2.11
 
@@ -50,11 +50,11 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      - uses: mlugg/setup-zig@v2
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         with:
           version: 0.15.2
           use-cache: false
-      - uses: go-task/setup-task@v1
+      - uses: go-task/setup-task@70f2430ad412f838533de8c0515c749ffb2b8bd3 # v1
         with:
           version: 3.x
       - name: Clean generated artifacts
@@ -62,3 +62,40 @@ jobs:
       - name: Build native embedding prereqs
         run: task build:embedding:lib
       - run: task test
+
+  govulncheck:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    env:
+      CGO_ENABLED: '1'
+      CC: zig cc
+      CXX: zig c++
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: 0.15.2
+          use-cache: false
+      - uses: go-task/setup-task@70f2430ad412f838533de8c0515c749ffb2b8bd3 # v1
+        with:
+          version: 3.x
+      - name: Clean generated artifacts
+        run: task clean
+      - name: Build native embedding prereqs
+        run: task build:embedding:lib
+      - uses: golang/govulncheck-action@b625fbe08f3bccbe446d94fbf87fcc875a4f50ee # v1
+        with:
+          repo-checkout: false
+          go-version-file: go.mod
+          go-package: ./...
+          output-format: sarif
+          output-file: govulncheck.sarif
+      - uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: govulncheck.sarif
+          category: govulncheck

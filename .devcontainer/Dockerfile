@@ -37,6 +37,10 @@ RUN curl ${CURL_OPTS} -fL -o /tmp/golangci-lint.tar.gz \
     mv /tmp/golangci-lint-${GOLANGCI_LINT_VERSION#v}-linux-${TARGETARCH}/golangci-lint /tmp/golangci-lint && \
     rm /tmp/golangci-lint.tar.gz
 
+# Install govulncheck
+ARG GOVULNCHECK_VERSION=latest
+RUN go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
+
 # Download GitHub Copilot CLI
 ARG COPILOT_VERSION=v1.0.18
 RUN COPILOT_ARCH=$(if [ "${TARGETARCH}" = "amd64" ]; then echo "x64"; else echo "arm64"; fi) && \
@@ -48,6 +52,7 @@ FROM mcr.microsoft.com/devcontainers/go:1.26-bookworm AS development
 
 COPY --from=builder /tmp/task /usr/local/bin/
 COPY --from=builder /tmp/golangci-lint /usr/local/bin/
+COPY --from=builder /go/bin/govulncheck /usr/local/bin/
 
 # Copy Zig compiler
 COPY --from=builder /tmp/zig /usr/local/zig
