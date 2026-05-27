@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/devcontainers/go:1.26-bookworm AS builder
+FROM mcr.microsoft.com/devcontainers/go:2.1-bookworm AS builder
 
 RUN apt-get update && apt-get install -y curl tar unzip && rm -rf /var/lib/apt/lists/*
 
@@ -48,7 +48,7 @@ RUN COPILOT_ARCH=$(if [ "${TARGETARCH}" = "amd64" ]; then echo "x64"; else echo 
     mkdir -p /tmp/copilot && tar -xzf /tmp/copilot.tar.gz -C /tmp/copilot && \
     rm /tmp/copilot.tar.gz
 
-FROM mcr.microsoft.com/devcontainers/go:1.26-bookworm AS development
+FROM mcr.microsoft.com/devcontainers/go:2.1-bookworm AS development
 
 COPY --from=builder /tmp/task /usr/local/bin/
 COPY --from=builder /tmp/golangci-lint /usr/local/bin/
