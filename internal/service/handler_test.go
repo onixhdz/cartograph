@@ -700,6 +700,60 @@ func TestHandleTree_ConcurrentRequestsUseLoadedGraph(t *testing.T) {
 	wg.Wait()
 }
 
+func TestHandleEmbed_RejectsLocalPath(t *testing.T) {
+	s := newTestServerWithRegistry(t)
+	localPaths := []string{
+		"/etc/passwd",
+		"./local/model.gguf",
+		"../traversal/model.gguf",
+		"~/secret/model.gguf",
+		"/absolute/path:Q4_K_M",
+	}
+	for _, model := range localPaths {
+		body := jsonBody(t, EmbedRequest{Repo: "acme/sdk", Model: model})
+		req := httptest.NewRequestWithContext(context.Background(), "POST", RouteEmbed, body)
+		rec := httptest.NewRecorder()
+		s.handleEmbed(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("model %q: expected 400, got %d: %s", model, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestHandleEmbed_AcceptsNonLocalModels(t *testing.T) {
+	// Use a server with dataDir set to a temp dir so ResolveRepoName
+	// fails for "norepo" instead of falling through to StartEmbedJob.
+	dir := t.TempDir()
+	s := &Server{
+		graph:       make(map[string]*lpg.Graph),
+		searchIdx:   make(map[string]*search.Index),
+		dataDir:     dir,
+		idleTimeout: DefaultIdleTimeout,
+	}
+	allowed := []string{
+		"",                // default alias
+		"bge-small",       // known alias
+		"org/repo",        // HF repo ID
+		"org/repo:Q4_K_M", // HF repo ID with quant hint
+	}
+	for _, model := range allowed {
+		body := jsonBody(t, EmbedRequest{Repo: "norepo", Model: model})
+		req := httptest.NewRequestWithContext(context.Background(), "POST", RouteEmbed, body)
+		rec := httptest.NewRecorder()
+		s.handleEmbed(rec, req)
+
+		// Should not be rejected with 400 for local path.
+		// It will fail at repo resolution, which is fine.
+		if rec.Code == http.StatusBadRequest {
+			resp := decodeResponse(t, rec)
+			if resp.Error != nil && strings.Contains(resp.Error.Message, "local paths") {
+				t.Errorf("model %q: should not be rejected as local path", model)
+			}
+		}
+	}
+}
+
 func TestHandleTree_ConcurrentColdLoad(t *testing.T) {
 	dir := t.TempDir()
 	repoDir := filepath.Join(dir, "acme/sdk", "h1")

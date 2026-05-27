@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/realxen/cartograph/internal/embedding"
 	"github.com/realxen/cartograph/internal/storage"
 	"github.com/realxen/cartograph/internal/sysutil"
 )
@@ -520,6 +521,11 @@ func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Repo == "" {
 		writeError(w, http.StatusBadRequest, "missing repo")
+		return
+	}
+
+	if err := embedding.ValidateServiceModel(req.Model); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 

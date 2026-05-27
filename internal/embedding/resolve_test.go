@@ -113,6 +113,35 @@ func TestIsLocalPath(t *testing.T) {
 	}
 }
 
+func TestValidateServiceModel(t *testing.T) {
+	tests := []struct {
+		model   string
+		wantErr bool
+	}{
+		// Rejected: local paths.
+		{"/etc/passwd", true},
+		{"./local/model.gguf", true},
+		{"../traversal", true},
+		{"~/secret", true},
+		{"/absolute:Q4_K_M", true},
+		{"  /absolute  ", true},
+
+		// Accepted.
+		{"", false},           // default alias
+		{"bge-small", false},  // known alias
+		{"nomic-text", false}, // known alias
+		{"org/repo", false},   // HF repo ID
+		{"org/repo:Q4_K_M", false},
+		{"unknown-model", false}, // unknown but not a local path
+	}
+	for _, tt := range tests {
+		err := ValidateServiceModel(tt.model)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("ValidateServiceModel(%q) error = %v, wantErr = %v", tt.model, err, tt.wantErr)
+		}
+	}
+}
+
 func TestDefaultAlias(t *testing.T) {
 	name := DefaultAlias()
 	if name == "" {

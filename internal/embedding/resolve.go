@@ -1,6 +1,7 @@
 package embedding
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -204,6 +205,32 @@ func modelCachePath(cacheDir, repoID, filename string) (string, error) {
 		return "", fmt.Errorf("embedding: unsafe filename %q", filename)
 	}
 	return filepath.Join(cacheDir, repoOrg, repoName, filename), nil
+}
+
+// ValidateServiceModel checks that a model specifier is safe for the
+// service API. Local filesystem paths are rejected because the JSON
+// API should not trigger arbitrary file reads.
+func ValidateServiceModel(model string) error {
+	model = strings.TrimSpace(model)
+
+	// Strip optional quantization hint before checking.
+	if idx := strings.LastIndex(model, ":"); idx > 0 && !strings.Contains(model[idx:], "/") {
+		model = model[:idx]
+	}
+
+	if model == "" {
+		return nil // default alias
+	}
+	if isLocalPath(model) {
+		return errors.New("embedding: local paths are not allowed through the service API")
+	}
+	if _, ok := LookupAlias(model); ok {
+		return nil
+	}
+	if strings.Contains(model, "/") {
+		return nil // HF repo ID
+	}
+	return nil // unknown models are caught later by ResolveModel
 }
 
 func isLocalPath(model string) bool {
