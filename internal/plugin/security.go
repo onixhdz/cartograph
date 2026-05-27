@@ -72,6 +72,7 @@ func parseChecksum(s string) (algo string, hash []byte, err error) {
 }
 
 // hashFile computes the SHA-256 hash of the file at the given path.
+// CodeQL FP: callers pass CLI-provided paths (intentional) or JoinName-validated plugin binary paths.
 func hashFile(path string) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {

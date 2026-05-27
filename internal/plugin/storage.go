@@ -33,6 +33,8 @@ type PluginDataset struct {
 }
 
 func PersistPluginDataset(ds PluginDataset) error {
+	// CodeQL FP: PluginName and ConnectionName are validated as single path segments
+	// below, and JoinName re-validates before constructing any filesystem path.
 	if !sysutil.IsPathSegment(ds.PluginName) || !sysutil.IsPathSegment(ds.ConnectionName) {
 		return fmt.Errorf("persist plugin dataset: %w", ErrInvalidName)
 	}
@@ -125,6 +127,8 @@ func PersistPluginDataset(ds PluginDataset) error {
 }
 
 func RemovePluginDatasets(dataDir, pluginName string) error {
+	// CodeQL FP: pluginName is validated as a single path segment below,
+	// and registry entries are persisted data, not direct user input.
 	if !sysutil.IsPathSegment(pluginName) {
 		return fmt.Errorf("remove plugin dataset: %w", ErrInvalidName)
 	}
