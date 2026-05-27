@@ -322,6 +322,7 @@ func loadComposerConfig(root string, readFile func(string) ([]byte, error), cfg 
 // loadCSharpProjectConfig parses .csproj files to extract the root namespace.
 // Searches for the first .csproj file in the root directory.
 func loadCSharpProjectConfig(root string, readFile func(string) ([]byte, error), cfg *ProjectConfig) {
+	// CodeQL FP: this reads project files discovered directly under the selected repo root.
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return
@@ -890,6 +891,7 @@ func loadGemfileDependencies(root string, readFile func(string) ([]byte, error),
 // handling Include/Update variants and skipping MSBuild variable entries.
 func loadCsprojDependencies(root string, readFile func(string) ([]byte, error), cfg *ProjectConfig, files []string) {
 	if len(files) == 0 {
+		// CodeQL FP: this reads project files discovered directly under the selected repo root.
 		entries, err := os.ReadDir(root)
 		if err != nil {
 			return

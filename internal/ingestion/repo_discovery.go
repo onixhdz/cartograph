@@ -274,6 +274,7 @@ func addRepoSignal(candidate *RepoCandidate, signal RepoSignal) {
 }
 
 func localRepoRootPath(root string) (string, bool) {
+	// CodeQL FP: repo discovery starts from a user-selected local root and only accepts directories.
 	abs, err := filepath.Abs(root)
 	if err != nil {
 		return "", false
@@ -395,6 +396,7 @@ func repoRelToRoot(root, p string) string {
 }
 
 func readRepoGitmodules(root string) []string {
+	// CodeQL FP: .gitmodules is fixed metadata under the selected repo root.
 	data, err := os.ReadFile(filepath.Join(root, ".gitmodules"))
 	if err != nil {
 		return nil

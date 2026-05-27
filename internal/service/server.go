@@ -947,6 +947,8 @@ func (s *Server) runPluginIngestJob(ctx context.Context, job *pluginIngestJob, r
 		}
 	}
 
+	// CodeQL FP: PluginName is validated as one path segment before
+	// the job starts, and JoinName preserves that installed-binary boundary.
 	binPath, err := plugin.JoinName(filepath.Join(s.dataDir, "plugins", "bin"), req.PluginName)
 	if err != nil {
 		setFailed("invalid plugin name")

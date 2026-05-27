@@ -60,6 +60,7 @@ Cartograph is local-first code intelligence. Every change should make the tool m
 - This is a Zig/CGO project. Task workflows ensure Go uses the intended Zig `CC`/`CXX` toolchain and links the native embedding library correctly.
 - Targeted `go test` is allowed for specific packages that do not require the CGO-linked embedding library; when in doubt, use `task test`.
 - Run linting for code changes with `task lint` or `golangci-lint run ./...`, and fix reported issues rather than leaving known failures behind.
+- Run `task vuln` before committing changes, and fix or report any findings.
 - If verification cannot be run, report why and what remains unverified.
 
 ## Post-Change Checklist

@@ -112,7 +112,8 @@ func LaunchPlugin(ctx context.Context, binaryPath string, opts LaunchOptions) (*
 	if opts.ShutdownTimeout == 0 {
 		opts.ShutdownTimeout = defaultShutdownTimeout
 	}
-
+	// CodeQL FP: plugin execution is intentional and uses exec without
+	// a shell; callers resolve this to an installed or explicitly selected binary.
 	cmd := exec.CommandContext(ctx, binaryPath)
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("%s=%s", MagicCookieKey, MagicCookieValue),

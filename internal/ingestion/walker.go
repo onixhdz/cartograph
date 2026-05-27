@@ -167,6 +167,7 @@ func DefaultIgnorePatterns() []string {
 // readIgnoreLines reads a .gitignore-style file and returns non-empty,
 // non-comment lines.
 func readIgnoreLines(path string) []string {
+	// CodeQL FP: ignore files are fixed or walker-derived metadata for the selected repo root.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
