@@ -102,6 +102,23 @@ tasks:
         CXX='{{.HOST_CXX}}'
         go test -count=1 ./...
 
+  codeql:
+    desc: Build Go packages for CodeQL extraction
+    deps:
+      - task: build:embedding:lib
+        vars: { TARGET: "{{.HOST_ZIG_TARGET}}" }
+    cmds:
+      - mkdir -p '{{.ZIG_CACHE_DIR}}'
+      - mkdir -p '{{.ZIG_GLOBAL_CACHE_DIR}}'
+      - >
+        ZIG_LOCAL_CACHE_DIR='{{.ZIG_CACHE_DIR}}'
+        ZIG_GLOBAL_CACHE_DIR='{{.ZIG_GLOBAL_CACHE_DIR}}'
+        SDKROOT='{{.MACOS_SDKROOT}}'
+        CGO_ENABLED=1
+        CC='{{.HOST_CC}}'
+        CXX='{{.HOST_CXX}}'
+        "${CODEQL_ACTION_GO_BINARY:-go}" build ./...
+
   lint:
     desc: Run golangci-lint
     cmds:
