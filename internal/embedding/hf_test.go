@@ -135,6 +135,20 @@ func TestDownloadModel_SHA256Mismatch(t *testing.T) {
 	}
 }
 
+func TestDownloadModelRejectsUnsafePathParts(t *testing.T) {
+	cacheDir := t.TempDir()
+	for _, info := range []*HFModelInfo{
+		{RepoID: "../bad/repo", Filename: "model.gguf"},
+		{RepoID: `org\repo`, Filename: "model.gguf"},
+		{RepoID: "org/repo", Filename: "../model.gguf"},
+		{RepoID: "org/repo", Filename: `dir\model.gguf`},
+	} {
+		if _, err := DownloadModel(info, cacheDir, nil); err == nil {
+			t.Fatalf("DownloadModel(%+v) succeeded, want error", info)
+		}
+	}
+}
+
 func TestSelectGGUF(t *testing.T) {
 	files := []string{
 		"model-Q4_K_M.gguf",

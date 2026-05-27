@@ -15,6 +15,7 @@ import (
 	"github.com/realxen/cartograph/internal/search"
 	"github.com/realxen/cartograph/internal/storage"
 	"github.com/realxen/cartograph/internal/storage/bbolt"
+	"github.com/realxen/cartograph/internal/sysutil"
 	"github.com/realxen/cartograph/internal/version"
 )
 
@@ -32,9 +33,16 @@ type PluginDataset struct {
 }
 
 func PersistPluginDataset(ds PluginDataset) error {
+	if !sysutil.IsPathSegment(ds.PluginName) || !sysutil.IsPathSegment(ds.ConnectionName) {
+		return fmt.Errorf("persist plugin dataset: %w", ErrInvalidName)
+	}
 	repoName := ds.ConnectionName
 	repoHash := PluginDatasetHash(ds.PluginName, ds.ConnectionName)
-	repoDir := filepath.Join(ds.DataDir, repoName, repoHash)
+	repoBase, err := JoinName(ds.DataDir, repoName)
+	if err != nil {
+		return fmt.Errorf("persist plugin dataset: %w", err)
+	}
+	repoDir := filepath.Join(repoBase, repoHash)
 	tmpDir := repoDir + ".tmp"
 	if err := os.RemoveAll(tmpDir); err != nil {
 		return fmt.Errorf("persist plugin dataset: clear temp dir: %w", err)
@@ -117,6 +125,9 @@ func PersistPluginDataset(ds PluginDataset) error {
 }
 
 func RemovePluginDatasets(dataDir, pluginName string) error {
+	if !sysutil.IsPathSegment(pluginName) {
+		return fmt.Errorf("remove plugin dataset: %w", ErrInvalidName)
+	}
 	registry, err := storage.NewRegistry(dataDir)
 	if err != nil {
 		return fmt.Errorf("remove plugin dataset: open registry: %w", err)
@@ -125,7 +136,11 @@ func RemovePluginDatasets(dataDir, pluginName string) error {
 		if entry.Meta.PluginName != pluginName {
 			continue
 		}
-		repoDir := filepath.Join(dataDir, entry.Name, entry.Hash)
+		repoBase, err := JoinName(dataDir, entry.Name)
+		if err != nil {
+			return fmt.Errorf("remove plugin dataset %s: %w", entry.Name, err)
+		}
+		repoDir := filepath.Join(repoBase, entry.Hash)
 		if err := os.RemoveAll(repoDir); err != nil {
 			return fmt.Errorf("remove plugin dataset %s: %w", entry.Name, err)
 		}

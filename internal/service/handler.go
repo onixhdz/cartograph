@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/realxen/cartograph/internal/storage"
+	"github.com/realxen/cartograph/internal/sysutil"
 )
 
 func writeJSON(w http.ResponseWriter, v any) {
@@ -643,6 +644,10 @@ func (s *Server) handlePluginIngest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "missing pluginName")
 		return
 	}
+	if !sysutil.IsPathSegment(req.PluginName) || (req.ConnectionName != "" && !sysutil.IsPathSegment(req.ConnectionName)) {
+		writeError(w, http.StatusBadRequest, "invalid pluginName or connectionName")
+		return
+	}
 	job := s.StartPluginIngestJob(r.Context(), req)
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(Response{Result: &PluginIngestStatusResult{ //nolint:errchkjson
@@ -667,6 +672,10 @@ func (s *Server) handlePluginIngestStatus(w http.ResponseWriter, r *http.Request
 	}
 	if req.PluginName == "" {
 		writeError(w, http.StatusBadRequest, "missing pluginName")
+		return
+	}
+	if !sysutil.IsPathSegment(req.PluginName) {
+		writeError(w, http.StatusBadRequest, "invalid pluginName")
 		return
 	}
 	job := s.GetPluginIngestJob(req.PluginName)

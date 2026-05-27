@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/realxen/cartograph/internal/sysutil"
 )
 
 // HFModelInfo describes a GGUF file hosted on Hugging Face.
@@ -208,7 +210,14 @@ func fetchFileMeta(client *http.Client, repoID, filename string) (sha string, si
 // DownloadModel downloads a model GGUF to the cache directory.
 // Returns the path to the cached file.
 func DownloadModel(info *HFModelInfo, cacheDir string, progress func(downloaded, total int64)) (string, error) {
-	destDir := filepath.Join(cacheDir, info.RepoID)
+	repoOrg, repoName, err := splitHFRepoID(info.RepoID)
+	if err != nil {
+		return "", err
+	}
+	if !sysutil.IsPathSegment(info.Filename) {
+		return "", fmt.Errorf("hf: unsafe filename %q", info.Filename)
+	}
+	destDir := filepath.Join(cacheDir, repoOrg, repoName)
 	if err := os.MkdirAll(destDir, 0o750); err != nil {
 		return "", fmt.Errorf("hf: create cache dir: %w", err)
 	}
@@ -356,13 +365,17 @@ func hfHubCacheDir() string {
 // HF cache layout: {hub_dir}/models--{org}--{repo}/snapshots/{rev}/{filename}
 // Returns the path if found, empty string otherwise.
 func findInHFCache(repoID, filename string) string {
+	repoOrg, repoName, err := splitHFRepoID(repoID)
+	if err != nil || !sysutil.IsPathSegment(filename) {
+		return ""
+	}
 	hubDir := hfHubCacheDir()
 	if hubDir == "" {
 		return ""
 	}
 
 	// HF cache uses "models--org--repo" directory naming.
-	safeName := "models--" + strings.ReplaceAll(repoID, "/", "--")
+	safeName := "models--" + repoOrg + "--" + repoName
 	snapshotsDir := filepath.Join(hubDir, safeName, "snapshots")
 
 	entries, err := os.ReadDir(snapshotsDir)
@@ -372,7 +385,7 @@ func findInHFCache(repoID, filename string) string {
 
 	// Check each snapshot revision for the file.
 	for _, rev := range entries {
-		if !rev.IsDir() {
+		if !rev.IsDir() || !sysutil.IsPathSegment(rev.Name()) {
 			continue
 		}
 		candidate := filepath.Join(snapshotsDir, rev.Name(), filename)
@@ -381,6 +394,14 @@ func findInHFCache(repoID, filename string) string {
 		}
 	}
 	return ""
+}
+
+func splitHFRepoID(repoID string) (string, string, error) {
+	parts := strings.Split(repoID, "/")
+	if len(parts) != 2 || !sysutil.IsPathSegment(parts[0]) || !sysutil.IsPathSegment(parts[1]) {
+		return "", "", fmt.Errorf("hf: unsafe repo id %q", repoID)
+	}
+	return parts[0], parts[1], nil
 }
 
 // hashFile computes the SHA256 hex digest of a file.

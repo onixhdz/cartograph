@@ -20,12 +20,13 @@ import (
 
 	"github.com/realxen/cartograph/internal/embedding"
 	"github.com/realxen/cartograph/internal/graph"
-	internalplugin "github.com/realxen/cartograph/internal/plugin"
+	"github.com/realxen/cartograph/internal/plugin"
 	"github.com/realxen/cartograph/internal/search"
 	"github.com/realxen/cartograph/internal/storage"
 	"github.com/realxen/cartograph/internal/storage/bbolt"
 	"github.com/realxen/cartograph/internal/version"
-	"github.com/realxen/cartograph/plugin"
+
+	pluginsdk "github.com/realxen/cartograph/plugin"
 )
 
 // DefaultIdleTimeout is the default duration after which the server
@@ -700,20 +701,20 @@ func installedPluginVersion(dataDir, pluginName string) string {
 	if err != nil {
 		return ""
 	}
-	return internalplugin.InstalledPluginVersion(reg, pluginName)
+	return plugin.InstalledPluginVersion(reg, pluginName)
 }
 
-func installedPluginEntities(dataDir, pluginName string) []plugin.Entity {
+func installedPluginEntities(dataDir, pluginName string) []pluginsdk.Entity {
 	reg, err := loadInstalledPluginRegistry(dataDir)
 	if err != nil {
 		return nil
 	}
-	return internalplugin.InstalledPluginEntities(reg, pluginName)
+	return plugin.InstalledPluginEntities(reg, pluginName)
 }
 
-func loadInstalledPluginRegistry(dataDir string) (*internalplugin.InstalledRegistry, error) {
+func loadInstalledPluginRegistry(dataDir string) (*plugin.InstalledRegistry, error) {
 	path := filepath.Join(dataDir, "plugins", "plugins.json")
-	reg, err := internalplugin.LoadInstalledRegistry(path)
+	reg, err := plugin.LoadInstalledRegistry(path)
 	if err != nil {
 		return nil, fmt.Errorf("load installed plugin registry: %w", err)
 	}
@@ -939,27 +940,31 @@ func (s *Server) runPluginIngestJob(ctx context.Context, job *pluginIngestJob, r
 		return
 	}
 	configPath := filepath.Join(s.dataDir, "config.toml")
-	pc := internalplugin.PluginConfig{}
-	if cfg, err := internalplugin.LoadConfig(configPath); err == nil {
+	pc := plugin.PluginConfig{}
+	if cfg, err := plugin.LoadConfig(configPath); err == nil {
 		if got, ok := cfg.Plugins[connection]; ok {
 			pc = got
 		}
 	}
 
-	binPath := filepath.Join(s.dataDir, "plugins", "bin", req.PluginName)
+	binPath, err := plugin.JoinName(filepath.Join(s.dataDir, "plugins", "bin"), req.PluginName)
+	if err != nil {
+		setFailed("invalid plugin name")
+		return
+	}
 	if _, err := os.Stat(binPath); err != nil {
 		setFailed("plugin binary not found: " + req.PluginName)
 		return
 	}
 
 	g := lpg.NewGraph()
-	builder := internalplugin.NewLPGGraphBuilder(g, internalplugin.LPGGraphBuilderOptions{Transactional: true})
-	ds := &internalplugin.PluginDataSource{
+	builder := plugin.NewLPGGraphBuilder(g, plugin.LPGGraphBuilderOptions{Transactional: true})
+	ds := &plugin.PluginDataSource{
 		BinaryPath:     binPath,
 		PluginConfig:   pc,
 		ConnectionName: connection,
 	}
-	if err := ds.Ingest(ctx, builder, plugin.IngestOptions{
+	if err := ds.Ingest(ctx, builder, pluginsdk.IngestOptions{
 		ResourceTypes: req.ResourceTypes,
 		Concurrency:   req.Concurrency,
 	}); err != nil {
@@ -967,12 +972,17 @@ func (s *Server) runPluginIngestJob(ctx context.Context, job *pluginIngestJob, r
 		return
 	}
 	nodes, edges := builder.Commit()
-	if err := internalplugin.PersistPluginDataset(internalplugin.PluginDataset{
+	pluginDataDir, err := plugin.JoinName(filepath.Join(s.dataDir, "plugins", "data"), req.PluginName)
+	if err != nil {
+		setFailed("invalid plugin data path")
+		return
+	}
+	if err := plugin.PersistPluginDataset(plugin.PluginDataset{
 		PluginName:     req.PluginName,
 		PluginVersion:  installedPluginVersion(s.dataDir, req.PluginName),
 		ConnectionName: connection,
 		DataDir:        s.dataDir,
-		PluginDataDir:  filepath.Join(s.dataDir, "plugins", "data", req.PluginName),
+		PluginDataDir:  pluginDataDir,
 		Graph:          g,
 		NodeCount:      nodes,
 		EdgeCount:      edges,
@@ -1007,7 +1017,7 @@ func (s *Server) runEmbedJob(ctx context.Context, job *embedJob, req EmbedReques
 		job.Status = "failed"
 		job.Error = msg
 		s.embedMu.Unlock()
-		log.Printf("[embed] %s: failed: %s", req.Repo, msg)
+		log.Printf("[embed] repo=%q failed: %q", req.Repo, msg)
 	}
 
 	var repoDir string
@@ -1090,7 +1100,7 @@ func (s *Server) runEmbedJob(ctx context.Context, job *embedJob, req EmbedReques
 	// Model changed — clear existing embeddings and re-embed everything.
 	storedModel := entry.Meta.EmbeddingModel
 	if storedModel != "" && storedModel != requestedModel {
-		log.Printf("[embed] %s: model changed (%s → %s), clearing embeddings", req.Repo, storedModel, requestedModel)
+		log.Printf("[embed] repo=%q model changed (%q -> %q), clearing embeddings", req.Repo, storedModel, requestedModel)
 		if err := embStore.Clear(); err != nil {
 			setError(fmt.Sprintf("clear embeddings: %v", err))
 			return
@@ -1101,7 +1111,7 @@ func (s *Server) runEmbedJob(ctx context.Context, job *embedJob, req EmbedReques
 	if version.CheckEmbeddingCompatibility(version.VersionInfo{
 		EmbeddingTextVersion: entry.Meta.EmbeddingTextVersion,
 	}) == "full-reembed" {
-		log.Printf("[embed] %s: embedding text format changed (v%s → v%s), clearing embeddings",
+		log.Printf("[embed] repo=%q embedding text format changed (v%q -> v%s), clearing embeddings",
 			req.Repo, entry.Meta.EmbeddingTextVersion, version.EmbeddingTextVersion)
 		if err := embStore.Clear(); err != nil {
 			setError(fmt.Sprintf("clear embeddings: %v", err))
@@ -1160,9 +1170,9 @@ func (s *Server) runEmbedJob(ctx context.Context, job *embedJob, req EmbedReques
 
 	if len(needEmbed) == 0 || (len(needEmbed) <= 10 && len(nodes) > 1000 && staleCount == 0) {
 		if len(needEmbed) > 0 {
-			log.Printf("[embed] %s: skipping %d trivial missing nodes (out of %d)", req.Repo, len(needEmbed), len(nodes))
+			log.Printf("[embed] repo=%q skipping %d trivial missing nodes (out of %d)", req.Repo, len(needEmbed), len(nodes))
 		} else {
-			log.Printf("[embed] %s: all %d nodes already embedded and current", req.Repo, len(nodes))
+			log.Printf("[embed] repo=%q all %d nodes already embedded and current", req.Repo, len(nodes))
 		}
 		s.embedMu.Lock()
 		job.Progress = len(nodes)
@@ -1175,7 +1185,7 @@ func (s *Server) runEmbedJob(ctx context.Context, job *embedJob, req EmbedReques
 
 		// Clean orphaned vectors from previous graph versions.
 		if orphans, err := embedding.CleanOrphans(embStore, g); err == nil && orphans > 0 {
-			log.Printf("[embed] %s: cleaned %d orphaned vectors", req.Repo, orphans)
+			log.Printf("[embed] repo=%q cleaned %d orphaned vectors", req.Repo, orphans)
 		}
 
 		setStatus("complete")
@@ -1188,10 +1198,10 @@ func (s *Server) runEmbedJob(ctx context.Context, job *embedJob, req EmbedReques
 	})
 
 	if staleCount > 0 {
-		log.Printf("[embed] %s: %d nodes need embedding (%d missing, %d stale content)",
+		log.Printf("[embed] repo=%q %d nodes need embedding (%d missing, %d stale content)",
 			req.Repo, len(needEmbed), len(needEmbed)-staleCount, staleCount)
 	} else {
-		log.Printf("[embed] %s: %d/%d nodes need embedding", req.Repo, len(needEmbed), len(nodes))
+		log.Printf("[embed] repo=%q %d/%d nodes need embedding", req.Repo, len(needEmbed), len(nodes))
 	}
 	nodes = needEmbed
 
@@ -1302,7 +1312,7 @@ func (s *Server) runEmbedJob(ctx context.Context, job *embedJob, req EmbedReques
 
 	// Clean orphaned vectors after embedding.
 	if orphans, err := embedding.CleanOrphans(embStore, g); err == nil && orphans > 0 {
-		log.Printf("[embed] %s: cleaned %d orphaned vectors", req.Repo, orphans)
+		log.Printf("[embed] repo=%q cleaned %d orphaned vectors", req.Repo, orphans)
 	}
 
 	dur := time.Since(job.StartedAt).Round(time.Millisecond)
@@ -1315,7 +1325,7 @@ func (s *Server) runEmbedJob(ctx context.Context, job *embedJob, req EmbedReques
 
 	s.persistEmbedState(req.Repo, job)
 
-	log.Printf("[embed] %s: complete (%d nodes, %s, %dd, %s)", req.Repo, embeddedCount, modelName, provider.Dimensions(), dur)
+	log.Printf("[embed] repo=%q complete (%d nodes, model=%q, %dd, %s)", req.Repo, embeddedCount, modelName, provider.Dimensions(), dur)
 }
 
 // persistEmbedState writes the current embed job state to the centralized
@@ -1375,7 +1385,7 @@ func (s *Server) RecoverEmbedJobs() {
 		// Only auto-recover jobs that used the built-in provider —
 		// external providers need credentials we don't have.
 		if provider != embedProviderLlama {
-			log.Printf("[embed] %s: interrupted embed job (provider=%s) — re-run 'cartograph embed' to resume", entry.Name, provider)
+			log.Printf("[embed] repo=%q interrupted embed job (provider=%q) — re-run 'cartograph embed' to resume", entry.Name, provider)
 			_ = registry.UpdateEmbedding(entry.Name, storage.EmbeddingInfo{
 				Status:   "interrupted",
 				Model:    entry.Meta.EmbeddingModel,
@@ -1388,7 +1398,7 @@ func (s *Server) RecoverEmbedJobs() {
 			continue
 		}
 
-		log.Printf("[embed] %s: recovering interrupted embed job (%d/%d nodes)", entry.Name, entry.Meta.EmbeddingNodes, entry.Meta.EmbeddingTotal)
+		log.Printf("[embed] repo=%q recovering interrupted embed job (%d/%d nodes)", entry.Name, entry.Meta.EmbeddingNodes, entry.Meta.EmbeddingTotal)
 		s.StartEmbedJob(context.Background(), EmbedRequest{
 			Repo:     entry.Name,
 			Provider: provider,

@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-git/go-billy/v6"
-	"github.com/go-git/go-billy/v6/memfs"
+	"github.com/go-git/go-billy/v5"
+	"github.com/go-git/go-billy/v5/memfs"
 
 	"github.com/realxen/cartograph/internal/ingestion"
 	"github.com/realxen/cartograph/internal/remote"

@@ -536,9 +536,12 @@ func appendToFile(path, line string) error {
 	if err != nil {
 		return fmt.Errorf("open %s: %w", path, err)
 	}
-	defer f.Close()
 	if _, err = fmt.Fprintf(f, "\n# cartograph tab-completion\n%s\n", line); err != nil {
+		_ = f.Close()
 		return fmt.Errorf("write to %s: %w", path, err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close %s: %w", path, err)
 	}
 	return nil
 }

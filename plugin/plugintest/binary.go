@@ -8,15 +8,15 @@ import (
 	"testing"
 	"time"
 
-	internalPlugin "github.com/realxen/cartograph/internal/plugin"
-	"github.com/realxen/cartograph/plugin"
+	plugin "github.com/realxen/cartograph/internal/plugin"
+	pluginsdk "github.com/realxen/cartograph/plugin"
 )
 
 // BinaryResult holds the collected output from running a plugin binary.
 // All mutation methods are thread-safe: notification handlers run concurrently.
 type BinaryResult struct {
 	// Info is the plugin's self-reported metadata.
-	Info plugin.Info
+	Info pluginsdk.Info
 
 	mu    sync.Mutex
 	nodes []Node
@@ -120,7 +120,7 @@ type RunBinaryOptions struct {
 	// Connection is the connection name passed to configure. Default: "test".
 	Connection string
 	// IngestOptions are passed to the ingest call.
-	IngestOptions plugin.IngestOptions
+	IngestOptions pluginsdk.IngestOptions
 	// Timeout is the maximum time for the entire run. Default: 30s.
 	Timeout time.Duration
 }
@@ -151,19 +151,19 @@ func RunBinary(t testing.TB, binaryPath string, opts RunBinaryOptions) *BinaryRe
 
 	builder := &collectingBuilder{result: result}
 
-	ds := &internalPlugin.PluginDataSource{
+	ds := &plugin.PluginDataSource{
 		BinaryPath: binaryPath,
-		PluginConfig: internalPlugin.PluginConfig{
+		PluginConfig: plugin.PluginConfig{
 			Bin:   "test",
 			Extra: extra,
 		},
 		ConnectionName: opts.Connection,
-		Limits: internalPlugin.Limits{
+		Limits: plugin.Limits{
 			Timeout:  opts.Timeout,
 			MaxNodes: -1, // unlimited for tests
 			MaxEdges: -1,
 		},
-		Cache: internalPlugin.NewMemoryCache(),
+		Cache: plugin.NewMemoryCache(),
 		Logger: func(_ string, level string, msg string) {
 			result.mu.Lock()
 			defer result.mu.Unlock()

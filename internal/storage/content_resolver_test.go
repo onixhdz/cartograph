@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,7 +60,7 @@ func TestContentResolver_FallbackToStore(t *testing.T) {
 		"utils.go": []byte("package utils"),
 	}}
 
-	// No source path → disk is skipped.
+	// No source path -> disk is skipped.
 	cr := &ContentResolver{SourcePath: "", Store: store}
 
 	got, err := cr.ReadFile("utils.go")
@@ -155,5 +156,23 @@ func TestContentResolver_CloseClosesStore(t *testing.T) {
 	}
 	if !store.closed {
 		t.Fatal("expected store to be closed")
+	}
+}
+
+func TestContentResolverRejectsTraversal(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "file.go"), []byte("ok"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	resolver := &ContentResolver{SourcePath: dir}
+
+	if _, err := resolver.ReadFile("file.go"); err != nil {
+		t.Fatalf("ReadFile valid: %v", err)
+	}
+	if _, err := resolver.ReadFile("../secret"); !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("ReadFile traversal error = %v", err)
+	}
+	if resolver.HasFile("../secret") {
+		t.Fatal("HasFile traversal = true")
 	}
 }

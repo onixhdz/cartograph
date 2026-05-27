@@ -21,6 +21,7 @@ Most structural code questions (blast radius, call chains, process ownership, su
 | Incremental Re-Indexing         | 🔲 Planned     | High     | Diff/staleness detection plus incremental refresh; only re-parse changed files (10–100× speedup)                                                                                                                |
 | CloudGraph                      | 🔲 Planned     | High     | Plugin-based cloud/infra data sources (AWS, GitHub, k8s, SaaS) ingested into the knowledge graph; query infrastructure alongside code via Cypher                                                                |
 | Semantic Config & Infra Parsing | 🔲 Planned     | High     | Classify config/infra/schema files and extract evidence-backed runtime facts from contracts, deployment manifests, SQL, Terraform/HCL, Docker, etc.; replaces generic fallback parsing with semantic extractors |
+| Security Flow Analysis          | 🔲 Planned     | High     | CodeQL-inspired security research primitives: call-site preservation, value facts, local data flow, temporary source/sink models, partial-flow exploration, and explainable path evidence                        |
 | Architecture Summary            | 🔲 Planned     | Medium   | Auto-generate subsystem overview from community + centrality + entry points                                                                                                                                     |
 | Dead Code Detection             | 🔲 Planned     | Medium   | Reachability BFS from entry points; transitive dead code detection                                                                                                                                              |
 | Watch Mode                      | 🔲 Planned     | Medium   | `fsnotify` + incremental re-index; graph stays current while you code                                                                                                                                           |
@@ -78,6 +79,7 @@ MVP
  │    ├─► Semantic Config & Infra Parsing → contract/deployment evidence for runtime boundaries
  │    ├─► CloudGraph             → enriches runtime/service identity with cloud/SaaS APIs alongside code
  │    └─► Vulnerability Surface  → needs cross-repo dep graph
+ ├─► Security Flow Analysis      → CodeQL-inspired call-site, value-flow, and source-to-sink research primitives
  ├─► Architecture Guardrails     → CI integration + retention
  └─► Plugin System               → community + extensibility
 ```

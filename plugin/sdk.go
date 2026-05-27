@@ -125,6 +125,17 @@ type PluginResource struct {
 	Content string `json:"content"`
 }
 
+// InstallMetadata is lightweight install-time metadata retrieved from a
+// plugin binary. It is assembled from Info and Resources without running
+// graph ingestion.
+type InstallMetadata struct {
+	Name        string
+	Version     string
+	Description string
+	Entities    []Entity
+	Resources   []PluginResource
+}
+
 // Element is a graph element emitted by a plugin during ingestion.
 // The concrete types are [Node] and [Edge].
 type Element interface {

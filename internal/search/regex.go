@@ -617,9 +617,14 @@ func newRegexMatcher(pattern string, fixedStrings, ignoreCase bool) (*regexMatch
 }
 
 func verifyRegexCandidates(candidates []string, matcher *regexMatcher, opts RegexSearchOptions, limit, contextLines int, degraded bool) ([]RegexMatch, int, bool) {
+	capacity := min(max(limit, 0), 32)
+	matches := make([]RegexMatch, 0, capacity)
+	if limit <= 0 {
+		return matches, 0, false
+	}
+
 	seen := make(map[string]bool, len(candidates))
 	filesWithMatches := make(map[string]bool)
-	matches := make([]RegexMatch, 0, min(limit, 32))
 	var scannedFiles int
 	var scannedBytes int64
 	truncated := false

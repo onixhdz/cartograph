@@ -8,14 +8,26 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
+
+	"github.com/realxen/cartograph/internal/sysutil"
 )
 
 // Security errors.
 var (
 	ErrChecksumMismatch = errors.New("plugin: checksum mismatch")
 	ErrChecksumFormat   = errors.New("plugin: invalid checksum format")
+	ErrInvalidName      = errors.New("plugin: invalid name")
 )
+
+// JoinName returns the path for a plugin-owned name under base.
+func JoinName(base, name string) (string, error) {
+	if base == "" || !sysutil.IsPathSegment(name) {
+		return "", ErrInvalidName
+	}
+	return filepath.Join(base, name), nil
+}
 
 // VerifyChecksum computes the SHA-256 hash of the file at binaryPath and
 // compares it to the expected checksum. The checksum must be in the format

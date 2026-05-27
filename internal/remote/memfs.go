@@ -7,7 +7,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/go-git/go-billy/v6"
+	"github.com/go-git/go-billy/v5"
 	ignore "github.com/sabhiram/go-gitignore"
 
 	"github.com/realxen/cartograph/internal/ingestion"
@@ -101,12 +101,7 @@ func (w MemFSWalker) walkDir(dir, base, root string, gi *ignore.GitIgnore, opts 
 			continue
 		}
 
-		info, err := entry.Info()
-		if err != nil {
-			continue // skip files we can't stat
-		}
-
-		if info.Size() > opts.MaxFileSize {
+		if entry.Size() > opts.MaxFileSize {
 			continue
 		}
 
@@ -117,7 +112,7 @@ func (w MemFSWalker) walkDir(dir, base, root string, gi *ignore.GitIgnore, opts 
 			Path:     absPath,
 			RelPath:  relPath,
 			IsDir:    false,
-			Size:     info.Size(),
+			Size:     entry.Size(),
 			Language: lang,
 		})
 	}

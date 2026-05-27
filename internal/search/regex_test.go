@@ -3,6 +3,7 @@ package search
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -132,6 +133,19 @@ func TestRegexIndexDegeneratePatternDegradedAndTruncated(t *testing.T) {
 	}
 	if res.Status != "degraded" || !res.Truncated || len(res.Matches) != 2 {
 		t.Fatalf("result: %+v", res)
+	}
+}
+
+func TestVerifyRegexCandidatesRejectsNonPositiveLimit(t *testing.T) {
+	matcher := &regexMatcher{re: regexp.MustCompile("needle")}
+	read := func(string) ([]byte, error) {
+		return []byte("needle\n"), nil
+	}
+	for _, limit := range []int{-1, 0} {
+		matches, fileCount, truncated := verifyRegexCandidates([]string{"a.go"}, matcher, RegexSearchOptions{ReadFile: read}, limit, 0, false)
+		if len(matches) != 0 || fileCount != 0 || truncated {
+			t.Fatalf("limit %d: got matches=%d fileCount=%d truncated=%v", limit, len(matches), fileCount, truncated)
+		}
 	}
 }
 

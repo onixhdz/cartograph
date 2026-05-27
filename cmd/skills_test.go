@@ -6,8 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	internalplugin "github.com/realxen/cartograph/internal/plugin"
-	"github.com/realxen/cartograph/plugin"
+	pluginsdk "github.com/realxen/cartograph/plugin"
 )
 
 const testSkillsPluginName = "mitre-capec" //nolint:misspell // MITRE is the organization name
@@ -175,15 +174,15 @@ func TestSkillsInstallCmdToPath(t *testing.T) {
 		t.Fatalf("set HOME: %v", err)
 	}
 
-	meta := &internalplugin.InstallMetadata{
+	meta := &pluginsdk.InstallMetadata{
 		Name:        testSkillsPluginName,
 		Version:     "0.1.0",
 		Description: "CAPEC security guidance",
-		Entities: []plugin.Entity{{
+		Entities: []pluginsdk.Entity{{
 			Name:  "AttackPattern",
 			Label: "CAPECPattern",
 		}},
-		Resources: []internalplugin.InstallResource{{
+		Resources: []pluginsdk.PluginResource{{
 			Name:    "security-research",
 			Content: "# CAPEC",
 		}},

@@ -204,22 +204,6 @@ type pluginInstallResource struct {
 	Content string `json:"content"`
 }
 
-// InstallMetadata is lightweight install-time metadata retrieved directly
-// from a plugin binary. It is separate from graph ingestion.
-type InstallMetadata struct {
-	Name        string
-	Version     string
-	Description string
-	Entities    []pluginsdk.Entity
-	Resources   []InstallResource
-}
-
-// InstallResource is install-time reference content exposed by a plugin.
-type InstallResource struct {
-	Name    string
-	Content string
-}
-
 func (s *PluginDataSource) callInfo(ctx context.Context, proc *PluginProcess) (*pluginInfoResponse, error) {
 	var resp pluginInfoResponse
 	if err := proc.Conn.Call(ctx, "info", struct{}{}).Await(ctx, &resp); err != nil {
@@ -241,7 +225,7 @@ func (s *PluginDataSource) callResources(ctx context.Context, proc *PluginProces
 
 // InspectInstallMetadata launches a plugin briefly, retrieves its install-time
 // metadata and optional resources, and then closes it.
-func InspectInstallMetadata(ctx context.Context, binaryPath string, stderr func(name, line string)) (*InstallMetadata, error) {
+func InspectInstallMetadata(ctx context.Context, binaryPath string, stderr func(name, line string)) (*pluginsdk.InstallMetadata, error) {
 	proc, err := LaunchPlugin(ctx, binaryPath, LaunchOptions{Stderr: stderr})
 	if err != nil {
 		return nil, err
@@ -259,15 +243,15 @@ func InspectInstallMetadata(ctx context.Context, binaryPath string, stderr func(
 	}
 	_ = s.callClose(ctx, proc)
 
-	meta := &InstallMetadata{
+	meta := &pluginsdk.InstallMetadata{
 		Name:        infoResp.Name,
 		Version:     infoResp.Version,
 		Description: infoResp.Description,
 		Entities:    pluginInfoEntities(infoResp.Entities),
-		Resources:   make([]InstallResource, 0, len(resourceResp)),
+		Resources:   make([]pluginsdk.PluginResource, 0, len(resourceResp)),
 	}
 	for _, r := range resourceResp {
-		meta.Resources = append(meta.Resources, InstallResource(r))
+		meta.Resources = append(meta.Resources, pluginsdk.PluginResource(r))
 	}
 	return meta, nil
 }

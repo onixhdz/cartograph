@@ -38,7 +38,7 @@ func (p *myPlugin) Info() plugin.Info {
 	return plugin.Info{
 		Name:    "my-source",
 		Version: "0.1.0",
-		Resources: []plugin.Resource{
+		Entities: []plugin.Entity{
 			{Name: "Widget", Label: "MyWidget"},
 			{Name: "Owner", Label: "MyOwner"},
 		},

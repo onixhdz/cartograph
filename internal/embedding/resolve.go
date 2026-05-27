@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/realxen/cartograph/internal/sysutil"
 )
 
 // ResolvedModel contains the GGUF model data after resolution via
@@ -81,7 +83,10 @@ func resolveAlias(name string, alias ModelAlias, quantHint string, progress func
 
 	if filename != "" {
 		// 1. Check our cache.
-		cachePath := filepath.Join(cacheDir, alias.Repo, filename)
+		cachePath, err := modelCachePath(cacheDir, alias.Repo, filename)
+		if err != nil {
+			return nil, err
+		}
 		if data, err := os.ReadFile(cachePath); err == nil {
 			return &ResolvedModel{Bytes: data, Name: name, Source: "cache"}, nil
 		}
@@ -89,7 +94,7 @@ func resolveAlias(name string, alias ModelAlias, quantHint string, progress func
 		// 2. Check HF Hub cache (read-only, zero-copy reuse).
 		if hfPath := findInHFCache(alias.Repo, filename); hfPath != "" {
 			if data, err := os.ReadFile(hfPath); err == nil {
-				log.Printf("[embedding] reusing model from HF cache: %s", hfPath)
+				log.Printf("[embedding] reusing model from HF cache: %q", hfPath)
 				return &ResolvedModel{Bytes: data, Name: name, Source: "cache"}, nil
 			}
 		}
@@ -99,15 +104,18 @@ func resolveAlias(name string, alias ModelAlias, quantHint string, progress func
 	if err != nil {
 		if filename != "" {
 			// Offline fallback: check our cache.
-			cachePath := filepath.Join(cacheDir, alias.Repo, filename)
+			cachePath, pathErr := modelCachePath(cacheDir, alias.Repo, filename)
+			if pathErr != nil {
+				return nil, pathErr
+			}
 			if data, readErr := os.ReadFile(cachePath); readErr == nil {
-				log.Printf("[embedding] offline: using cached model %s", cachePath)
+				log.Printf("[embedding] offline: using cached model %q", cachePath)
 				return &ResolvedModel{Bytes: data, Name: name, Source: "cache"}, nil
 			}
 			// Offline fallback: check HF Hub cache.
 			if hfPath := findInHFCache(alias.Repo, filename); hfPath != "" {
 				if data, readErr := os.ReadFile(hfPath); readErr == nil {
-					log.Printf("[embedding] offline: reusing model from HF cache: %s", hfPath)
+					log.Printf("[embedding] offline: reusing model from HF cache: %q", hfPath)
 					return &ResolvedModel{Bytes: data, Name: name, Source: "cache"}, nil
 				}
 			}
@@ -138,14 +146,18 @@ func resolveHFRepo(repoID, quantHint string, progress func(downloaded, total int
 	info, err := FetchModelInfo(repoID, quantHint)
 	if err != nil {
 		// Offline fallback: check our cache.
-		repoDir := filepath.Join(cacheDir, repoID)
+		repoOrg, repoName, pathErr := splitHFRepoID(repoID)
+		if pathErr != nil {
+			return nil, pathErr
+		}
+		repoDir := filepath.Join(cacheDir, repoOrg, repoName)
 		entries, _ := os.ReadDir(repoDir)
 		for _, e := range entries {
-			if strings.HasSuffix(e.Name(), ".gguf") && !strings.HasSuffix(e.Name(), ".part") {
+			if sysutil.IsPathSegment(e.Name()) && strings.HasSuffix(e.Name(), ".gguf") && !strings.HasSuffix(e.Name(), ".part") {
 				cachePath := filepath.Join(repoDir, e.Name())
 				data, readErr := os.ReadFile(cachePath)
 				if readErr == nil {
-					log.Printf("[embedding] offline: using cached model %s", cachePath)
+					log.Printf("[embedding] offline: using cached model %q", cachePath)
 					return &ResolvedModel{Bytes: data, Name: filepath.Base(cachePath), Source: "cache"}, nil
 				}
 			}
@@ -154,7 +166,10 @@ func resolveHFRepo(repoID, quantHint string, progress func(downloaded, total int
 	}
 
 	// Check our cache.
-	cachePath := filepath.Join(cacheDir, info.RepoID, info.Filename)
+	cachePath, err := modelCachePath(cacheDir, info.RepoID, info.Filename)
+	if err != nil {
+		return nil, err
+	}
 	if data, err := os.ReadFile(cachePath); err == nil {
 		return &ResolvedModel{Bytes: data, Name: info.Filename, Source: "cache"}, nil
 	}
@@ -162,7 +177,7 @@ func resolveHFRepo(repoID, quantHint string, progress func(downloaded, total int
 	// Check HF Hub cache (read-only).
 	if hfPath := findInHFCache(info.RepoID, info.Filename); hfPath != "" {
 		if data, err := os.ReadFile(hfPath); err == nil {
-			log.Printf("[embedding] reusing model from HF cache: %s", hfPath)
+			log.Printf("[embedding] reusing model from HF cache: %q", hfPath)
 			return &ResolvedModel{Bytes: data, Name: info.Filename, Source: "cache"}, nil
 		}
 	}
@@ -178,6 +193,17 @@ func resolveHFRepo(repoID, quantHint string, progress func(downloaded, total int
 	}
 
 	return &ResolvedModel{Bytes: data, Name: info.Filename, Source: "download"}, nil
+}
+
+func modelCachePath(cacheDir, repoID, filename string) (string, error) {
+	repoOrg, repoName, err := splitHFRepoID(repoID)
+	if err != nil {
+		return "", err
+	}
+	if !sysutil.IsPathSegment(filename) {
+		return "", fmt.Errorf("embedding: unsafe filename %q", filename)
+	}
+	return filepath.Join(cacheDir, repoOrg, repoName, filename), nil
 }
 
 func isLocalPath(model string) bool {

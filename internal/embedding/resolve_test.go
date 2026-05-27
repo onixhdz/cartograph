@@ -47,6 +47,13 @@ func TestResolveModel_UnknownModel(t *testing.T) {
 	}
 }
 
+func TestResolveModelRejectsUnsafeHFRepo(t *testing.T) {
+	_, err := ResolveModel("../bad/repo")
+	if err == nil {
+		t.Fatal("expected error for unsafe HF repo")
+	}
+}
+
 func TestResolveModel_TildeExpansion(t *testing.T) {
 	// This test verifies tilde expansion doesn't panic.
 	// The file won't exist, so it should return an error.

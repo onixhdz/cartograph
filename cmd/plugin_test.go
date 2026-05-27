@@ -11,10 +11,11 @@ import (
 	"github.com/cloudprivacylabs/lpg/v2"
 
 	"github.com/realxen/cartograph/internal/graph"
-	internalplugin "github.com/realxen/cartograph/internal/plugin"
+	"github.com/realxen/cartograph/internal/plugin"
 	"github.com/realxen/cartograph/internal/storage"
 	"github.com/realxen/cartograph/internal/storage/bbolt"
-	"github.com/realxen/cartograph/plugin"
+
+	pluginsdk "github.com/realxen/cartograph/plugin"
 )
 
 const testPluginName = "mitre-capec" //nolint:misspell // MITRE is the organization name
@@ -29,15 +30,15 @@ func TestStoreInstalledPluginMetadata(t *testing.T) {
 		t.Fatalf("set HOME: %v", err)
 	}
 
-	meta := &internalplugin.InstallMetadata{
+	meta := &pluginsdk.InstallMetadata{
 		Name:        testPluginName,
 		Version:     "0.1.0",
 		Description: "CAPEC security guidance",
-		Entities: []plugin.Entity{{
+		Entities: []pluginsdk.Entity{{
 			Name:  "AttackPattern",
 			Label: "CAPECPattern",
 		}},
-		Resources: []internalplugin.InstallResource{
+		Resources: []pluginsdk.PluginResource{
 			{Name: "security-research", Content: "# CAPEC"},
 		},
 	}
@@ -51,7 +52,7 @@ func TestStoreInstalledPluginMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read registry: %v", err)
 	}
-	var reg internalplugin.InstalledRegistry
+	var reg plugin.InstalledRegistry
 	if err := json.Unmarshal(data, &reg); err != nil {
 		t.Fatalf("unmarshal registry: %v", err)
 	}
@@ -103,15 +104,15 @@ func TestSyncInstalledPluginRegistryToSkillBase(t *testing.T) {
 		t.Fatalf("set HOME: %v", err)
 	}
 
-	meta := &internalplugin.InstallMetadata{
+	meta := &pluginsdk.InstallMetadata{
 		Name:        testPluginName,
 		Version:     "0.1.0",
 		Description: "CAPEC security guidance",
-		Entities: []plugin.Entity{{
+		Entities: []pluginsdk.Entity{{
 			Name:  "AttackPattern",
 			Label: "CAPECPattern",
 		}},
-		Resources: []internalplugin.InstallResource{{
+		Resources: []pluginsdk.PluginResource{{
 			Name:    "security-research",
 			Content: "# CAPEC",
 		}},
@@ -162,7 +163,7 @@ func TestPersistPluginDataset(t *testing.T) {
 	})
 	graph.AddEdge(g, file, dep, graph.RelDefines, nil)
 
-	if err := internalplugin.PersistPluginDataset(internalplugin.PluginDataset{
+	if err := plugin.PersistPluginDataset(plugin.PluginDataset{
 		PluginName:     testPluginName,
 		PluginVersion:  "0.1.0",
 		ConnectionName: testPluginName,
@@ -176,7 +177,7 @@ func TestPersistPluginDataset(t *testing.T) {
 		t.Fatalf("PersistPluginDataset: %v", err)
 	}
 
-	repoHash := internalplugin.PluginDatasetHash(testPluginName, testPluginName)
+	repoHash := plugin.PluginDatasetHash(testPluginName, testPluginName)
 	repoDir := filepath.Join(DefaultDataDir(), testPluginName, repoHash)
 	if _, err := os.Stat(filepath.Join(repoDir, "graph.db")); err != nil {
 		t.Fatalf("graph.db missing: %v", err)
@@ -233,7 +234,7 @@ func TestRemovePluginDataset(t *testing.T) {
 		FilePath:      "test.md",
 		Language:      "markdown",
 	})
-	if err := internalplugin.PersistPluginDataset(internalplugin.PluginDataset{
+	if err := plugin.PersistPluginDataset(plugin.PluginDataset{
 		PluginName:     testPluginName,
 		PluginVersion:  "0.1.0",
 		ConnectionName: testPluginName,
@@ -247,11 +248,11 @@ func TestRemovePluginDataset(t *testing.T) {
 		t.Fatalf("PersistPluginDataset: %v", err)
 	}
 
-	if err := internalplugin.RemovePluginDatasets(DefaultDataDir(), testPluginName); err != nil {
+	if err := plugin.RemovePluginDatasets(DefaultDataDir(), testPluginName); err != nil {
 		t.Fatalf("RemovePluginDatasets: %v", err)
 	}
 
-	repoHash := internalplugin.PluginDatasetHash(testPluginName, testPluginName)
+	repoHash := plugin.PluginDatasetHash(testPluginName, testPluginName)
 	repoDir := filepath.Join(DefaultDataDir(), testPluginName, repoHash)
 	if _, err := os.Stat(repoDir); !os.IsNotExist(err) {
 		t.Fatalf("repo dir still exists: %v", err)
@@ -263,6 +264,34 @@ func TestRemovePluginDataset(t *testing.T) {
 	}
 	if _, ok := reg.Get(testPluginName); ok {
 		t.Fatalf("plugin dataset registry entry still exists")
+	}
+}
+
+func TestPluginRmRejectsTraversalName(t *testing.T) {
+	oldHome := os.Getenv("HOME")
+	t.Cleanup(func() {
+		_ = os.Setenv("HOME", oldHome)
+	})
+	tmp := t.TempDir()
+	if err := os.Setenv("HOME", tmp); err != nil {
+		t.Fatalf("set HOME: %v", err)
+	}
+
+	binDir := PluginBinDir()
+	if err := os.MkdirAll(binDir, 0o750); err != nil {
+		t.Fatalf("create plugin bin dir: %v", err)
+	}
+	outsidePath := filepath.Join(DefaultDataDir(), "config.toml")
+	if err := os.WriteFile(outsidePath, []byte("[plugins]\n"), 0o600); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+
+	cmd := PluginRmCmd{Name: "../../config.toml"}
+	if err := cmd.Run(nil); err == nil {
+		t.Fatalf("PluginRmCmd.Run succeeded for traversal name")
+	}
+	if _, err := os.Stat(outsidePath); err != nil {
+		t.Fatalf("outside file was removed or changed: %v", err)
 	}
 }
 
@@ -286,7 +315,7 @@ func TestPersistPluginDatasetReplacesDatasetAtomically(t *testing.T) {
 		return g
 	}
 
-	if err := internalplugin.PersistPluginDataset(internalplugin.PluginDataset{
+	if err := plugin.PersistPluginDataset(plugin.PluginDataset{
 		PluginName:     testPluginName,
 		PluginVersion:  "0.1.0",
 		ConnectionName: testPluginName,
@@ -300,7 +329,7 @@ func TestPersistPluginDatasetReplacesDatasetAtomically(t *testing.T) {
 		t.Fatalf("first PersistPluginDataset: %v", err)
 	}
 
-	if err := internalplugin.PersistPluginDataset(internalplugin.PluginDataset{
+	if err := plugin.PersistPluginDataset(plugin.PluginDataset{
 		PluginName:     testPluginName,
 		PluginVersion:  "0.2.0",
 		ConnectionName: testPluginName,
@@ -314,7 +343,7 @@ func TestPersistPluginDatasetReplacesDatasetAtomically(t *testing.T) {
 		t.Fatalf("second PersistPluginDataset: %v", err)
 	}
 
-	repoHash := internalplugin.PluginDatasetHash(testPluginName, testPluginName)
+	repoHash := plugin.PluginDatasetHash(testPluginName, testPluginName)
 	repoDir := filepath.Join(DefaultDataDir(), testPluginName, repoHash)
 	if _, err := os.Stat(repoDir + ".tmp"); !os.IsNotExist(err) {
 		t.Fatalf("temp dir still exists: %v", err)

@@ -24,7 +24,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/huh"
 	"github.com/cloudprivacylabs/lpg/v2"
-	"github.com/go-git/go-billy/v6"
+	"github.com/go-git/go-billy/v5"
 	"golang.org/x/term"
 
 	"github.com/realxen/cartograph/internal/graph"
@@ -471,6 +471,14 @@ func (c *AnalyzeCmd) runLocal(cli *CLI, target string) error {
 	return c.runLocalSingle(cli, abs, filepath.Base(abs), shortHash(abs), true)
 }
 
+func repoRelPath(root, rel string) (string, error) {
+	local, err := filepath.Localize(strings.TrimPrefix(rel, "./"))
+	if err != nil || root == "" || local == "." {
+		return "", os.ErrPermission
+	}
+	return filepath.Join(root, local), nil
+}
+
 func (c *AnalyzeCmd) runLocalSingle(cli *CLI, abs, repoName, repoHash string, allowIdempotency bool) error {
 	write(fmt.Sprintf("Analyzing %s\n", abs))
 
@@ -555,7 +563,11 @@ func (c *AnalyzeCmd) runLocalSingle(cli *CLI, abs, repoName, repoHash string, al
 	spGraph.StopWithSuccess("Graph persisted")
 
 	regexStats, err := buildAnalyzeIndexes(repoDir, g, c.Force, func(relPath string) (io.ReadCloser, error) {
-		return os.Open(filepath.Join(abs, relPath))
+		path, err := repoRelPath(abs, relPath)
+		if err != nil {
+			return nil, fmt.Errorf("analyze: open indexed file %q: %w", relPath, err)
+		}
+		return os.Open(path)
 	})
 	if err != nil {
 		return err
@@ -1327,7 +1339,11 @@ func (c *AnalyzeCmd) indexDiskClone(
 	spGraph.StopWithSuccess("Graph persisted")
 
 	regexStats, err := buildAnalyzeIndexes(repoDir, g, c.Force, func(relPath string) (io.ReadCloser, error) {
-		return os.Open(filepath.Join(srcDir, relPath))
+		path, err := repoRelPath(srcDir, relPath)
+		if err != nil {
+			return nil, fmt.Errorf("analyze: open indexed file %q: %w", relPath, err)
+		}
+		return os.Open(path)
 	})
 	if err != nil {
 		return err
@@ -1477,14 +1493,18 @@ func connectOrStartService(dataDir string) *service.Client {
 	cmd.SysProcAttr = sysutil.DetachProcAttr()
 	if err := cmd.Start(); err != nil {
 		if logFile != nil {
-			logFile.Close() //nolint:gosec
+			if closeErr := logFile.Close(); closeErr != nil {
+				fmt.Fprintf(os.Stderr, "cartograph: failed to close service log: %v\n", closeErr)
+			}
 		}
 		return nil
 	}
 	// Release the child process immediately so we don't accumulate zombies.
 	_ = cmd.Process.Release()
 	if logFile != nil {
-		logFile.Close() //nolint:gosec
+		if err := logFile.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "cartograph: failed to close service log: %v\n", err)
+		}
 	}
 
 	// Phase 1: wait for the PID file to appear (process started).

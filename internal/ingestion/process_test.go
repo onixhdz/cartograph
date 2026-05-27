@@ -11,8 +11,6 @@ import (
 
 const testFuncA = "func:A"
 
-func boolPtr(b bool) *bool { return &b }
-
 func TestFindEntryPoints_NoIncomingCalls(t *testing.T) {
 	g := lpg.NewGraph()
 
@@ -475,7 +473,7 @@ func TestDetectProcesses_ExcludeTestFiles(t *testing.T) {
 		StartLine:     1,
 		EndLine:       10,
 	})
-	count2 := DetectProcesses(g2, ProcessOptions{ExcludeTests: boolPtr(false), MinSteps: 1})
+	count2 := DetectProcesses(g2, ProcessOptions{ExcludeTests: new(false), MinSteps: 1})
 	if count2 != 2 {
 		t.Errorf("expected 2 processes with ExcludeTests=false, got %d", count2)
 	}
@@ -1177,7 +1175,7 @@ func TestDetectProcesses_TestFlowPenalty(t *testing.T) {
 
 	result := DetectProcessesDetailed(g, ProcessOptions{
 		MinSteps:     1,
-		ExcludeTests: boolPtr(false), // include test entry points
+		ExcludeTests: new(false), // include test entry points
 	})
 
 	var prodFlow, testFlow *ProcessInfo

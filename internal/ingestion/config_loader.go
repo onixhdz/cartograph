@@ -209,6 +209,14 @@ func LoadProjectConfig(root string, readFile func(string) ([]byte, error), opts 
 	return cfg
 }
 
+func repoRelPath(root, rel string) (string, error) {
+	local, err := filepath.Localize(strings.TrimPrefix(rel, "./"))
+	if err != nil || root == "" || local == "." {
+		return "", os.ErrPermission
+	}
+	return filepath.Join(root, local), nil
+}
+
 // loadGoModulePath parses go.mod to extract the module path.
 // e.g., "module github.com/user/repo" → "github.com/user/repo"
 func loadGoModulePath(root string, readFile func(string) ([]byte, error)) string {
@@ -256,11 +264,11 @@ func loadTSConfig(root string, readFile func(string) ([]byte, error), cfg *Proje
 		if !strings.HasSuffix(extendsPath, ".json") {
 			extendsPath += ".json"
 		}
-		// Resolve relative to root.
-		if strings.HasPrefix(extendsPath, ".") {
-			extendsPath = filepath.Join(root, extendsPath)
+		extendsFullPath, err := repoRelPath(root, extendsPath)
+		if err != nil {
+			return
 		}
-		data, err := readFile(extendsPath)
+		data, err := readFile(extendsFullPath)
 		if err == nil {
 			var base tsconfigJSON
 			if err := json.Unmarshal(data, &base); err == nil {
@@ -743,7 +751,10 @@ var reInlineComment = regexp.MustCompile(`(^|\s+)#.*$`)
 var reValidPyPkg = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$`)
 
 func parseRequirementsFile(root, filename string, readFile func(string) ([]byte, error), cfg *ProjectConfig, seen map[string]bool) {
-	fullPath := filepath.Join(root, filename)
+	fullPath, err := repoRelPath(root, filename)
+	if err != nil {
+		return
+	}
 	if seen[fullPath] {
 		return // cycle detection
 	}
@@ -779,8 +790,8 @@ func parseRequirementsFile(root, filename string, readFile func(string) ([]byte,
 		if strings.HasPrefix(line, "-r ") || strings.HasPrefix(line, "-c ") {
 			refPath := strings.TrimSpace(line[3:])
 			// Resolve relative to the directory of the current file.
-			refDir := filepath.Dir(filename)
-			parseRequirementsFile(root, filepath.Join(refDir, refPath), readFile, cfg, seen)
+			refDir := path.Dir(filepath.ToSlash(filename))
+			parseRequirementsFile(root, path.Join(refDir, filepath.ToSlash(refPath)), readFile, cfg, seen)
 			continue
 		}
 

@@ -124,6 +124,11 @@ tasks:
     cmds:
       - golangci-lint run ./...
 
+  vuln:
+    desc: Run Go vulnerability analysis
+    cmds:
+      - go tool govulncheck ./...
+
   build:
     desc: Build cartograph for all supported platforms (native CGO)
     cmds:

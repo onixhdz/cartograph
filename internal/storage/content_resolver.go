@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // ContentReader can retrieve file content by relative path.
@@ -46,7 +47,10 @@ func (cr *ContentResolver) Close() error {
 // It tries disk first, then the content store.
 func (cr *ContentResolver) ReadFile(relPath string) ([]byte, error) {
 	if cr.SourcePath != "" {
-		absPath := filepath.Join(cr.SourcePath, relPath)
+		absPath, err := contentPath(cr.SourcePath, relPath)
+		if err != nil {
+			return nil, fmt.Errorf("content resolver: unsafe path %q: %w", relPath, err)
+		}
 		data, err := os.ReadFile(absPath)
 		if err == nil {
 			return data, nil
@@ -74,7 +78,10 @@ func (cr *ContentResolver) ReadFile(relPath string) ([]byte, error) {
 // or the content store.
 func (cr *ContentResolver) HasFile(relPath string) bool {
 	if cr.SourcePath != "" {
-		absPath := filepath.Join(cr.SourcePath, relPath)
+		absPath, err := contentPath(cr.SourcePath, relPath)
+		if err != nil {
+			return false
+		}
 		if _, err := os.Stat(absPath); err == nil {
 			return true
 		}
@@ -83,4 +90,12 @@ func (cr *ContentResolver) HasFile(relPath string) bool {
 		return cr.Store.Has(relPath)
 	}
 	return false
+}
+
+func contentPath(root, rel string) (string, error) {
+	local, err := filepath.Localize(strings.TrimPrefix(rel, "./"))
+	if err != nil || root == "" || local == "." {
+		return "", os.ErrPermission
+	}
+	return filepath.Join(root, local), nil
 }
