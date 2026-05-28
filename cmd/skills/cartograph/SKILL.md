@@ -119,6 +119,33 @@ Is this an MCP / editor integration setup?
 
 ## Agent Execution Constraints
 
+### Prefer MCP Tools Over CLI When Available
+
+If the agent has native cartograph MCP tools (e.g. `cartograph_cartograph_query`,
+`cartograph_cartograph_context`), use them instead of shelling out to the CLI.
+MCP tools are faster (no process spawn), already connected to the service, and
+return structured data.
+
+**MCP tool → CLI equivalent:**
+
+| MCP tool                        | Replaces CLI command   |
+|---------------------------------|------------------------|
+| `cartograph_cartograph_query`   | `cartograph query`     |
+| `cartograph_cartograph_context` | `cartograph context`   |
+| `cartograph_cartograph_impact`  | `cartograph impact`    |
+| `cartograph_cartograph_cypher`  | `cartograph cypher`    |
+| `cartograph_cartograph_search`  | `cartograph search`    |
+| `cartograph_cartograph_cat`     | `cartograph cat`       |
+| `cartograph_cartograph_schema`  | `cartograph schema`    |
+| `cartograph_cartograph_status`  | `cartograph list`      |
+
+**Still use the CLI for:** `analyze`, `serve`, `clone`, `tree`, `models`,
+`skills`, `wiki`, `clean`, and any command without an MCP tool equivalent.
+
+**Detection:** If a tool list includes any `cartograph_cartograph_*` tool,
+treat MCP tools as available and prefer them for all matching operations.
+Do not shell out to the CLI for a command that has an MCP tool equivalent.
+
 ### Always Start the Service for Multi-Query Sessions
 
 When an agent workflow involves 2+ cartograph queries (which is almost
@@ -148,12 +175,26 @@ Cartograph commands that read the knowledge graph (`query`, `context`,
 `impact`, `cypher`, `cat`, `tree`) require a prior `analyze` run. If no index
 exists for the target repo, run `cartograph analyze` first.
 
-### Prefer `cartograph cat` for Real Code
+### Prefer Cartograph for Real Code
 
 When inspecting source code in an indexed repository, keep the investigation
 inside Cartograph. Prefer `cartograph search` for exact source evidence and
 `cartograph cat` for targeted line ranges over builtin file-reading or text
-search tools:
+search tools.
+
+When MCP tools are available, the investigation loop uses native tool calls:
+
+```
+cartograph_cartograph_query    → search execution flows and symbols
+cartograph_cartograph_search   → exact text / regex in source
+cartograph_cartograph_context  → 360° symbol view with relationships or content
+cartograph_cartograph_impact   → blast radius analysis
+cartograph_cartograph_cat      → read source lines
+cartograph_cartograph_cypher   → custom graph queries
+cartograph_cartograph_schema   → inspect graph schema
+```
+
+When MCP tools are not available, fall back to the CLI:
 
 ```bash
 cartograph query "<theme>" -l 8
