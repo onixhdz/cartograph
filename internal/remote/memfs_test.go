@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/go-git/go-billy/v5"
@@ -36,6 +37,42 @@ func TestMemFSWalker_BasicWalk(t *testing.T) {
 		if !relPaths[expected] {
 			t.Errorf("expected %q in results, got: %v", expected, relPaths)
 		}
+	}
+}
+
+func TestMemFSWalker_SkipsSymlinks(t *testing.T) {
+	fs := memfs.New()
+	_ = fs.MkdirAll("sub/real", 0o755)
+	writeMemFile(t, fs, "sub/real/inner.go", "package real\n")
+	writeMemFile(t, fs, "sub/file.txt", "hello\n")
+	// Regression: link-to-dir used to crash the regex opener.
+	if err := fs.Symlink("sub/real", "link_dir"); err != nil {
+		t.Fatalf("Symlink dir: %v", err)
+	}
+	if err := fs.Symlink("sub/file.txt", "link_file"); err != nil {
+		t.Fatalf("Symlink file: %v", err)
+	}
+
+	w := MemFSWalker{FS: fs}
+	results, err := w.Walk("/root", ingestion.WalkOptions{})
+	if err != nil {
+		t.Fatalf("Walk error: %v", err)
+	}
+
+	var sawReal, sawFile bool
+	for _, r := range results {
+		if r.RelPath == "link_dir" || r.RelPath == "link_file" || strings.HasPrefix(r.RelPath, "link_dir/") {
+			t.Errorf("symlink %q should be skipped", r.RelPath)
+		}
+		switch r.RelPath {
+		case "sub/real/inner.go":
+			sawReal = true
+		case "sub/file.txt":
+			sawFile = true
+		}
+	}
+	if !sawReal || !sawFile {
+		t.Errorf("expected canonical files to be walked: real=%v file=%v", sawReal, sawFile)
 	}
 }
 

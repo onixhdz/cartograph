@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
 	"path"
 	"strings"
 
@@ -71,6 +72,11 @@ func (w MemFSWalker) walkDir(dir, base, root string, gi *ignore.GitIgnore, opts 
 		}
 
 		if entry.IsDir() && name == ".git" {
+			continue
+		}
+
+		// Skip symlinks: billy FS.Open follows them and fails on link-to-dir.
+		if entry.Mode()&os.ModeSymlink != 0 {
 			continue
 		}
 

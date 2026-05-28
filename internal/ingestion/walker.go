@@ -86,6 +86,11 @@ func Walk(root string, opts WalkOptions) ([]WalkResult, error) {
 			return fs.SkipDir
 		}
 
+		// Skip symlinks: openers would follow them and fail on link-to-dir.
+		if d.Type()&fs.ModeSymlink != 0 {
+			return nil
+		}
+
 		if !opts.IncludeHidden && strings.HasPrefix(name, ".") {
 			if d.IsDir() {
 				return fs.SkipDir

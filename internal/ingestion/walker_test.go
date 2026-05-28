@@ -35,6 +35,46 @@ func TestWalk_SimpleDirectory(t *testing.T) {
 	}
 }
 
+func TestWalk_SkipsSymlinks(t *testing.T) {
+	dir := testutil.TempDir(t, map[string]string{
+		"main.go":           "package main",
+		"sub/real/inner.go": "package real",
+		"sub/file.txt":      "hello",
+	})
+
+	// Regression: link-to-dir used to crash the regex opener.
+	if err := os.Symlink(filepath.Join(dir, "sub", "real"), filepath.Join(dir, "link_dir")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "sub", "file.txt"), filepath.Join(dir, "link_file")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	results, err := Walk(dir, WalkOptions{})
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+
+	for _, r := range results {
+		if r.RelPath == "link_dir" || r.RelPath == "link_file" || strings.HasPrefix(r.RelPath, "link_dir/") {
+			t.Errorf("symlink %q should be skipped", r.RelPath)
+		}
+	}
+
+	var sawReal, sawFile bool
+	for _, r := range results {
+		switch r.RelPath {
+		case "sub/real/inner.go":
+			sawReal = true
+		case "sub/file.txt":
+			sawFile = true
+		}
+	}
+	if !sawReal || !sawFile {
+		t.Errorf("expected canonical files to be walked: real=%v file=%v", sawReal, sawFile)
+	}
+}
+
 func TestWalk_GitignoreRespected(t *testing.T) {
 	dir := testutil.TempDir(t, map[string]string{
 		".gitignore":   "*.log\nbuild/\n",
