@@ -1,6 +1,9 @@
 package search
 
 import (
+	"bytes"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -162,6 +165,141 @@ func TestOpenRegexIndexRejectsStructurallyInvalidIndex(t *testing.T) {
 	}
 	if _, err := OpenRegexIndex(dir); err == nil || !strings.Contains(err.Error(), "regex index invalid") {
 		t.Fatalf("expected invalid index error, got %v", err)
+	}
+}
+
+func TestRegexIndexRebuildReplacesIndexInPlace(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "search.regex")
+	first := map[string][]byte{"a.go": []byte("func Alpha() {}\n")}
+	if _, err := BuildRegexIndex(dir, []RegexBuildFile{{Path: "a.go", Data: first["a.go"]}}); err != nil {
+		t.Fatalf("BuildRegexIndex first: %v", err)
+	}
+	// Rebuild over the existing index directory; the prior index file must be
+	// replaced without leaving the previous file open (the Windows failure mode).
+	second := map[string][]byte{"b.go": []byte("func Beta() {}\n")}
+	if _, err := BuildRegexIndex(dir, []RegexBuildFile{{Path: "b.go", Data: second["b.go"]}}); err != nil {
+		t.Fatalf("BuildRegexIndex second: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, RegexIndexFile+".tmp")); !os.IsNotExist(err) {
+		t.Fatalf("temp index file not cleaned up: %v", err)
+	}
+	ix, err := OpenRegexIndex(dir)
+	if err != nil {
+		t.Fatalf("OpenRegexIndex: %v", err)
+	}
+	res, err := ix.Search(RegexSearchOptions{
+		Pattern: "func Beta",
+		Limit:   20,
+		ReadFile: func(path string) ([]byte, error) {
+			return second[path], nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(res.Matches) != 1 || res.Matches[0].FilePath != "b.go" {
+		t.Fatalf("matches: %+v", res.Matches)
+	}
+}
+
+func TestRegexIndexReleasesFileHandleAfterBuild(t *testing.T) {
+	// Renaming or removing the freshly built index proves the build released
+	// its file handle. On Windows a leaked handle (opened without
+	// FILE_SHARE_DELETE) makes both operations fail; on Unix they always
+	// succeed, so this asserts the cross-platform invariant directly rather
+	// than relying on GC finalizers to close a leaked descriptor.
+	dir := filepath.Join(t.TempDir(), "search.regex")
+	if _, err := BuildRegexIndex(dir, []RegexBuildFile{{Path: "a.go", Data: []byte("func Alpha() {}\n")}}); err != nil {
+		t.Fatalf("BuildRegexIndex: %v", err)
+	}
+	indexPath := filepath.Join(dir, RegexIndexFile)
+	moved := indexPath + ".moved"
+	if err := os.Rename(indexPath, moved); err != nil {
+		t.Fatalf("rename index after build (handle still open?): %v", err)
+	}
+	if err := os.Remove(moved); err != nil {
+		t.Fatalf("remove index after build (handle still open?): %v", err)
+	}
+}
+
+type errReadCloser struct{ err error }
+
+func (e errReadCloser) Read([]byte) (int, error) { return 0, e.err }
+func (e errReadCloser) Close() error             { return nil }
+
+func TestRegexIndexFromOpenerSkipsUnreadableFiles(t *testing.T) {
+	// A symlink-to-directory opens cleanly but errors on read. Such a file must
+	// be skipped (left unindexed) without aborting the whole index build.
+	dir := filepath.Join(t.TempDir(), "search.regex")
+	contents := map[string][]byte{"good.go": []byte("func Good() {}\n")}
+	open := func(path string) (io.ReadCloser, error) {
+		if path == "bad" {
+			return errReadCloser{err: errors.New("is a directory")}, nil
+		}
+		return io.NopCloser(bytes.NewReader(contents[path])), nil
+	}
+	stats, err := BuildRegexIndexFromOpener(dir, []string{"good.go", "bad"}, open)
+	if err != nil {
+		t.Fatalf("BuildRegexIndexFromOpener: %v", err)
+	}
+	if stats.Files != 2 {
+		t.Fatalf("files: got %d, want 2", stats.Files)
+	}
+	ix, err := OpenRegexIndex(dir)
+	if err != nil {
+		t.Fatalf("OpenRegexIndex: %v", err)
+	}
+	if len(ix.unindexed) != 1 || ix.unindexed[0] != "bad" {
+		t.Fatalf("unindexed: %+v", ix.unindexed)
+	}
+	res, err := ix.Search(RegexSearchOptions{
+		Pattern: "func Good",
+		Limit:   20,
+		ReadFile: func(path string) ([]byte, error) {
+			return contents[path], nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(res.Matches) != 1 || res.Matches[0].FilePath != "good.go" {
+		t.Fatalf("matches: %+v", res.Matches)
+	}
+}
+
+func TestRegexIndexBinaryFileExcludedFromIndex(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "search.regex")
+	// Invalid UTF-8 fails text detection: the file stays a candidate path with
+	// no trigrams, and the fallback scan skips non-UTF-8 content. The builder
+	// must still encode a valid index containing the unindexed path.
+	files := map[string][]byte{"blob.bin": {'n', 'e', 'e', 'd', 'l', 'e', 0xff, 0xfe, '\n'}}
+	stats, err := BuildRegexIndex(dir, []RegexBuildFile{{Path: "blob.bin", Data: files["blob.bin"]}})
+	if err != nil {
+		t.Fatalf("BuildRegexIndex: %v", err)
+	}
+	if stats.Files != 1 {
+		t.Fatalf("files: got %d, want 1", stats.Files)
+	}
+	ix, err := OpenRegexIndex(dir)
+	if err != nil {
+		t.Fatalf("OpenRegexIndex: %v", err)
+	}
+	if len(ix.unindexed) != 1 || ix.unindexed[0] != "blob.bin" {
+		t.Fatalf("unindexed: %+v", ix.unindexed)
+	}
+	res, err := ix.Search(RegexSearchOptions{
+		Pattern:      "needle",
+		FixedStrings: true,
+		Limit:        20,
+		ReadFile: func(path string) ([]byte, error) {
+			return files[path], nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if res.Status != RegexStatusDegraded || len(res.Matches) != 0 {
+		t.Fatalf("result: %+v", res)
 	}
 }
 

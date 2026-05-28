@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	plugin "github.com/realxen/cartograph/internal/plugin"
-	pluginsdk "github.com/realxen/cartograph/plugin"
+	plugin "github.com/onixhdz/cartograph/internal/plugin"
+	pluginsdk "github.com/onixhdz/cartograph/plugin"
 )
 
 // BinaryResult holds the collected output from running a plugin binary.

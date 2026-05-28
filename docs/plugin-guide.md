@@ -13,7 +13,7 @@ methods and call `plugin.Run` — that's it.
 ```sh
 mkdir my-plugin && cd my-plugin
 go mod init github.com/yourorg/my-plugin
-go get github.com/realxen/cartograph/plugin
+go get github.com/onixhdz/cartograph/plugin
 ```
 
 ### 2. Write the plugin
@@ -27,7 +27,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/realxen/cartograph/plugin"
+	"github.com/onixhdz/cartograph/plugin"
 )
 
 type myPlugin struct {
@@ -296,7 +296,7 @@ The `plugin/plugintest` package lets you test plugins without running
 Cartograph. Import it in your plugin's test files:
 
 ```sh
-go get github.com/realxen/cartograph/plugin/plugintest
+go get github.com/onixhdz/cartograph/plugin/plugintest
 ```
 
 ### Unit tests (mock host)

@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/realxen/cartograph/internal/service"
-	"github.com/realxen/cartograph/internal/storage"
+	"github.com/onixhdz/cartograph/internal/service"
+	"github.com/onixhdz/cartograph/internal/storage"
 )
 
 // ServiceClient defines the operations that CLI commands need from the
@@ -26,7 +26,7 @@ type ServiceClient interface {
 	Tree(service.TreeRequest) (*service.TreeResult, error)
 	Schema(service.SchemaRequest) (*service.SchemaResult, error)
 	Reload(service.ReloadRequest) error
-	Status() (*service.StatusResult, error)
+	Health() (*service.HealthResult, error)
 	Shutdown() error
 	Embed(service.EmbedRequest) (*service.EmbedStatusResult, error)
 	EmbedStatus(service.EmbedStatusRequest) (*service.EmbedStatusResult, error)

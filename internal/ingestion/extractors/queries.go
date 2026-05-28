@@ -1,6 +1,6 @@
 package extractors
 
-import ts "github.com/realxen/cartograph/internal/treesitter"
+import ts "github.com/onixhdz/cartograph/internal/treesitter"
 
 // HasNativeSupport reports whether the language is available via the native
 // tree-sitter bindings path.

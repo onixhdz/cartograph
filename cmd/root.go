@@ -27,16 +27,16 @@ import (
 	"github.com/go-git/go-billy/v5"
 	"golang.org/x/term"
 
-	"github.com/realxen/cartograph/internal/graph"
-	"github.com/realxen/cartograph/internal/ingestion"
-	"github.com/realxen/cartograph/internal/remote"
-	"github.com/realxen/cartograph/internal/search"
-	"github.com/realxen/cartograph/internal/service"
-	"github.com/realxen/cartograph/internal/storage"
-	"github.com/realxen/cartograph/internal/storage/bbolt"
-	"github.com/realxen/cartograph/internal/sysutil"
-	"github.com/realxen/cartograph/internal/version"
-	"github.com/realxen/cartograph/internal/wiki"
+	"github.com/onixhdz/cartograph/internal/graph"
+	"github.com/onixhdz/cartograph/internal/ingestion"
+	"github.com/onixhdz/cartograph/internal/remote"
+	"github.com/onixhdz/cartograph/internal/search"
+	"github.com/onixhdz/cartograph/internal/service"
+	"github.com/onixhdz/cartograph/internal/storage"
+	"github.com/onixhdz/cartograph/internal/storage/bbolt"
+	"github.com/onixhdz/cartograph/internal/sysutil"
+	"github.com/onixhdz/cartograph/internal/version"
+	"github.com/onixhdz/cartograph/internal/wiki"
 )
 
 const (

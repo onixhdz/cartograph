@@ -9,7 +9,7 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/realxen/cartograph/internal/service"
+	"github.com/onixhdz/cartograph/internal/service"
 )
 
 const mcpTestRepo = "myrepo"
@@ -24,7 +24,9 @@ type mockClient struct {
 	cypherResult  *service.CypherResult
 	catResult     *service.CatResult
 	schemaResult  *service.SchemaResult
+	healthResult  *service.HealthResult
 	statusResult  *service.StatusResult
+	listResult    *service.ListResult
 	err           error
 
 	// capture last request for assertions
@@ -35,6 +37,7 @@ type mockClient struct {
 	lastCypherReq  service.CypherRequest
 	lastCatReq     service.CatRequest
 	lastSchemaReq  service.SchemaRequest
+	lastStatusReq  service.StatusRequest
 }
 
 func (m *mockClient) Query(req service.QueryRequest) (*service.QueryResult, error) {
@@ -72,8 +75,17 @@ func (m *mockClient) Schema(req service.SchemaRequest) (*service.SchemaResult, e
 	return m.schemaResult, m.err
 }
 
-func (m *mockClient) Status() (*service.StatusResult, error) {
+func (m *mockClient) Health() (*service.HealthResult, error) {
+	return m.healthResult, m.err
+}
+
+func (m *mockClient) Status(req service.StatusRequest) (*service.StatusResult, error) {
+	m.lastStatusReq = req
 	return m.statusResult, m.err
+}
+
+func (m *mockClient) List() (*service.ListResult, error) {
+	return m.listResult, m.err
 }
 
 // connectTestServer creates an MCP server with the given mock client,
@@ -105,7 +117,7 @@ func connectTestServer(t *testing.T, mock *mockClient) *sdkmcp.ClientSession {
 
 func TestToolsList(t *testing.T) {
 	mock := &mockClient{
-		statusResult: &service.StatusResult{Running: true},
+		healthResult: &service.HealthResult{Running: true},
 	}
 	session := connectTestServer(t, mock)
 	defer session.Close()
@@ -125,6 +137,8 @@ func TestToolsList(t *testing.T) {
 		"cartograph_cat":     false,
 		"cartograph_schema":  false,
 		"cartograph_status":  false,
+		"cartograph_health":  false,
+		"cartograph_list":    false,
 	}
 
 	for _, tool := range tools.Tools {
@@ -417,9 +431,9 @@ func TestSchemaTool(t *testing.T) {
 	}
 }
 
-func TestStatusTool(t *testing.T) {
+func TestHealthTool(t *testing.T) {
 	mock := &mockClient{
-		statusResult: &service.StatusResult{
+		healthResult: &service.HealthResult{
 			Running: true,
 			Ready:   true,
 			LoadedRepos: []service.RepoStatus{
@@ -433,7 +447,7 @@ func TestStatusTool(t *testing.T) {
 
 	ctx := context.Background()
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "cartograph_status",
+		Name:      "cartograph_health",
 		Arguments: map[string]any{},
 	})
 	if err != nil {
@@ -444,7 +458,7 @@ func TestStatusTool(t *testing.T) {
 	}
 
 	text := extractText(t, res)
-	var result service.StatusResult
+	var result service.HealthResult
 	if err := json.Unmarshal([]byte(text), &result); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -453,6 +467,66 @@ func TestStatusTool(t *testing.T) {
 	}
 	if len(result.LoadedRepos) != 1 {
 		t.Errorf("loadedRepos count = %d, want 1", len(result.LoadedRepos))
+	}
+}
+
+func TestListTool(t *testing.T) {
+	mock := &mockClient{
+		listResult: &service.ListResult{Repos: []service.RepoInfo{
+			{Name: mcpTestRepo, Hash: "h1", Type: "local", NodeCount: 10, EdgeCount: 20, Embedding: "none"},
+		}},
+	}
+	session := connectTestServer(t, mock)
+	defer session.Close()
+
+	res, err := session.CallTool(context.Background(), &sdkmcp.CallToolParams{
+		Name:      "cartograph_list",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("tool returned error: %v", res.Content)
+	}
+	var result service.ListResult
+	if err := json.Unmarshal([]byte(extractText(t, res)), &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(result.Repos) != 1 || result.Repos[0].Name != mcpTestRepo {
+		t.Errorf("unexpected repos: %+v", result.Repos)
+	}
+}
+
+func TestStatusTool(t *testing.T) {
+	mock := &mockClient{
+		statusResult: &service.StatusResult{
+			Name: mcpTestRepo, Hash: "h1", Type: "local", Indexed: true,
+			NodeCount: 100, EdgeCount: 200, EmbeddingStatus: "none",
+		},
+	}
+	session := connectTestServer(t, mock)
+	defer session.Close()
+
+	res, err := session.CallTool(context.Background(), &sdkmcp.CallToolParams{
+		Name:      "cartograph_status",
+		Arguments: map[string]any{"repo": mcpTestRepo},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("tool returned error: %v", res.Content)
+	}
+	var result service.StatusResult
+	if err := json.Unmarshal([]byte(extractText(t, res)), &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if result.Name != mcpTestRepo || !result.Indexed || result.NodeCount != 100 {
+		t.Errorf("unexpected status: %+v", result)
+	}
+	if mock.lastStatusReq.Repo != mcpTestRepo {
+		t.Errorf("repo not forwarded: %+v", mock.lastStatusReq)
 	}
 }
 
@@ -519,7 +593,7 @@ func TestStreamableHTTPTransport(t *testing.T) {
 				{Name: "handleHTTP", Relevance: 0.9},
 			},
 		},
-		statusResult: &service.StatusResult{Running: true},
+		healthResult: &service.HealthResult{Running: true},
 	}
 
 	mcpSrv := NewServer("test", mock)
@@ -551,8 +625,8 @@ func TestStreamableHTTPTransport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
 	}
-	if len(tools.Tools) != 8 {
-		t.Errorf("tool count = %d, want 8", len(tools.Tools))
+	if len(tools.Tools) != 10 {
+		t.Errorf("tool count = %d, want 10", len(tools.Tools))
 	}
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
@@ -576,10 +650,10 @@ func TestStreamableHTTPTransport(t *testing.T) {
 	}
 }
 
-// TestStreamableHTTPStatus verifies the status tool over HTTP.
-func TestStreamableHTTPStatus(t *testing.T) {
+// TestStreamableHTTPHealth verifies the health tool over HTTP.
+func TestStreamableHTTPHealth(t *testing.T) {
 	mock := &mockClient{
-		statusResult: &service.StatusResult{
+		healthResult: &service.HealthResult{
 			Running: true,
 			Ready:   true,
 			LoadedRepos: []service.RepoStatus{
@@ -614,7 +688,7 @@ func TestStreamableHTTPStatus(t *testing.T) {
 	defer session.Close()
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "cartograph_status",
+		Name:      "cartograph_health",
 		Arguments: map[string]any{},
 	})
 	if err != nil {
@@ -625,7 +699,7 @@ func TestStreamableHTTPStatus(t *testing.T) {
 	}
 
 	text := extractText(t, res)
-	var result service.StatusResult
+	var result service.HealthResult
 	if err := json.Unmarshal([]byte(text), &result); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}

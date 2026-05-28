@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/realxen/cartograph/internal/search"
-	"github.com/realxen/cartograph/internal/service"
-	"github.com/realxen/cartograph/internal/storage"
-	"github.com/realxen/cartograph/internal/testutil"
+	"github.com/onixhdz/cartograph/internal/search"
+	"github.com/onixhdz/cartograph/internal/service"
+	"github.com/onixhdz/cartograph/internal/storage"
+	"github.com/onixhdz/cartograph/internal/testutil"
 )
 
 // newTestServerMCPClient creates a serverMCPClient backed by a real
@@ -364,12 +364,12 @@ func TestServerMCPClient_CatMissingFile(t *testing.T) {
 	}
 }
 
-func TestServerMCPClient_Status(t *testing.T) {
+func TestServerMCPClient_Health(t *testing.T) {
 	client := newTestServerMCPClient(t, "")
 
-	result, err := client.Status()
+	result, err := client.Health()
 	if err != nil {
-		t.Fatalf("Status: %v", err)
+		t.Fatalf("Health: %v", err)
 	}
 	if result == nil {
 		t.Fatal("expected non-nil status result")

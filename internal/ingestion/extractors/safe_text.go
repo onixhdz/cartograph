@@ -1,6 +1,6 @@
 package extractors
 
-import ts "github.com/realxen/cartograph/internal/treesitter"
+import ts "github.com/onixhdz/cartograph/internal/treesitter"
 
 // safeNodeText returns the source text covered by the node, clamping byte
 // offsets to the source length so that malformed or out-of-sync trees never

@@ -9,7 +9,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/realxen/cartograph/plugin"
+	"github.com/onixhdz/cartograph/plugin"
 )
 
 const defaultSTIXURL = "https://raw.githubusercontent.com/mitre/cti/master/capec/2.1/stix-capec.json"

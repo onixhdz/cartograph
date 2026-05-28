@@ -3,8 +3,8 @@ package cmd
 import (
 	"context"
 
-	"github.com/realxen/cartograph/internal/query"
-	"github.com/realxen/cartograph/internal/service"
+	"github.com/onixhdz/cartograph/internal/query"
+	"github.com/onixhdz/cartograph/internal/service"
 )
 
 // BackendProvider is the minimal surface a *service.Server or

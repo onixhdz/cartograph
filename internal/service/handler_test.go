@@ -14,10 +14,10 @@ import (
 
 	"github.com/cloudprivacylabs/lpg/v2"
 
-	"github.com/realxen/cartograph/internal/graph"
-	"github.com/realxen/cartograph/internal/search"
-	"github.com/realxen/cartograph/internal/storage"
-	"github.com/realxen/cartograph/internal/storage/bbolt"
+	"github.com/onixhdz/cartograph/internal/graph"
+	"github.com/onixhdz/cartograph/internal/search"
+	"github.com/onixhdz/cartograph/internal/storage"
+	"github.com/onixhdz/cartograph/internal/storage/bbolt"
 )
 
 // stubBackend is a minimal ToolBackend for handler tests.
@@ -359,11 +359,11 @@ func TestHandleReload(t *testing.T) {
 	}
 }
 
-func TestHandleStatus(t *testing.T) {
+func TestHandleHealth(t *testing.T) {
 	s := newTestServer()
-	req := httptest.NewRequestWithContext(context.Background(), "GET", RouteStatus, nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", RouteHealth, nil)
 	rec := httptest.NewRecorder()
-	s.handleStatus(rec, req)
+	s.handleHealth(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status: %d", rec.Code)

@@ -10,10 +10,10 @@ import (
 
 	"github.com/cloudprivacylabs/lpg/v2"
 
-	"github.com/realxen/cartograph/internal/graph"
-	"github.com/realxen/cartograph/internal/search"
-	"github.com/realxen/cartograph/internal/storage"
-	"github.com/realxen/cartograph/internal/storage/bbolt"
+	"github.com/onixhdz/cartograph/internal/graph"
+	"github.com/onixhdz/cartograph/internal/search"
+	"github.com/onixhdz/cartograph/internal/storage"
+	"github.com/onixhdz/cartograph/internal/storage/bbolt"
 )
 
 // newTestMemoryClient creates a MemoryClient with a stub backend for
@@ -125,11 +125,11 @@ func TestMemoryClient_Tree(t *testing.T) {
 	}
 }
 
-func TestMemoryClient_Status(t *testing.T) {
+func TestMemoryClient_Health(t *testing.T) {
 	mc := newTestMemoryClient(t)
-	res, err := mc.Status()
+	res, err := mc.Health()
 	if err != nil {
-		t.Fatalf("status: %v", err)
+		t.Fatalf("health: %v", err)
 	}
 	if !res.Running {
 		t.Error("expected Running=true")
@@ -372,11 +372,11 @@ func TestMemoryClientGetContentResolverConcurrentContentBucket(t *testing.T) {
 	}
 }
 
-func TestMemoryClient_StatusEmpty(t *testing.T) {
+func TestMemoryClient_HealthEmpty(t *testing.T) {
 	mc := NewMemoryClient("")
-	res, err := mc.Status()
+	res, err := mc.Health()
 	if err != nil {
-		t.Fatalf("status: %v", err)
+		t.Fatalf("health: %v", err)
 	}
 	if res.Ready {
 		t.Error("expected Ready=false for empty client")
@@ -427,6 +427,23 @@ func TestMemoryClient_ResolveRepoName_ShortNameViaRegistry(t *testing.T) {
 	t.Cleanup(mc.Close)
 
 	got, err := mc.resolveRepoName("consul")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "h1" {
+		t.Errorf("got %q, want %q", got, "h1")
+	}
+}
+
+func TestMemoryClient_ResolveRepoName_WindowsPathWithSpaces(t *testing.T) {
+	dir := t.TempDir()
+	reg, _ := storage.NewRegistry(dir)
+	_ = reg.Add(storage.RegistryEntry{Name: "My Project", Path: `C:\Users\me\Code\My Project`, Hash: "h1"})
+
+	mc := NewMemoryClient(dir)
+	t.Cleanup(mc.Close)
+
+	got, err := mc.resolveRepoName(`C:/Users/me/Code/My Project`)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

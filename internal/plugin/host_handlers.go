@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/realxen/cartograph/internal/jsonrpc2"
+	"github.com/onixhdz/cartograph/internal/jsonrpc2"
 )
 
 // HostHandler handles incoming JSON-RPC 2.0 requests and notifications from

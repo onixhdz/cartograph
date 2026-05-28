@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/realxen/cartograph/internal/service"
+	"github.com/onixhdz/cartograph/internal/service"
 )
 
 func TestFormatTable(t *testing.T) {

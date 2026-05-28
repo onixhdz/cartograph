@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/realxen/cartograph/internal/plugin"
-	pluginsdk "github.com/realxen/cartograph/plugin"
+	"github.com/onixhdz/cartograph/internal/plugin"
+	pluginsdk "github.com/onixhdz/cartograph/plugin"
 )
 
 // --- Lifecycle tests ---

@@ -21,7 +21,7 @@ jobs:
       CC: zig cc
       CXX: zig c++
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -35,7 +35,7 @@ jobs:
           version: 0.15.2
           use-cache: true
 
-      - uses: go-task/setup-task@70f2430ad412f838533de8c0515c749ffb2b8bd3 # v1
+      - uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2.1.0
         with:
           version: 3.x
 
@@ -75,7 +75,7 @@ jobs:
       CC: zig cc
       CXX: zig c++
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -89,7 +89,7 @@ jobs:
           version: 0.15.2
           use-cache: true
 
-      - uses: go-task/setup-task@70f2430ad412f838533de8c0515c749ffb2b8bd3 # v1
+      - uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2.1.0
         with:
           version: 3.x
 
@@ -100,7 +100,7 @@ jobs:
         run: task ${{ matrix.task }} VERSION=${GITHUB_REF_NAME}
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
@@ -110,13 +110,13 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           path: dist
 
@@ -155,7 +155,7 @@ jobs:
           cat release-notes.md
 
       - name: Create Release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
           body_path: release-notes.md
           generate_release_notes: true
@@ -167,3 +167,15 @@ jobs:
             cartograph-darwin-arm64
             cartograph-windows-amd64.exe
             checksums-sha256.txt
+
+  update-tap:
+    needs: publish
+    if: ${{ !contains(github.ref_name, '-alpha') && !contains(github.ref_name, '-beta') && !contains(github.ref_name, '-rc') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch formula update
+        env:
+          GH_TOKEN: ${{ secrets.TAP_DISPATCH_TOKEN }}
+        run: |
+          jq -n '{event_type: "formula-update", client_payload: {tag: "${{ github.ref_name }}", formula: "cartograph"}}' \
+            | gh api repos/onixhdz/homebrew-tap/dispatches --input -

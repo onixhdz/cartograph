@@ -1,3 +1,5 @@
+//go:build embedding_cgo
+
 package cmd
 
 import (
@@ -9,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/realxen/cartograph/internal/query"
-	"github.com/realxen/cartograph/internal/service"
-	"github.com/realxen/cartograph/internal/storage"
-	"github.com/realxen/cartograph/internal/storage/bbolt"
+	"github.com/onixhdz/cartograph/internal/query"
+	"github.com/onixhdz/cartograph/internal/service"
+	"github.com/onixhdz/cartograph/internal/storage"
+	"github.com/onixhdz/cartograph/internal/storage/bbolt"
 )
 
 // TestE2E_IncrementalEmbedding exercises the full incremental embedding

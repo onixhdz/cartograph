@@ -11,8 +11,8 @@ import (
 
 	"github.com/cloudprivacylabs/lpg/v2"
 
-	"github.com/realxen/cartograph/internal/graph"
-	"github.com/realxen/cartograph/internal/search"
+	"github.com/onixhdz/cartograph/internal/graph"
+	"github.com/onixhdz/cartograph/internal/search"
 )
 
 const tcpNetwork = "tcp"
@@ -144,11 +144,11 @@ func TestClientTree(t *testing.T) {
 	}
 }
 
-func TestClientStatus(t *testing.T) {
+func TestClientHealth(t *testing.T) {
 	cl := testClientServer(t)
-	res, err := cl.Status()
+	res, err := cl.Health()
 	if err != nil {
-		t.Fatalf("status: %v", err)
+		t.Fatalf("health: %v", err)
 	}
 	if !res.Running {
 		t.Error("expected running=true")
@@ -184,7 +184,7 @@ func TestClientMockHandler(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(Response{ //nolint:errchkjson
-			Result: &StatusResult{Running: true, Uptime: "1h0m0s"},
+			Result: &HealthResult{Running: true, Uptime: "1h0m0s"},
 		})
 	})
 	ts := httptest.NewServer(handler)
@@ -198,9 +198,9 @@ func TestClientMockHandler(t *testing.T) {
 		baseURL: ts.URL,
 	}
 
-	res, err := cl.Status()
+	res, err := cl.Health()
 	if err != nil {
-		t.Fatalf("status: %v", err)
+		t.Fatalf("health: %v", err)
 	}
 	if !res.Running {
 		t.Error("expected running=true from mock")

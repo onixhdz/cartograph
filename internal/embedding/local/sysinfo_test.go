@@ -1,10 +1,12 @@
+//go:build embedding_cgo
+
 package local
 
 import (
 	"runtime"
 	"testing"
 
-	"github.com/realxen/cartograph/internal/sysutil"
+	"github.com/onixhdz/cartograph/internal/sysutil"
 )
 
 func TestDefaultWorkerCount(t *testing.T) {

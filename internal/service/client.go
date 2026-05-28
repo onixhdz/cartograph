@@ -190,10 +190,28 @@ func (c *Client) Reload(req ReloadRequest) error {
 	return c.do(http.MethodPost, RouteReload, req, nil)
 }
 
-// Status retrieves the service's health status.
-func (c *Client) Status() (*StatusResult, error) {
+// Health retrieves the background service's health status.
+func (c *Client) Health() (*HealthResult, error) {
+	var res HealthResult
+	if err := c.do(http.MethodGet, RouteHealth, nil, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+// List retrieves all indexed repositories from the registry.
+func (c *Client) List() (*ListResult, error) {
+	var res ListResult
+	if err := c.do(http.MethodGet, RouteList, nil, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+// Status retrieves per-repository index detail.
+func (c *Client) Status(req StatusRequest) (*StatusResult, error) {
 	var res StatusResult
-	if err := c.do(http.MethodGet, RouteStatus, nil, &res); err != nil {
+	if err := c.do(http.MethodPost, RouteStatus, req, &res); err != nil {
 		return nil, err
 	}
 	return &res, nil

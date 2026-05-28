@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/realxen/cartograph/internal/query"
-	"github.com/realxen/cartograph/internal/service"
-	"github.com/realxen/cartograph/internal/storage"
+	"github.com/onixhdz/cartograph/internal/query"
+	"github.com/onixhdz/cartograph/internal/service"
+	"github.com/onixhdz/cartograph/internal/storage"
 )
 
 // TestE2E_AnalyzeURL_QueryCat exercises analyze→query→cat end-to-end.

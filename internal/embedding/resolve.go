@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/realxen/cartograph/internal/sysutil"
+	"github.com/onixhdz/cartograph/internal/sysutil"
 )
 
 // ResolvedModel contains the GGUF model data after resolution via

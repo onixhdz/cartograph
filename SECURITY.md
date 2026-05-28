@@ -1,6 +1,6 @@
 # Security Policy
 
-Found a security issue in [Cartograph](https://github.com/realxen/cartograph)? Read on.
+Found a security issue in [Cartograph](https://github.com/onixhdz/cartograph)? Read on.
 
 ## Reporting a Vulnerability
 

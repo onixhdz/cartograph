@@ -581,7 +581,9 @@ available, it falls back to an in-process MemoryClient.
 | `cartograph_cat`     | Read file contents from an indexed repository                                                   |
 | `cartograph_tree`    | Show indexed repository file tree                                                               |
 | `cartograph_schema`  | Show graph schema (node labels, edge types, counts)                                             |
-| `cartograph_status`  | Check server status and loaded repositories                                                     |
+| `cartograph_status`  | Per-repository index detail: type, node/edge counts, commit, branch, languages, embedding, artifact sizes |
+| `cartograph_health`  | Background service health: running state, loaded repositories, and uptime                       |
+| `cartograph_list`    | List all indexed repositories from the registry (name, hash, type, counts, embedding status)    |
 
 **Editor configuration examples:**
 

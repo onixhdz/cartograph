@@ -10,12 +10,12 @@ import (
 
 	"github.com/cloudprivacylabs/lpg/v2"
 
-	"github.com/realxen/cartograph/internal/graph"
-	"github.com/realxen/cartograph/internal/plugin"
-	"github.com/realxen/cartograph/internal/storage"
-	"github.com/realxen/cartograph/internal/storage/bbolt"
+	"github.com/onixhdz/cartograph/internal/graph"
+	"github.com/onixhdz/cartograph/internal/plugin"
+	"github.com/onixhdz/cartograph/internal/storage"
+	"github.com/onixhdz/cartograph/internal/storage/bbolt"
 
-	pluginsdk "github.com/realxen/cartograph/plugin"
+	pluginsdk "github.com/onixhdz/cartograph/plugin"
 )
 
 const testPluginName = "mitre-capec" //nolint:misspell // MITRE is the organization name

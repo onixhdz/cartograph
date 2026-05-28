@@ -20,7 +20,7 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/realxen/cartograph/internal/service"
+	"github.com/onixhdz/cartograph/internal/service"
 )
 
 // Client is the interface that the MCP server requires from its backend.
@@ -33,7 +33,9 @@ type Client interface {
 	Impact(service.ImpactRequest) (*service.ImpactResult, error)
 	Cat(service.CatRequest) (*service.CatResult, error)
 	Schema(service.SchemaRequest) (*service.SchemaResult, error)
-	Status() (*service.StatusResult, error)
+	Health() (*service.HealthResult, error)
+	List() (*service.ListResult, error)
+	Status(service.StatusRequest) (*service.StatusResult, error)
 }
 
 // Server wraps an MCP protocol server backed by a Cartograph client.

@@ -7,7 +7,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/realxen/cartograph/plugin"
+	"github.com/onixhdz/cartograph/plugin"
 )
 
 type sdkPlugin struct {

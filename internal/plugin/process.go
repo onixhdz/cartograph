@@ -20,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/realxen/cartograph/internal/jsonrpc2"
+	"github.com/onixhdz/cartograph/internal/jsonrpc2"
 )
 
 // Protocol constants.

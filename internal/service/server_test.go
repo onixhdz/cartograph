@@ -14,9 +14,9 @@ import (
 
 	"github.com/cloudprivacylabs/lpg/v2"
 
-	"github.com/realxen/cartograph/internal/search"
-	"github.com/realxen/cartograph/internal/storage"
-	"github.com/realxen/cartograph/internal/storage/bbolt"
+	"github.com/onixhdz/cartograph/internal/search"
+	"github.com/onixhdz/cartograph/internal/storage"
+	"github.com/onixhdz/cartograph/internal/storage/bbolt"
 )
 
 // mockStore implements storage.GraphStore for tests.
@@ -238,7 +238,7 @@ func TestServerSetupRoutesRegistered(t *testing.T) {
 		{"POST", RouteCypher, http.StatusBadRequest},  // missing body
 		{"POST", RouteImpact, http.StatusBadRequest},  // missing body
 		{"POST", RouteReload, http.StatusBadRequest},  // missing body
-		{"GET", RouteStatus, http.StatusOK},
+		{"GET", RouteHealth, http.StatusOK},
 		{"POST", RouteShutdown, http.StatusOK},
 	}
 
@@ -264,7 +264,7 @@ func TestServerStartStop(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, ts.URL+RouteStatus, nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, ts.URL+RouteHealth, nil)
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
@@ -347,9 +347,9 @@ func TestServerReadiness_StatusEndpointReflectsReady(t *testing.T) {
 		idleTimeout: DefaultIdleTimeout,
 	}
 
-	req := httptest.NewRequestWithContext(context.Background(), "GET", RouteStatus, nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", RouteHealth, nil)
 	rec := httptest.NewRecorder()
-	s.handleStatus(rec, req)
+	s.handleHealth(rec, req)
 
 	var resp Response
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
@@ -359,7 +359,7 @@ func TestServerReadiness_StatusEndpointReflectsReady(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	var sr StatusResult
+	var sr HealthResult
 	if err := json.Unmarshal(resultData, &sr); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -374,7 +374,7 @@ func TestServerReadiness_StatusEndpointReflectsReady(t *testing.T) {
 	s.LoadGraphDirect("repo", lpg.NewGraph(), nil)
 
 	rec2 := httptest.NewRecorder()
-	s.handleStatus(rec2, httptest.NewRequestWithContext(context.Background(), "GET", RouteStatus, nil))
+	s.handleHealth(rec2, httptest.NewRequestWithContext(context.Background(), "GET", RouteHealth, nil))
 
 	if err := json.Unmarshal(rec2.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -420,6 +420,26 @@ func TestServerResolveRepoName_ShortNameViaRegistry(t *testing.T) {
 	}
 
 	got, err := s.ResolveRepoName("nomad")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "h1" {
+		t.Errorf("got %q, want %q", got, "h1")
+	}
+}
+
+func TestServerResolveRepoName_WindowsPathWithSpaces(t *testing.T) {
+	dir := t.TempDir()
+	reg, _ := storage.NewRegistry(dir)
+	_ = reg.Add(storage.RegistryEntry{Name: "My Project", Path: `C:\Users\me\Code\My Project`, Hash: "h1"})
+
+	s := &Server{
+		graph:     make(map[string]*lpg.Graph),
+		searchIdx: make(map[string]*search.Index),
+		dataDir:   dir,
+	}
+
+	got, err := s.ResolveRepoName(`C:/Users/me/Code/My Project`)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

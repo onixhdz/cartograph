@@ -15,11 +15,11 @@ import (
 
 	"github.com/cloudprivacylabs/lpg/v2"
 
-	"github.com/realxen/cartograph/internal/plugin"
-	"github.com/realxen/cartograph/internal/service"
-	"github.com/realxen/cartograph/internal/sysutil"
+	"github.com/onixhdz/cartograph/internal/plugin"
+	"github.com/onixhdz/cartograph/internal/service"
+	"github.com/onixhdz/cartograph/internal/sysutil"
 
-	pluginsdk "github.com/realxen/cartograph/plugin"
+	pluginsdk "github.com/onixhdz/cartograph/plugin"
 )
 
 // PluginCmd is the top-level "plugin" command group.

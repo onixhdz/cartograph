@@ -20,8 +20,8 @@ import (
 	"os"
 	"time"
 
-	jsonrpc2 "github.com/realxen/cartograph/internal/jsonrpc2"
-	"github.com/realxen/cartograph/internal/plugin"
+	jsonrpc2 "github.com/onixhdz/cartograph/internal/jsonrpc2"
+	"github.com/onixhdz/cartograph/internal/plugin"
 )
 
 const (

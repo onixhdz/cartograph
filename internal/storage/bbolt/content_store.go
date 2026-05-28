@@ -9,6 +9,7 @@ import (
 
 	"github.com/klauspost/compress/zstd"
 	bolt "go.etcd.io/bbolt"
+	bolterrors "go.etcd.io/bbolt/errors"
 )
 
 var bucketContent = []byte("content")
@@ -52,8 +53,11 @@ func initStore(db *bolt.DB, ownsDB bool) (*ContentStore, error) {
 // NewContentStore opens (or creates) a BBolt database at the given path
 // and returns a ContentStore that owns the DB (Close will close it).
 func NewContentStore(path string) (*ContentStore, error) {
-	db, err := bolt.Open(path, 0o600, nil)
+	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: openLockTimeout})
 	if err != nil {
+		if errors.Is(err, bolterrors.ErrTimeout) {
+			return nil, fmt.Errorf("content store: open %s: database busy (locked by another process): %w", path, err)
+		}
 		return nil, fmt.Errorf("content store: open %s: %w", path, err)
 	}
 

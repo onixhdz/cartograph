@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
-	"github.com/realxen/cartograph/internal/embedding"
-	"github.com/realxen/cartograph/internal/storage"
-	"github.com/realxen/cartograph/internal/sysutil"
+	"github.com/onixhdz/cartograph/internal/embedding"
+	"github.com/onixhdz/cartograph/internal/storage"
+	"github.com/onixhdz/cartograph/internal/sysutil"
 )
 
 func writeJSON(w http.ResponseWriter, v any) {
@@ -449,13 +452,206 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"status": "ok"})
 }
 
-func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	s.resetIdleTimer(r.Context())
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed: use GET")
 		return
 	}
-	writeJSON(w, s.BuildStatus())
+	writeJSON(w, s.BuildHealth())
+}
+
+func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
+	s.resetIdleTimer(r.Context())
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed: use GET")
+		return
+	}
+	result, err := s.BuildList()
+	if err != nil {
+		writeError(w, ErrCodeInternal, err.Error())
+		return
+	}
+	writeJSON(w, result)
+}
+
+// BuildList returns every indexed repository recorded in the registry.
+func (s *Server) BuildList() (*ListResult, error) {
+	return listRepos(s.dataDir)
+}
+
+// listRepos reads the on-disk registry and returns every indexed repository,
+// loaded or not. Shared by the HTTP handler and the in-process MemoryClient.
+func listRepos(dataDir string) (*ListResult, error) {
+	if dataDir == "" {
+		return &ListResult{Repos: []RepoInfo{}}, nil
+	}
+	registry, err := storage.NewRegistry(dataDir)
+	if err != nil {
+		return nil, fmt.Errorf("list: open registry: %w", err)
+	}
+	entries := registry.List()
+	repos := make([]RepoInfo, 0, len(entries))
+	for _, e := range entries {
+		repos = append(repos, buildRepoInfo(e))
+	}
+	return &ListResult{Repos: repos}, nil
+}
+
+func buildRepoInfo(e storage.RegistryEntry) RepoInfo {
+	embedding := e.Meta.EmbeddingStatus
+	if embedding == "" {
+		embedding = embeddingStatusNone
+	}
+	info := RepoInfo{
+		Name:      e.Name,
+		Hash:      e.Hash,
+		Type:      repoTypeLabel(e),
+		NodeCount: e.NodeCount,
+		EdgeCount: e.EdgeCount,
+		BuiltWith: e.Meta.BinaryVersion,
+		Embedding: embedding,
+	}
+	if !e.IndexedAt.IsZero() {
+		info.IndexedAt = e.IndexedAt.Format(time.RFC3339)
+	}
+	return info
+}
+
+// Repository classification labels and the default embedding status, shared by
+// the list and status builders.
+const (
+	repoTypeLocal       = "local"
+	repoTypeURL         = "url"
+	repoTypeClonedOnly  = "cloned (not indexed)"
+	repoTypeURLCloned   = "url, cloned"
+	embeddingStatusNone = "none"
+)
+
+// repoTypeLabel classifies a registry entry by origin and index state.
+func repoTypeLabel(e storage.RegistryEntry) string {
+	if e.URL == "" {
+		return repoTypeLocal
+	}
+	switch {
+	case e.Meta.ClonedOnly:
+		return repoTypeClonedOnly
+	case e.Meta.SourcePath != "":
+		return repoTypeURLCloned
+	default:
+		return repoTypeURL
+	}
+}
+
+func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	s.resetIdleTimer(r.Context())
+	if !requirePOST(w, r) {
+		return
+	}
+	var req StatusRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Repo == "" {
+		writeError(w, http.StatusBadRequest, "missing repo")
+		return
+	}
+	repo, err := s.ResolveRepoName(req.Repo)
+	if err != nil {
+		writeError(w, ErrCodeRepoNotFound, err.Error())
+		return
+	}
+	result, err := s.BuildStatus(repo)
+	if err != nil {
+		writeError(w, ErrCodeInternal, err.Error())
+		return
+	}
+	writeJSON(w, result)
+}
+
+// BuildStatus returns per-repository index detail from the registry.
+func (s *Server) BuildStatus(repo string) (*StatusResult, error) {
+	return buildStatus(s.dataDir, repo)
+}
+
+// buildStatus reads a single repository's index detail from the registry,
+// mirroring `cartograph status`. Shared by the HTTP handler and MemoryClient.
+func buildStatus(dataDir, repo string) (*StatusResult, error) {
+	if dataDir == "" {
+		return nil, errors.New("repo status: no data directory")
+	}
+	registry, err := storage.NewRegistry(dataDir)
+	if err != nil {
+		return nil, fmt.Errorf("repo status: open registry: %w", err)
+	}
+	entry, err := registry.Resolve(repo)
+	if err != nil {
+		return nil, fmt.Errorf("repo status: %w", err)
+	}
+	m := entry.Meta
+	embedding := m.EmbeddingStatus
+	if embedding == "" {
+		embedding = embeddingStatusNone
+	}
+	res := &StatusResult{
+		Name:              entry.Name,
+		Hash:              entry.Hash,
+		Path:              entry.Path,
+		URL:               entry.URL,
+		Type:              repoTypeLabel(entry),
+		Indexed:           !m.ClonedOnly,
+		NodeCount:         entry.NodeCount,
+		EdgeCount:         entry.EdgeCount,
+		Commit:            m.CommitHash,
+		Branch:            m.Branch,
+		Languages:         m.Languages,
+		Duration:          m.Duration,
+		BuiltWith:         m.BinaryVersion,
+		EmbeddingStatus:   embedding,
+		EmbeddingProgress: m.EmbeddingNodes,
+		EmbeddingTotal:    m.EmbeddingTotal,
+		EmbeddingModel:    m.EmbeddingModel,
+		EmbeddingProvider: m.EmbeddingProvider,
+		EmbeddingDims:     m.EmbeddingDims,
+		EmbeddingError:    m.EmbeddingError,
+	}
+	if !entry.IndexedAt.IsZero() {
+		res.IndexedAt = entry.IndexedAt.Format(time.RFC3339)
+	}
+	repoDir := filepath.Join(dataDir, entry.Name, entry.Hash)
+	for _, name := range []string{"graph.db", "search.bleve", "search.regex", "embeddings.db"} {
+		if size, ok := artifactSize(filepath.Join(repoDir, name)); ok {
+			res.Artifacts = append(res.Artifacts, RepoArtifact{Name: name, Bytes: size})
+		}
+	}
+	return res, nil
+}
+
+// artifactSize returns the byte size of a file, or the recursive size of a
+// directory artifact (e.g. search.bleve). Reports ok=false when absent.
+func artifactSize(path string) (int64, bool) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0, false
+	}
+	if !info.IsDir() {
+		return info.Size(), true
+	}
+	var total int64
+	_ = filepath.WalkDir(path, func(_ string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if fi, statErr := d.Info(); statErr == nil {
+			total += fi.Size()
+		}
+		return nil
+	})
+	return total, true
 }
 
 func (s *Server) handleSchema(w http.ResponseWriter, r *http.Request) {

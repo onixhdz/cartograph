@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	ts "github.com/realxen/cartograph/internal/treesitter"
+	ts "github.com/onixhdz/cartograph/internal/treesitter"
 )
 
 type buildFileExtractor func(root *ts.Node, lang *ts.Language, source []byte, rel string, cfg *ProjectConfig)

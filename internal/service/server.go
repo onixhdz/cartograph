@@ -18,15 +18,15 @@ import (
 
 	"github.com/cloudprivacylabs/lpg/v2"
 
-	"github.com/realxen/cartograph/internal/embedding"
-	"github.com/realxen/cartograph/internal/graph"
-	"github.com/realxen/cartograph/internal/plugin"
-	"github.com/realxen/cartograph/internal/search"
-	"github.com/realxen/cartograph/internal/storage"
-	"github.com/realxen/cartograph/internal/storage/bbolt"
-	"github.com/realxen/cartograph/internal/version"
+	"github.com/onixhdz/cartograph/internal/embedding"
+	"github.com/onixhdz/cartograph/internal/graph"
+	"github.com/onixhdz/cartograph/internal/plugin"
+	"github.com/onixhdz/cartograph/internal/search"
+	"github.com/onixhdz/cartograph/internal/storage"
+	"github.com/onixhdz/cartograph/internal/storage/bbolt"
+	"github.com/onixhdz/cartograph/internal/version"
 
-	pluginsdk "github.com/realxen/cartograph/plugin"
+	pluginsdk "github.com/onixhdz/cartograph/plugin"
 )
 
 // DefaultIdleTimeout is the default duration after which the server
@@ -721,8 +721,8 @@ func loadInstalledPluginRegistry(dataDir string) (*plugin.InstalledRegistry, err
 	return reg, nil
 }
 
-// BuildStatus returns a StatusResult snapshot of the server's current state.
-func (s *Server) BuildStatus() *StatusResult {
+// BuildHealth returns a HealthResult snapshot of the server's current state.
+func (s *Server) BuildHealth() *HealthResult {
 	s.mu.RLock()
 	repos := make([]RepoStatus, 0, len(s.graph))
 	for name, g := range s.graph {
@@ -751,7 +751,7 @@ func (s *Server) BuildStatus() *StatusResult {
 		uptime = time.Since(s.startTime).Round(time.Second).String()
 	}
 
-	return &StatusResult{
+	return &HealthResult{
 		Running:     true,
 		Ready:       s.ready.Load(),
 		LoadedRepos: repos,
@@ -816,6 +816,8 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc(RouteCat, s.handleCat)
 	mux.HandleFunc(RouteTree, s.handleTree)
 	mux.HandleFunc(RouteReload, s.handleReload)
+	mux.HandleFunc(RouteHealth, s.handleHealth)
+	mux.HandleFunc(RouteList, s.handleList)
 	mux.HandleFunc(RouteStatus, s.handleStatus)
 	mux.HandleFunc(RouteSchema, s.handleSchema)
 	mux.HandleFunc(RouteShutdown, s.handleShutdown)

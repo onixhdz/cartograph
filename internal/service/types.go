@@ -9,9 +9,9 @@ import (
 
 	"github.com/cloudprivacylabs/lpg/v2"
 
-	"github.com/realxen/cartograph/internal/search"
-	"github.com/realxen/cartograph/internal/storage"
-	"github.com/realxen/cartograph/plugin"
+	"github.com/onixhdz/cartograph/internal/search"
+	"github.com/onixhdz/cartograph/internal/storage"
+	"github.com/onixhdz/cartograph/plugin"
 )
 
 // ErrWriteQuery is returned when a Cypher query contains write keywords.
@@ -81,7 +81,11 @@ const (
 	RouteTree = APIPrefix + "/tree"
 	// RouteReload is the endpoint to reload a repo's graph.
 	RouteReload = APIPrefix + "/reload"
-	// RouteStatus is the endpoint for service health/status.
+	// RouteHealth is the endpoint for background service health.
+	RouteHealth = APIPrefix + "/health"
+	// RouteList is the endpoint to list all indexed repositories.
+	RouteList = APIPrefix + "/list"
+	// RouteStatus is the endpoint for per-repository index status detail.
 	RouteStatus = APIPrefix + "/status"
 	// RouteShutdown is the endpoint to gracefully shut down the service.
 	RouteShutdown = APIPrefix + "/shutdown"
@@ -108,6 +112,8 @@ const (
 	MethodCat                = "cat"
 	MethodTree               = "tree"
 	MethodReload             = "reload"
+	MethodHealth             = "health"
+	MethodList               = "list"
 	MethodStatus             = "status"
 	MethodShutdown           = "shutdown"
 	MethodSchema             = "schema"
@@ -180,7 +186,7 @@ func AnalyzePreflightCommands(target string) []string {
 // AllMethods lists every valid method name.
 var AllMethods = []string{
 	MethodQuery, MethodSearch, MethodContext, MethodCypher, MethodImpact,
-	MethodCat, MethodTree, MethodReload, MethodStatus, MethodShutdown,
+	MethodCat, MethodTree, MethodReload, MethodHealth, MethodList, MethodStatus, MethodShutdown,
 	MethodSchema, MethodEmbed, MethodEmbedStatus, MethodAnalyzePreflight, MethodPluginIngest, MethodPluginIngestStatus,
 }
 
@@ -194,6 +200,8 @@ var MethodToRoute = map[string]string{
 	MethodCat:                RouteCat,
 	MethodTree:               RouteTree,
 	MethodReload:             RouteReload,
+	MethodHealth:             RouteHealth,
+	MethodList:               RouteList,
 	MethodStatus:             RouteStatus,
 	MethodShutdown:           RouteShutdown,
 	MethodSchema:             RouteSchema,
@@ -455,8 +463,8 @@ type ReloadRequest struct {
 	Repo string `json:"repo"`
 }
 
-// StatusResult is the result payload for GET /api/status.
-type StatusResult struct {
+// HealthResult is the result payload for GET /api/health.
+type HealthResult struct {
 	Running     bool         `json:"running"`
 	Ready       bool         `json:"ready"` // true once at least one repo is loaded
 	LoadedRepos []RepoStatus `json:"loadedRepos"`
@@ -468,6 +476,66 @@ type RepoStatus struct {
 	Name      string `json:"name"`
 	NodeCount int    `json:"nodeCount"`
 	EdgeCount int    `json:"edgeCount"`
+}
+
+// ListRequest is the (empty) request payload for listing indexed repositories.
+type ListRequest struct{}
+
+// ListResult is the result payload for GET /api/list. It reports every repo
+// recorded in the on-disk registry, whether or not it is currently loaded.
+type ListResult struct {
+	Repos []RepoInfo `json:"repos"`
+}
+
+// RepoInfo describes one indexed repository from the registry.
+type RepoInfo struct {
+	Name      string `json:"name"`
+	Hash      string `json:"hash"`
+	Type      string `json:"type"`
+	IndexedAt string `json:"indexedAt,omitempty"`
+	NodeCount int    `json:"nodeCount"`
+	EdgeCount int    `json:"edgeCount"`
+	BuiltWith string `json:"builtWith,omitempty"`
+	Embedding string `json:"embedding,omitempty"`
+}
+
+// StatusRequest selects the repository to report index status for.
+type StatusRequest struct {
+	Repo string `json:"repo"`
+}
+
+// StatusResult is per-repository index detail, mirroring `cartograph status`.
+type StatusResult struct {
+	Name      string   `json:"name"`
+	Hash      string   `json:"hash"`
+	Path      string   `json:"path,omitempty"`
+	URL       string   `json:"url,omitempty"`
+	Type      string   `json:"type"`
+	Indexed   bool     `json:"indexed"`
+	IndexedAt string   `json:"indexedAt,omitempty"`
+	NodeCount int      `json:"nodeCount"`
+	EdgeCount int      `json:"edgeCount"`
+	Commit    string   `json:"commit,omitempty"`
+	Branch    string   `json:"branch,omitempty"`
+	Languages []string `json:"languages,omitempty"`
+	Duration  string   `json:"duration,omitempty"`
+	BuiltWith string   `json:"builtWith,omitempty"`
+
+	EmbeddingStatus   string `json:"embeddingStatus,omitempty"`
+	EmbeddingProgress int    `json:"embeddingProgress,omitempty"`
+	EmbeddingTotal    int    `json:"embeddingTotal,omitempty"`
+	EmbeddingModel    string `json:"embeddingModel,omitempty"`
+	EmbeddingProvider string `json:"embeddingProvider,omitempty"`
+	EmbeddingDims     int    `json:"embeddingDims,omitempty"`
+	EmbeddingError    string `json:"embeddingError,omitempty"`
+
+	Artifacts []RepoArtifact `json:"artifacts,omitempty"`
+}
+
+// RepoArtifact reports the on-disk size of one index artifact.
+type RepoArtifact struct {
+	Name  string `json:"name"`
+	Bytes int64  `json:"bytes"`
 }
 
 // ToolBackend is the interface that query tool implementations must satisfy.

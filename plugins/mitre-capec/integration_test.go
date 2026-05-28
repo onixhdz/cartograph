@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/realxen/cartograph/plugin"
-	"github.com/realxen/cartograph/plugin/plugintest"
+	"github.com/onixhdz/cartograph/plugin"
+	"github.com/onixhdz/cartograph/plugin/plugintest"
 )
 
 // TestIntegration_RunBinary builds the plugin binary and runs it through the

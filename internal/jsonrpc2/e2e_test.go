@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	jsonrpc2 "github.com/realxen/cartograph/internal/jsonrpc2"
+	jsonrpc2 "github.com/onixhdz/cartograph/internal/jsonrpc2"
 )
 
 // buildTestPlugin compiles the testplugin binary and returns its path.

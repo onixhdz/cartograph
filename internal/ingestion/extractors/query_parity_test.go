@@ -10,7 +10,7 @@ import (
 	treesitter "github.com/tree-sitter/go-tree-sitter"
 	treesittergo "github.com/tree-sitter/tree-sitter-go/bindings/go"
 
-	ts "github.com/realxen/cartograph/internal/treesitter"
+	ts "github.com/onixhdz/cartograph/internal/treesitter"
 )
 
 type normalizedCapture struct {

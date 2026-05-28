@@ -10,7 +10,7 @@ import (
 
 	"github.com/cloudprivacylabs/lpg/v2"
 
-	"github.com/realxen/cartograph/internal/graph"
+	"github.com/onixhdz/cartograph/internal/graph"
 )
 
 // maxTokens is the model's context window (512 for BERT-family models).

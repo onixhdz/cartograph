@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/realxen/cartograph/plugin"
+	"github.com/onixhdz/cartograph/plugin"
 )
 
 // Compile-time check.

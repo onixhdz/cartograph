@@ -6,7 +6,7 @@ import (
 
 	"github.com/cloudprivacylabs/lpg/v2"
 
-	"github.com/realxen/cartograph/internal/graph"
+	"github.com/onixhdz/cartograph/internal/graph"
 )
 
 // ProcessStructure creates File and Folder nodes from walk results, and

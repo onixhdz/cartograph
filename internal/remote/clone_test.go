@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/realxen/cartograph/internal/ingestion"
+	"github.com/onixhdz/cartograph/internal/ingestion"
 )
 
 // TestCloneToMemory_PublicRepo clones a small public repository into memory

@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"os"
 
-	jsonrpc2 "github.com/realxen/cartograph/internal/jsonrpc2"
+	jsonrpc2 "github.com/onixhdz/cartograph/internal/jsonrpc2"
 )
 
 func main() {

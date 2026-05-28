@@ -5,7 +5,7 @@ import (
 
 	"github.com/cloudprivacylabs/lpg/v2"
 
-	"github.com/realxen/cartograph/internal/graph"
+	"github.com/onixhdz/cartograph/internal/graph"
 )
 
 // buildTestGraph creates a small graph with searchable nodes.

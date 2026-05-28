@@ -7,7 +7,7 @@ import (
 	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/memfs"
 
-	"github.com/realxen/cartograph/internal/ingestion"
+	"github.com/onixhdz/cartograph/internal/ingestion"
 )
 
 func TestMemFSWalker_BasicWalk(t *testing.T) {

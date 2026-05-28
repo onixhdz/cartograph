@@ -1,3 +1,5 @@
+//go:build embedding_cgo
+
 // Package local provides embedding via native CGO-linked inference.
 package local
 
@@ -22,7 +24,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"github.com/realxen/cartograph/internal/sysutil"
+	"github.com/onixhdz/cartograph/internal/sysutil"
 )
 
 // nativeMemPerWorker is the approximate memory each native worker uses.

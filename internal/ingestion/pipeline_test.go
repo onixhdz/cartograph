@@ -5,9 +5,9 @@ import (
 
 	"github.com/cloudprivacylabs/lpg/v2"
 
-	"github.com/realxen/cartograph/internal/graph"
-	"github.com/realxen/cartograph/internal/ingestion/extractors"
-	"github.com/realxen/cartograph/internal/testutil"
+	"github.com/onixhdz/cartograph/internal/graph"
+	"github.com/onixhdz/cartograph/internal/ingestion/extractors"
+	"github.com/onixhdz/cartograph/internal/testutil"
 )
 
 const (

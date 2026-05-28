@@ -6,7 +6,7 @@ import (
 
 	"github.com/cloudprivacylabs/lpg/v2"
 
-	"github.com/realxen/cartograph/internal/graph"
+	"github.com/onixhdz/cartograph/internal/graph"
 )
 
 // quickGraph builds a small graph with a file, function, class, and
