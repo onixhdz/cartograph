@@ -64,8 +64,16 @@ type SchemaInput struct {
 	Repo string `json:"repo,omitempty" jsonschema:"Repository name. Auto-detected from the working directory if omitted."`
 }
 
+// HealthInput is the input schema for the cartograph_health tool.
+type HealthInput struct{}
+
 // StatusInput is the input schema for the cartograph_status tool.
-type StatusInput struct{}
+type StatusInput struct {
+	Repo string `json:"repo,omitempty" jsonschema:"Repository name. Auto-detected from the working directory if omitted."`
+}
+
+// ListInput is the input schema for the cartograph_list tool.
+type ListInput struct{}
 
 // Tool registration
 
@@ -107,8 +115,18 @@ func (s *Server) registerTools() {
 
 	sdkmcp.AddTool(s.server, &sdkmcp.Tool{
 		Name:        "cartograph_status",
-		Description: "List all indexed repositories with their node and edge counts. Use this to see what repositories are available for querying.",
+		Description: "Show index status and metadata for a single repository: type, node/edge counts, commit, branch, languages, embedding status, and on-disk artifact sizes. Mirrors the 'cartograph status' command.",
 	}, s.handleStatus)
+
+	sdkmcp.AddTool(s.server, &sdkmcp.Tool{
+		Name:        "cartograph_health",
+		Description: "Report background service health: whether it is running, which repositories are currently loaded, and uptime. Use this to check the service, not a specific repository.",
+	}, s.handleHealth)
+
+	sdkmcp.AddTool(s.server, &sdkmcp.Tool{
+		Name:        "cartograph_list",
+		Description: "List all indexed repositories from the registry with their hash, type, node/edge counts, and embedding status. Use this to discover repository names to pass as the repo argument of other tools.",
+	}, s.handleList)
 }
 
 // Handlers
@@ -252,10 +270,30 @@ func (s *Server) handleSchema(ctx context.Context, _ *sdkmcp.CallToolRequest, in
 	return jsonResult(result)
 }
 
-func (s *Server) handleStatus(_ context.Context, _ *sdkmcp.CallToolRequest, _ StatusInput) (*sdkmcp.CallToolResult, any, error) {
-	result, err := s.client.Status()
+func (s *Server) handleStatus(ctx context.Context, _ *sdkmcp.CallToolRequest, input StatusInput) (*sdkmcp.CallToolResult, any, error) {
+	repo, err := resolveRepo(ctx, input.Repo)
+	if err != nil {
+		return toolError("%v", err)
+	}
+	result, err := s.client.Status(service.StatusRequest{Repo: repo})
 	if err != nil {
 		return toolError("status failed: %v", err)
+	}
+	return jsonResult(result)
+}
+
+func (s *Server) handleHealth(_ context.Context, _ *sdkmcp.CallToolRequest, _ HealthInput) (*sdkmcp.CallToolResult, any, error) {
+	result, err := s.client.Health()
+	if err != nil {
+		return toolError("health failed: %v", err)
+	}
+	return jsonResult(result)
+}
+
+func (s *Server) handleList(_ context.Context, _ *sdkmcp.CallToolRequest, _ ListInput) (*sdkmcp.CallToolResult, any, error) {
+	result, err := s.client.List()
+	if err != nil {
+		return toolError("list failed: %v", err)
 	}
 	return jsonResult(result)
 }

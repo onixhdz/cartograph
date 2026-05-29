@@ -403,8 +403,8 @@ func (mc *MemoryClient) takeResolversLocked(repo string, entry storage.RegistryE
 	return resolvers
 }
 
-// Status returns a status snapshot.
-func (mc *MemoryClient) Status() (*StatusResult, error) {
+// Health returns a service health snapshot.
+func (mc *MemoryClient) Health() (*HealthResult, error) {
 	mc.mu.RLock()
 	repos := make([]RepoStatus, 0, len(mc.graphs))
 	for name, g := range mc.graphs {
@@ -416,12 +416,22 @@ func (mc *MemoryClient) Status() (*StatusResult, error) {
 	}
 	mc.mu.RUnlock()
 
-	return &StatusResult{
+	return &HealthResult{
 		Running:     true,
 		Ready:       len(repos) > 0,
 		LoadedRepos: repos,
 		Uptime:      time.Since(mc.startTime).Round(time.Second).String(),
 	}, nil
+}
+
+// List returns all indexed repositories from the registry.
+func (mc *MemoryClient) List() (*ListResult, error) {
+	return listRepos(mc.dataDir)
+}
+
+// Status returns per-repository index detail from the registry.
+func (mc *MemoryClient) Status(req StatusRequest) (*StatusResult, error) {
+	return buildStatus(mc.dataDir, req.Repo)
 }
 
 // Schema returns the graph schema for a repo.

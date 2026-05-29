@@ -157,9 +157,9 @@ func (m *mockClient) Reload(req service.ReloadRequest) error {
 	return nil
 }
 
-func (m *mockClient) Status() (*service.StatusResult, error) {
+func (m *mockClient) Health() (*service.HealthResult, error) {
 	m.statusCalled = true
-	return &service.StatusResult{
+	return &service.HealthResult{
 		Running: true,
 		LoadedRepos: []service.RepoStatus{
 			{Name: "cartograph", NodeCount: 100, EdgeCount: 200},

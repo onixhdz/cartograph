@@ -364,12 +364,12 @@ func TestServerMCPClient_CatMissingFile(t *testing.T) {
 	}
 }
 
-func TestServerMCPClient_Status(t *testing.T) {
+func TestServerMCPClient_Health(t *testing.T) {
 	client := newTestServerMCPClient(t, "")
 
-	result, err := client.Status()
+	result, err := client.Health()
 	if err != nil {
-		t.Fatalf("Status: %v", err)
+		t.Fatalf("Health: %v", err)
 	}
 	if result == nil {
 		t.Fatal("expected non-nil status result")

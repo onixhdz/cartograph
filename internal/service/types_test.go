@@ -105,6 +105,8 @@ func TestAllMethodsComplete(t *testing.T) {
 		MethodCat:                true,
 		MethodTree:               true,
 		MethodReload:             true,
+		MethodHealth:             true,
+		MethodList:               true,
 		MethodStatus:             true,
 		MethodShutdown:           true,
 		MethodSchema:             true,
@@ -278,8 +280,8 @@ func TestReloadRequestJSON(t *testing.T) {
 	}
 }
 
-func TestStatusResultJSON(t *testing.T) {
-	result := StatusResult{
+func TestHealthResultJSON(t *testing.T) {
+	result := HealthResult{
 		Running: true,
 		LoadedRepos: []RepoStatus{
 			{Name: "repo-a", NodeCount: 100, EdgeCount: 200},
@@ -291,7 +293,7 @@ func TestStatusResultJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	var decoded StatusResult
+	var decoded HealthResult
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}

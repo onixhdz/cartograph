@@ -125,11 +125,11 @@ func TestMemoryClient_Tree(t *testing.T) {
 	}
 }
 
-func TestMemoryClient_Status(t *testing.T) {
+func TestMemoryClient_Health(t *testing.T) {
 	mc := newTestMemoryClient(t)
-	res, err := mc.Status()
+	res, err := mc.Health()
 	if err != nil {
-		t.Fatalf("status: %v", err)
+		t.Fatalf("health: %v", err)
 	}
 	if !res.Running {
 		t.Error("expected Running=true")
@@ -372,11 +372,11 @@ func TestMemoryClientGetContentResolverConcurrentContentBucket(t *testing.T) {
 	}
 }
 
-func TestMemoryClient_StatusEmpty(t *testing.T) {
+func TestMemoryClient_HealthEmpty(t *testing.T) {
 	mc := NewMemoryClient("")
-	res, err := mc.Status()
+	res, err := mc.Health()
 	if err != nil {
-		t.Fatalf("status: %v", err)
+		t.Fatalf("health: %v", err)
 	}
 	if res.Ready {
 		t.Error("expected Ready=false for empty client")

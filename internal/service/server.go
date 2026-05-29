@@ -721,8 +721,8 @@ func loadInstalledPluginRegistry(dataDir string) (*plugin.InstalledRegistry, err
 	return reg, nil
 }
 
-// BuildStatus returns a StatusResult snapshot of the server's current state.
-func (s *Server) BuildStatus() *StatusResult {
+// BuildHealth returns a HealthResult snapshot of the server's current state.
+func (s *Server) BuildHealth() *HealthResult {
 	s.mu.RLock()
 	repos := make([]RepoStatus, 0, len(s.graph))
 	for name, g := range s.graph {
@@ -751,7 +751,7 @@ func (s *Server) BuildStatus() *StatusResult {
 		uptime = time.Since(s.startTime).Round(time.Second).String()
 	}
 
-	return &StatusResult{
+	return &HealthResult{
 		Running:     true,
 		Ready:       s.ready.Load(),
 		LoadedRepos: repos,
@@ -816,6 +816,8 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc(RouteCat, s.handleCat)
 	mux.HandleFunc(RouteTree, s.handleTree)
 	mux.HandleFunc(RouteReload, s.handleReload)
+	mux.HandleFunc(RouteHealth, s.handleHealth)
+	mux.HandleFunc(RouteList, s.handleList)
 	mux.HandleFunc(RouteStatus, s.handleStatus)
 	mux.HandleFunc(RouteSchema, s.handleSchema)
 	mux.HandleFunc(RouteShutdown, s.handleShutdown)

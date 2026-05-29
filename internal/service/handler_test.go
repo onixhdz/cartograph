@@ -359,11 +359,11 @@ func TestHandleReload(t *testing.T) {
 	}
 }
 
-func TestHandleStatus(t *testing.T) {
+func TestHandleHealth(t *testing.T) {
 	s := newTestServer()
-	req := httptest.NewRequestWithContext(context.Background(), "GET", RouteStatus, nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", RouteHealth, nil)
 	rec := httptest.NewRecorder()
-	s.handleStatus(rec, req)
+	s.handleHealth(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status: %d", rec.Code)

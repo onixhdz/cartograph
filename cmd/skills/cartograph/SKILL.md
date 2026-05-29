@@ -137,7 +137,9 @@ return structured data.
 | `cartograph_cartograph_search`  | `cartograph search`    |
 | `cartograph_cartograph_cat`     | `cartograph cat`       |
 | `cartograph_cartograph_schema`  | `cartograph schema`    |
-| `cartograph_cartograph_status`  | `cartograph list`      |
+| `cartograph_cartograph_list`    | `cartograph list`      |
+| `cartograph_cartograph_status`  | `cartograph status`    |
+| `cartograph_cartograph_health`  | `cartograph serve status` |
 
 **Still use the CLI for:** `analyze`, `serve`, `clone`, `tree`, `models`,
 `skills`, `wiki`, `clean`, and any command without an MCP tool equivalent.

@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/vmihailenco/msgpack/v5"
 	bolt "go.etcd.io/bbolt"
+	bolterrors "go.etcd.io/bbolt/errors"
 
 	"github.com/cloudprivacylabs/lpg/v2"
 
@@ -41,12 +43,21 @@ type Store struct {
 var _ storage.GraphStore = (*Store)(nil)
 
 // New opens (or creates) a bbolt database at the given path and returns a Store.
+// openLockTimeout bounds the wait for bbolt's exclusive open lock. Without it a
+// second opener blocks forever, surfacing as hung requests (e.g. a cypher call
+// exceeding the client deadline) instead of a clear error.
+const openLockTimeout = 10 * time.Second
+
 func New(path string) (*Store, error) {
 	db, err := bolt.Open(path, 0o600, &bolt.Options{
+		Timeout:        openLockTimeout,
 		NoSync:         true,
 		NoFreelistSync: true,
 	})
 	if err != nil {
+		if errors.Is(err, bolterrors.ErrTimeout) {
+			return nil, fmt.Errorf("bbolt: open %s: database busy (locked by another process): %w", path, err)
+		}
 		return nil, fmt.Errorf("bbolt: open %s: %w", path, err)
 	}
 	return &Store{db: db, path: path}, nil

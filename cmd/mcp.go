@@ -4,11 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	mcpserver "github.com/realxen/cartograph/internal/mcp"
 	"github.com/realxen/cartograph/internal/service"
@@ -29,27 +27,22 @@ func (c *McpCmd) Run(cli *CLI) error {
 
 	var backend mcpserver.Client
 
-	// Opportunistic delegation: if a background service is already
-	// running, delegate to it via HTTP. This avoids duplicating
-	// in-memory graphs and reuses the service's warm caches.
-	lf := service.NewLockfile(dataDir)
-	if _, addr, network, err := lf.ReadFullInfo(); err == nil && addr != "" {
-		dialer := net.Dialer{Timeout: 200 * time.Millisecond}
-		if conn, dialErr := dialer.DialContext(context.Background(), network, addr); dialErr == nil {
-			_ = conn.Close()
-			backend = service.NewAutoClient(addr)
-			fmt.Fprintf(os.Stderr, "cartograph mcp: delegating to running service at %s\n", addr)
-		}
-	}
-
-	// Fall back to an in-process MemoryClient when no service is
-	// reachable. Cold start is ~27ms.
-	if backend == nil {
+	// Act as a client of the shared background service, like the CLI, so a
+	// single process owns the on-disk graph/index files. Opening them from a
+	// second process blocks on bbolt's exclusive lock and surfaces as request
+	// timeouts (e.g. cypher deadline exceeded).
+	if client := connectOrStartService(dataDir); client != nil {
+		backend = client
+		fmt.Fprintf(os.Stderr, "cartograph mcp: using background service\n")
+	} else {
+		// Last resort when no service can start (e.g. sandboxed/read-only env).
+		// Safe only because nothing else is contending for the same files.
 		mc := service.NewMemoryClient(dataDir)
 		mc.SetBackendFactory(NewQueryBackendFactory(mc))
 		_ = mc.LoadAllFromRegistry()
 		defer mc.Close()
 		backend = mc
+		fmt.Fprintf(os.Stderr, "cartograph mcp: no background service available, using in-process backend\n")
 	}
 
 	srv := mcpserver.NewServer(appVersion, backend)
