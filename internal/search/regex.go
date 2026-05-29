@@ -6,11 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"regexp"
 	"regexp/syntax"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -44,17 +44,6 @@ type RegexBuildFile struct {
 type RegexBuildStats struct {
 	Files int
 	Bytes int64
-}
-
-type countingReader struct {
-	r     io.Reader
-	bytes int64
-}
-
-func (r *countingReader) Read(p []byte) (int, error) {
-	n, err := r.r.Read(p)
-	r.bytes += int64(n)
-	return n, err //nolint:wrapcheck // Implements io.Reader; callers need the original read error.
 }
 
 type RegexIndex struct {
@@ -108,75 +97,73 @@ type RegexMatch struct {
 	After    []string
 }
 
+// BuildRegexIndex builds the regex search index from in-memory file contents
+// and atomically publishes it under dir.
 func BuildRegexIndex(dir string, files []RegexBuildFile) (RegexBuildStats, error) {
-	return buildRegexIndexWithWriter(dir, func(w *codesearch.IndexWriter) (RegexBuildStats, error) {
-		stats := RegexBuildStats{}
-		paths := make([]string, 0, len(files))
-		for _, file := range files {
-			path := cleanRegexPath(file.Path)
-			if path == "" {
-				continue
-			}
-			w.Add(path, bytes.NewReader(file.Data))
-			paths = append(paths, path)
-			stats.Files++
-			stats.Bytes += int64(len(file.Data))
+	b := newRegexIndexBuilder()
+	for _, file := range files {
+		path := cleanRegexPath(file.Path)
+		if path == "" {
+			continue
 		}
-		w.AddPaths(paths)
-		return stats, nil
-	})
+		if err := b.add(path, bytes.NewReader(file.Data)); err != nil {
+			return RegexBuildStats{}, fmt.Errorf("regex index: index %s: %w", path, err)
+		}
+	}
+	return publishRegexIndex(dir, b)
 }
 
-func buildRegexIndexWithWriter(dir string, add func(*codesearch.IndexWriter) (RegexBuildStats, error)) (RegexBuildStats, error) {
-	if err := os.MkdirAll(filepath.Dir(dir), 0o750); err != nil {
-		return RegexBuildStats{}, fmt.Errorf("regex index: create parent: %w", err)
+// publishRegexIndex serializes the builder and atomically replaces dir/index
+// via a single closed file: write to a temp file, fsync, close, validate, then
+// rename. Building in memory and publishing one already-closed file avoids the
+// leaked handles, mmap'd temp files, and directory renames that fail on Windows
+// (which opens files without FILE_SHARE_DELETE).
+func publishRegexIndex(dir string, b *regexIndexBuilder) (RegexBuildStats, error) {
+	stats := RegexBuildStats{Files: len(b.paths), Bytes: b.bytes}
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return RegexBuildStats{}, fmt.Errorf("regex index: create dir: %w", err)
 	}
-	tmpDir := dir + ".tmp"
-	if err := os.RemoveAll(tmpDir); err != nil {
-		return RegexBuildStats{}, fmt.Errorf("regex index: remove temp: %w", err)
-	}
-	if err := os.MkdirAll(tmpDir, 0o750); err != nil {
-		return RegexBuildStats{}, fmt.Errorf("regex index: create temp: %w", err)
-	}
-	defer func() { _ = os.RemoveAll(tmpDir) }()
-
-	idxPath := filepath.Join(tmpDir, RegexIndexFile)
-	w := codesearch.Create(idxPath)
-	stats, err := add(w)
+	data, err := b.encode()
 	if err != nil {
 		return RegexBuildStats{}, err
 	}
-	withDiscardedStdLog(w.Flush)
-
-	if err := validateRegexIndex(idxPath, stats.Files); err != nil {
+	tmpPath := filepath.Join(dir, RegexIndexFile+".tmp")
+	if err := writeFileSync(tmpPath, data); err != nil {
 		return RegexBuildStats{}, err
 	}
-	oldDir := dir + ".old"
-	if err := os.RemoveAll(oldDir); err != nil {
-		return RegexBuildStats{}, fmt.Errorf("regex index: remove old backup: %w", err)
+	if err := validateRegexIndex(tmpPath, stats.Files); err != nil {
+		_ = os.Remove(tmpPath)
+		return RegexBuildStats{}, err
 	}
-	if err := os.Rename(dir, oldDir); err != nil && !os.IsNotExist(err) {
-		return RegexBuildStats{}, fmt.Errorf("regex index: move old: %w", err)
-	}
-	if err := os.Rename(tmpDir, dir); err != nil {
-		_ = os.Rename(oldDir, dir)
+	if err := os.Rename(tmpPath, filepath.Join(dir, RegexIndexFile)); err != nil {
+		_ = os.Remove(tmpPath)
 		return RegexBuildStats{}, fmt.Errorf("regex index: publish: %w", err)
-	}
-	if err := os.RemoveAll(oldDir); err != nil {
-		return RegexBuildStats{}, fmt.Errorf("regex index: remove old backup: %w", err)
 	}
 	return stats, nil
 }
 
-func withDiscardedStdLog(fn func()) {
-	prevWriter := log.Writer()
-	prevFlags := log.Flags()
-	log.SetOutput(io.Discard)
-	defer func() {
-		log.SetOutput(prevWriter)
-		log.SetFlags(prevFlags)
-	}()
-	fn()
+// writeFileSync writes data to path, flushing to stable storage and closing the
+// file before returning so the file is never left open for a later rename.
+func writeFileSync(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("regex index: create temp: %w", err)
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return fmt.Errorf("regex index: write temp: %w", err)
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return fmt.Errorf("regex index: sync temp: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(path)
+		return fmt.Errorf("regex index: close temp: %w", err)
+	}
+	return nil
 }
 
 func OpenRegexIndex(dir string) (*RegexIndex, error) {
@@ -759,29 +746,284 @@ func doubleStarMatch(patternParts, pathParts []string) bool {
 	return doubleStarMatch(patternParts[1:], pathParts[1:])
 }
 
+// BuildRegexIndexFromOpener builds the regex search index by reading each path
+// through openFile and atomically publishes it under dir. Each reader is closed
+// before the next path is opened.
 func BuildRegexIndexFromOpener(dir string, paths []string, openFile func(string) (io.ReadCloser, error)) (RegexBuildStats, error) {
-	return buildRegexIndexWithWriter(dir, func(w *codesearch.IndexWriter) (RegexBuildStats, error) {
-		stats := RegexBuildStats{}
-		indexedPaths := make([]string, 0, len(paths))
-		for _, path := range paths {
-			path = cleanRegexPath(path)
-			if path == "" {
-				continue
-			}
-			r, err := openFile(path)
-			if err != nil {
-				return RegexBuildStats{}, fmt.Errorf("regex index: open %s: %w", path, err)
-			}
-			counter := &countingReader{r: r}
-			w.Add(path, counter)
-			if err := r.Close(); err != nil {
-				return RegexBuildStats{}, fmt.Errorf("regex index: close %s: %w", path, err)
-			}
-			indexedPaths = append(indexedPaths, path)
-			stats.Files++
-			stats.Bytes += counter.bytes
+	b := newRegexIndexBuilder()
+	for _, path := range paths {
+		path = cleanRegexPath(path)
+		if path == "" {
+			continue
 		}
-		w.AddPaths(indexedPaths)
-		return stats, nil
-	})
+		r, err := openFile(path)
+		if err != nil {
+			return RegexBuildStats{}, fmt.Errorf("regex index: open %s: %w", path, err)
+		}
+		addErr := b.add(path, r)
+		closeErr := r.Close()
+		if addErr != nil {
+			return RegexBuildStats{}, fmt.Errorf("regex index: index %s: %w", path, addErr)
+		}
+		if closeErr != nil {
+			return RegexBuildStats{}, fmt.Errorf("regex index: close %s: %w", path, closeErr)
+		}
+	}
+	return publishRegexIndex(dir, b)
+}
+
+// Text-detection limits mirror github.com/google/codesearch so the index we
+// build is byte-for-byte compatible with the on-disk format the reader parses.
+const (
+	regexMaxFileLen      = 1 << 30
+	regexMaxLineLen      = 2000
+	regexMaxTextTrigrams = 20000
+	regexSentinelTrigram = uint32(1<<24 - 1)
+)
+
+// regexIndexBuilder accumulates the codesearch index in memory. paths holds
+// every candidate path (indexed or not) so unindexed files fall back to a
+// linear scan; names and postings cover only files that pass text detection.
+type regexIndexBuilder struct {
+	paths    []string
+	names    []string
+	postings map[uint32][]uint32
+	bytes    int64
+}
+
+func newRegexIndexBuilder() *regexIndexBuilder {
+	return &regexIndexBuilder{postings: make(map[uint32][]uint32)}
+}
+
+// add records path as a candidate and, if its content is valid indexable text,
+// assigns it a file ID and records its trigrams. Files are processed in order,
+// so each posting list is naturally appended in ascending file-ID order.
+func (b *regexIndexBuilder) add(path string, r io.Reader) error {
+	b.paths = append(b.paths, path)
+	trigrams, n, indexed := extractRegexTrigrams(r)
+	b.bytes += n
+	if !indexed {
+		return nil
+	}
+	fileID, err := regexOffset(len(b.names))
+	if err != nil {
+		return err
+	}
+	b.names = append(b.names, path)
+	for trigram := range trigrams {
+		b.postings[trigram] = append(b.postings[trigram], fileID)
+	}
+	return nil
+}
+
+// extractRegexTrigrams streams r and collects its distinct trigrams, applying
+// the same text-detection rules as codesearch. It returns indexed=false when
+// the content is not indexable text, so the caller keeps the path as an
+// unindexed fallback candidate.
+//
+// A read error (or a non-progressing zero-length read) marks the file
+// unindexed rather than failing the build, matching codesearch: an unreadable
+// entry such as a symlink-to-directory must not abort indexing the whole repo.
+func extractRegexTrigrams(r io.Reader) (map[uint32]struct{}, int64, bool) {
+	trigrams := make(map[uint32]struct{})
+	buf := make([]byte, 16384)
+	var (
+		tv      uint32
+		n       int64
+		linelen int
+		i       int
+		filled  int
+	)
+	for {
+		tv = (tv << 8) & (1<<24 - 1)
+		if i >= filled {
+			m, err := r.Read(buf)
+			if m == 0 {
+				if errors.Is(err, io.EOF) {
+					break
+				}
+				return nil, n, false
+			}
+			filled = m
+			i = 0
+		}
+		c := buf[i]
+		i++
+		tv |= uint32(c)
+		if n++; n >= 3 {
+			trigrams[tv] = struct{}{}
+		}
+		if !validRegexUTF8((tv>>8)&0xFF, tv&0xFF) {
+			return nil, n, false
+		}
+		if n > regexMaxFileLen {
+			return nil, n, false
+		}
+		if linelen++; linelen > regexMaxLineLen {
+			return nil, n, false
+		}
+		if c == '\n' {
+			linelen = 0
+		}
+		if len(trigrams) > regexMaxTextTrigrams {
+			return nil, n, false
+		}
+	}
+	return trigrams, n, true
+}
+
+// validRegexUTF8 reports whether the byte pair can appear in a valid sequence
+// of UTF-8-encoded code points. Copied from codesearch to match its text
+// detection exactly.
+func validRegexUTF8(c1, c2 uint32) bool {
+	switch {
+	case c1 < 0x80:
+		return c2 < 0x80 || 0xc0 <= c2 && c2 < 0xf8
+	case c1 < 0xc0:
+		return c2 < 0xf8
+	case c1 < 0xf8:
+		return 0x80 <= c2 && c2 < 0xc0
+	}
+	return false
+}
+
+// encode serializes the builder into the codesearch on-disk index format that
+// parseRegexDiskIndex reads. Sections are laid out as: magic, path list, name
+// data, posting lists, name index, posting index, trailer.
+//
+// The codesearch on-disk format stores all section offsets as uint32, so an
+// index larger than 4GB cannot be represented; encode returns an error in that
+// case rather than writing a corrupt index.
+func (b *regexIndexBuilder) encode() ([]byte, error) {
+	const magic = "csearch index 1\n"
+	const trailerMagic = "\ncsearch trailr\n"
+
+	buf := new(bytes.Buffer)
+	buf.WriteString(magic)
+
+	pathData, err := regexOffset(buf.Len())
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range b.paths {
+		buf.WriteString(p)
+		buf.WriteByte(0)
+	}
+	buf.WriteByte(0)
+
+	nameData, err := regexOffset(buf.Len())
+	if err != nil {
+		return nil, err
+	}
+	nameOffsets := make([]uint32, 0, len(b.names)+1)
+	for _, name := range b.names {
+		off, err := regexOffset(buf.Len())
+		if err != nil {
+			return nil, err
+		}
+		nameOffsets = append(nameOffsets, off-nameData)
+		buf.WriteString(name)
+		buf.WriteByte(0)
+	}
+	// Trailing empty name terminates the name table, matching codesearch.
+	off, err := regexOffset(buf.Len())
+	if err != nil {
+		return nil, err
+	}
+	nameOffsets = append(nameOffsets, off-nameData)
+	buf.WriteByte(0)
+
+	postData, err := regexOffset(buf.Len())
+	if err != nil {
+		return nil, err
+	}
+	trigrams := make([]uint32, 0, len(b.postings))
+	for trigram := range b.postings {
+		trigrams = append(trigrams, trigram)
+	}
+	slices.Sort(trigrams)
+
+	type postIndexEntry struct {
+		trigram uint32
+		nfile   uint32
+		offset  uint32
+	}
+	entries := make([]postIndexEntry, 0, len(trigrams)+1)
+	appendTrigram := func(t uint32) {
+		var scratch [4]byte
+		binary.BigEndian.PutUint32(scratch[:], t)
+		buf.Write(scratch[1:])
+	}
+	for _, trigram := range trigrams {
+		posting := b.postings[trigram]
+		offset, err := regexOffset(buf.Len())
+		if err != nil {
+			return nil, err
+		}
+		appendTrigram(trigram)
+		fileID := ^uint32(0)
+		for _, id := range posting {
+			writeRegexUvarint(buf, id-fileID)
+			fileID = id
+		}
+		writeRegexUvarint(buf, 0)
+		nfile, err := regexOffset(len(posting))
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, postIndexEntry{trigram, nfile, offset - postData})
+	}
+	// Sentinel trigram marks the end of the posting lists.
+	sentinelOffset, err := regexOffset(buf.Len())
+	if err != nil {
+		return nil, err
+	}
+	appendTrigram(regexSentinelTrigram)
+	writeRegexUvarint(buf, 0)
+	entries = append(entries, postIndexEntry{regexSentinelTrigram, 0, sentinelOffset - postData})
+
+	nameIndex, err := regexOffset(buf.Len())
+	if err != nil {
+		return nil, err
+	}
+	for _, nameOff := range nameOffsets {
+		writeRegexUint32(buf, nameOff)
+	}
+
+	postIndex, err := regexOffset(buf.Len())
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range entries {
+		appendTrigram(e.trigram)
+		writeRegexUint32(buf, e.nfile)
+		writeRegexUint32(buf, e.offset)
+	}
+
+	for _, v := range []uint32{pathData, nameData, postData, nameIndex, postIndex} {
+		writeRegexUint32(buf, v)
+	}
+	buf.WriteString(trailerMagic)
+	return buf.Bytes(), nil
+}
+
+// regexOffset converts a buffer length to a uint32 index offset, rejecting
+// indexes that exceed the codesearch format's 4GB addressing limit.
+func regexOffset(n int) (uint32, error) {
+	if n < 0 || n > int(^uint32(0)) {
+		return 0, fmt.Errorf("regex index: size %d exceeds 4GB limit", n)
+	}
+	return uint32(n), nil
+}
+
+func writeRegexUint32(buf *bytes.Buffer, x uint32) {
+	var scratch [4]byte
+	binary.BigEndian.PutUint32(scratch[:], x)
+	buf.Write(scratch[:])
+}
+
+func writeRegexUvarint(buf *bytes.Buffer, x uint32) {
+	var tmp [binary.MaxVarintLen32]byte
+	n := binary.PutUvarint(tmp[:], uint64(x))
+	buf.Write(tmp[:n])
 }
