@@ -1,3 +1,5 @@
+//go:build embedding_cgo
+
 // Package local provides embedding via native CGO-linked inference.
 package local
 

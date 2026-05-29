@@ -27,6 +27,9 @@ jobs:
       CGO_ENABLED: '1'
       CC: zig cc
       CXX: zig c++
+      # Build the native embedding backend so autobuild extracts provider_cgo.go;
+      # the default stub build would otherwise hide it from CodeQL.
+      GOFLAGS: -tags=embedding_cgo
 
     strategy:
       fail-fast: false

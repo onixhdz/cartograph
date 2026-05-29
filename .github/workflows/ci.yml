@@ -15,32 +15,38 @@ permissions:
 jobs:
   lint:
     runs-on: ubuntu-latest
+    # Default build uses the embedding stub (no embedding_cgo tag), so no Zig
+    # or native lib is needed. CGO stays on for the tree-sitter bindings.
     env:
       CGO_ENABLED: '1'
-      CC: zig cc
-      CXX: zig c++
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
-        with:
-          version: 0.15.2
-          use-cache: false
-      - uses: go-task/setup-task@70f2430ad412f838533de8c0515c749ffb2b8bd3 # v1
-        with:
-          version: 3.x
-      - name: Clean generated artifacts
-        run: task clean
-      - name: Build native embedding prereqs
-        run: task build:embedding:lib
       - uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee # v9
         with:
           version: v2.11
 
   test:
     runs-on: ubuntu-latest
+    # Stub embedding backend: no Zig, no native lib. CGO on for tree-sitter.
+    env:
+      CGO_ENABLED: '1'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: go-task/setup-task@70f2430ad412f838533de8c0515c749ffb2b8bd3 # v1
+        with:
+          version: 3.x
+      - run: task test
+
+  # Covers the native embedding backend (embedding_cgo tag), which the default
+  # test job skips. This is the only job that builds the Zig native lib.
+  test-embedding:
+    runs-on: ubuntu-latest
     env:
       CGO_ENABLED: '1'
       CC: zig cc
@@ -57,37 +63,21 @@ jobs:
       - uses: go-task/setup-task@70f2430ad412f838533de8c0515c749ffb2b8bd3 # v1
         with:
           version: 3.x
-      - name: Clean generated artifacts
-        run: task clean
-      - name: Build native embedding prereqs
-        run: task build:embedding:lib
-      - run: task test
+      - run: task test:embedding
 
   govulncheck:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       security-events: write
+    # Stub embedding backend: no Zig, no native lib. CGO on for tree-sitter.
     env:
       CGO_ENABLED: '1'
-      CC: zig cc
-      CXX: zig c++
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
-        with:
-          version: 0.15.2
-          use-cache: false
-      - uses: go-task/setup-task@70f2430ad412f838533de8c0515c749ffb2b8bd3 # v1
-        with:
-          version: 3.x
-      - name: Clean generated artifacts
-        run: task clean
-      - name: Build native embedding prereqs
-        run: task build:embedding:lib
       - uses: golang/govulncheck-action@b625fbe08f3bccbe446d94fbf87fcc875a4f50ee # v1
         with:
           repo-checkout: false

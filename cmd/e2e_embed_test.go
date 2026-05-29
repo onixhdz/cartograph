@@ -1,3 +1,5 @@
+//go:build embedding_cgo
+
 package cmd
 
 import (
