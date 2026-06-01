@@ -435,6 +435,23 @@ func TestMemoryClient_ResolveRepoName_ShortNameViaRegistry(t *testing.T) {
 	}
 }
 
+func TestMemoryClient_ResolveRepoName_WindowsPathWithSpaces(t *testing.T) {
+	dir := t.TempDir()
+	reg, _ := storage.NewRegistry(dir)
+	_ = reg.Add(storage.RegistryEntry{Name: "My Project", Path: `C:\Users\me\Code\My Project`, Hash: "h1"})
+
+	mc := NewMemoryClient(dir)
+	t.Cleanup(mc.Close)
+
+	got, err := mc.resolveRepoName(`C:/Users/me/Code/My Project`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "h1" {
+		t.Errorf("got %q, want %q", got, "h1")
+	}
+}
+
 func TestMemoryClient_ResolveRepoName_AmbiguousShortName(t *testing.T) {
 	dir := t.TempDir()
 	reg, _ := storage.NewRegistry(dir)

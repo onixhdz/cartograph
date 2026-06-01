@@ -428,6 +428,26 @@ func TestServerResolveRepoName_ShortNameViaRegistry(t *testing.T) {
 	}
 }
 
+func TestServerResolveRepoName_WindowsPathWithSpaces(t *testing.T) {
+	dir := t.TempDir()
+	reg, _ := storage.NewRegistry(dir)
+	_ = reg.Add(storage.RegistryEntry{Name: "My Project", Path: `C:\Users\me\Code\My Project`, Hash: "h1"})
+
+	s := &Server{
+		graph:     make(map[string]*lpg.Graph),
+		searchIdx: make(map[string]*search.Index),
+		dataDir:   dir,
+	}
+
+	got, err := s.ResolveRepoName(`C:/Users/me/Code/My Project`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "h1" {
+		t.Errorf("got %q, want %q", got, "h1")
+	}
+}
+
 func TestServerResolveRepoName_AmbiguousShortName(t *testing.T) {
 	dir := t.TempDir()
 	reg, _ := storage.NewRegistry(dir)

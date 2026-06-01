@@ -139,8 +139,8 @@ func (r *Registry) Get(nameOrHash string) (RegistryEntry, bool) {
 	return RegistryEntry{}, false
 }
 
-// Resolve looks up a repo by name or hash, returning an error on ambiguity.
-// Supports short-name aliases (e.g. "nomad" resolves to "hashicorp/nomad").
+// Resolve looks up a repo by hash, hash prefix, full name, stored path, or
+// short-name alias, returning an error on ambiguity.
 func (r *Registry) Resolve(nameOrHash string) (RegistryEntry, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -186,6 +186,31 @@ func (r *Registry) Resolve(nameOrHash string) (RegistryEntry, error) {
 	case 1:
 		return matches[0], nil
 	case 0:
+		if strings.ContainsAny(nameOrHash, `/\\`) {
+			var pathMatches []RegistryEntry
+			for _, e := range r.entries {
+				if sameRepoPath(e.Path, nameOrHash) {
+					pathMatches = append(pathMatches, e)
+				}
+			}
+			switch len(pathMatches) {
+			case 1:
+				return pathMatches[0], nil
+			default:
+				if len(pathMatches) > 1 {
+					names := make([]string, len(pathMatches))
+					for i, m := range pathMatches {
+						names[i] = fmt.Sprintf("%s (%s)", m.Name, m.Hash)
+					}
+					sort.Strings(names)
+					return RegistryEntry{}, fmt.Errorf(
+						"repo path %q is ambiguous — matches: %s",
+						nameOrHash, strings.Join(names, ", "),
+					)
+				}
+			}
+		}
+
 		var aliasMatches []RegistryEntry
 		for _, e := range r.entries {
 			if repoBasename(e.Name) == nameOrHash && e.Name != nameOrHash {
@@ -579,6 +604,27 @@ func NormalizeGitURL(rawURL string) string {
 	s = strings.TrimRight(s, "/")
 
 	return s
+}
+
+func sameRepoPath(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	na := normalizeRepoPath(a)
+	nb := normalizeRepoPath(b)
+	if na == "" || nb == "" {
+		return false
+	}
+	return na == nb
+}
+
+func normalizeRepoPath(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return ""
+	}
+	p = strings.ReplaceAll(p, `\`, string(filepath.Separator))
+	return filepath.ToSlash(filepath.Clean(p))
 }
 
 // repoBasename returns the last component of a slash-separated repo
