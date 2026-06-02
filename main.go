@@ -9,9 +9,9 @@ import (
 
 	"github.com/alecthomas/kong"
 
-	"github.com/realxen/cartograph/cmd"
-	"github.com/realxen/cartograph/internal/service"
-	"github.com/realxen/cartograph/internal/version"
+	"github.com/onixhdz/cartograph/cmd"
+	"github.com/onixhdz/cartograph/internal/service"
+	"github.com/onixhdz/cartograph/internal/version"
 )
 
 var ver = "dev"

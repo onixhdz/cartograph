@@ -14,7 +14,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/realxen/cartograph/internal/service"
+	"github.com/onixhdz/cartograph/internal/service"
 )
 
 // Module represents a community-based documentation module with all

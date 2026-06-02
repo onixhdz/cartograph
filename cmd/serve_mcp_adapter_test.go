@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/realxen/cartograph/internal/search"
-	"github.com/realxen/cartograph/internal/service"
-	"github.com/realxen/cartograph/internal/storage"
-	"github.com/realxen/cartograph/internal/testutil"
+	"github.com/onixhdz/cartograph/internal/search"
+	"github.com/onixhdz/cartograph/internal/service"
+	"github.com/onixhdz/cartograph/internal/storage"
+	"github.com/onixhdz/cartograph/internal/testutil"
 )
 
 // newTestServerMCPClient creates a serverMCPClient backed by a real

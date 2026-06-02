@@ -14,7 +14,7 @@ import (
 
 	ignore "github.com/sabhiram/go-gitignore"
 
-	ts "github.com/realxen/cartograph/internal/treesitter"
+	ts "github.com/onixhdz/cartograph/internal/treesitter"
 )
 
 // WalkResult represents a single filesystem entry discovered during walking.

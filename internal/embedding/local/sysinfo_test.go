@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/realxen/cartograph/internal/sysutil"
+	"github.com/onixhdz/cartograph/internal/sysutil"
 )
 
 func TestDefaultWorkerCount(t *testing.T) {

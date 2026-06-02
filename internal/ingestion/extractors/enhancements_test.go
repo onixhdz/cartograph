@@ -3,7 +3,7 @@ package extractors
 import (
 	"testing"
 
-	"github.com/realxen/cartograph/internal/graph"
+	"github.com/onixhdz/cartograph/internal/graph"
 )
 
 // ---------------------------------------------------------------------------

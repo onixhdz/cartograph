@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/realxen/cartograph/internal/testutil"
+	"github.com/onixhdz/cartograph/internal/testutil"
 )
 
 const testMainGo = "main.go"

@@ -1,6 +1,6 @@
 package service
 
-import "github.com/realxen/cartograph/internal/storage"
+import "github.com/onixhdz/cartograph/internal/storage"
 
 // embeddingComplete reports whether the repo at dataDir has persisted
 // embedding state marked complete. Returns false on any lookup error so

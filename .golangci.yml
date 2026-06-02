@@ -90,10 +90,10 @@ formatters:
     - goimports
   settings:
     gofumpt:
-      module-path: github.com/realxen/cartograph
+      module-path: github.com/onixhdz/cartograph
     goimports:
       local-prefixes:
-        - github.com/realxen/cartograph
+        - github.com/onixhdz/cartograph
 
 issues:
   max-issues-per-linter: 50

@@ -10,7 +10,7 @@ import (
 	"github.com/cloudprivacylabs/lpg/v2"
 	"github.com/vmihailenco/msgpack/v5"
 
-	"github.com/realxen/cartograph/internal/graph"
+	"github.com/onixhdz/cartograph/internal/graph"
 )
 
 func buildBenchGraph(nodeCount, edgesPerNode int) *lpg.Graph {

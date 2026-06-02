@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	pluginsdk "github.com/realxen/cartograph/plugin"
+	pluginsdk "github.com/onixhdz/cartograph/plugin"
 )
 
 const testSkillsPluginName = "mitre-capec" //nolint:misspell // MITRE is the organization name

@@ -6,8 +6,8 @@
 # verifies the SHA-256 checksum, and installs it.
 #
 # Usage:
-#   curl -sSfL https://realxen.github.io/cartograph/install.sh | sh
-#   curl -sSfL https://realxen.github.io/cartograph/install.sh | sh -s -- --version v0.1.2
+#   curl -sSfL https://onixhdz.github.io/cartograph/install.sh | sh
+#   curl -sSfL https://onixhdz.github.io/cartograph/install.sh | sh -s -- --version v0.1.2
 #
 # Options:
 #   --version VERSION   Install a specific version (default: latest)
@@ -17,7 +17,7 @@
 
 set -eu
 
-REPO="realxen/cartograph"
+REPO="onixhdz/cartograph"
 BINARY="cartograph"
 RELEASES_URL="https://github.com/${REPO}/releases"
 

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/realxen/cartograph/internal/embedding"
+	"github.com/onixhdz/cartograph/internal/embedding"
 )
 
 // ModelsCmd is the top-level "cartograph models" command group.

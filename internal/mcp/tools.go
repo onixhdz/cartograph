@@ -5,7 +5,7 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/realxen/cartograph/internal/service"
+	"github.com/onixhdz/cartograph/internal/service"
 )
 
 // Input types — JSON schema is auto-generated from struct tags by the SDK.

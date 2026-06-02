@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/realxen/cartograph/internal/embedding"
-	"github.com/realxen/cartograph/internal/storage"
-	"github.com/realxen/cartograph/internal/sysutil"
+	"github.com/onixhdz/cartograph/internal/embedding"
+	"github.com/onixhdz/cartograph/internal/storage"
+	"github.com/onixhdz/cartograph/internal/sysutil"
 )
 
 func writeJSON(w http.ResponseWriter, v any) {

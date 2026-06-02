@@ -8,8 +8,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	mcpserver "github.com/realxen/cartograph/internal/mcp"
-	"github.com/realxen/cartograph/internal/service"
+	mcpserver "github.com/onixhdz/cartograph/internal/mcp"
+	"github.com/onixhdz/cartograph/internal/service"
 )
 
 // McpCmd runs the MCP (Model Context Protocol) server over stdin/stdout.

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	pluginsdk "github.com/realxen/cartograph/plugin"
+	pluginsdk "github.com/onixhdz/cartograph/plugin"
 )
 
 // PluginDataSource implements host-side execution for a process-based plugin.

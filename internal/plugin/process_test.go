@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/realxen/cartograph/internal/jsonrpc2"
-	"github.com/realxen/cartograph/internal/plugin"
+	"github.com/onixhdz/cartograph/internal/jsonrpc2"
+	"github.com/onixhdz/cartograph/internal/plugin"
 )
 
 const (

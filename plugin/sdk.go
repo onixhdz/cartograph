@@ -41,7 +41,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/realxen/cartograph/internal/jsonrpc2"
+	"github.com/onixhdz/cartograph/internal/jsonrpc2"
 )
 
 // Protocol constants. These must be kept in sync with

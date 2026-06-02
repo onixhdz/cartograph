@@ -16,9 +16,9 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	mcpserver "github.com/realxen/cartograph/internal/mcp"
-	"github.com/realxen/cartograph/internal/service"
-	"github.com/realxen/cartograph/internal/sysutil"
+	mcpserver "github.com/onixhdz/cartograph/internal/mcp"
+	"github.com/onixhdz/cartograph/internal/service"
+	"github.com/onixhdz/cartograph/internal/sysutil"
 )
 
 // ServeCmd is a command group for managing the cartograph background service.

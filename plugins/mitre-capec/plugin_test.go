@@ -8,8 +8,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/realxen/cartograph/plugin"
-	"github.com/realxen/cartograph/plugin/plugintest"
+	"github.com/onixhdz/cartograph/plugin"
+	"github.com/onixhdz/cartograph/plugin/plugintest"
 )
 
 const (

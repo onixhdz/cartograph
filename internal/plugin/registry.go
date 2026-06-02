@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/realxen/cartograph/plugin"
+	"github.com/onixhdz/cartograph/plugin"
 )
 
 type InstalledRegistry struct {

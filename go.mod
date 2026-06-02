@@ -1,4 +1,4 @@
-module github.com/realxen/cartograph
+module github.com/onixhdz/cartograph
 
 go 1.26.3
 

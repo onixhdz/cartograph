@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/realxen/cartograph/internal/storage"
+	"github.com/onixhdz/cartograph/internal/storage"
 )
 
 func seedRegistry(t *testing.T, entries ...storage.RegistryEntry) string {

@@ -43,9 +43,9 @@ vars:
   GO_LDFLAGS: >-
     -s -w
     -X main.ver={{.VERSION}}
-    -X github.com/realxen/cartograph/internal/version.BuildVersion={{.VERSION}}
-    -X github.com/realxen/cartograph/internal/version.BuildCommit={{.GIT_COMMIT}}
-    -X github.com/realxen/cartograph/internal/version.BuildDate={{.BUILD_DATE}}
+    -X github.com/onixhdz/cartograph/internal/version.BuildVersion={{.VERSION}}
+    -X github.com/onixhdz/cartograph/internal/version.BuildCommit={{.GIT_COMMIT}}
+    -X github.com/onixhdz/cartograph/internal/version.BuildDate={{.BUILD_DATE}}
   EMBEDDING_LIB_DIR: internal/embedding/local
 tasks:
   clean:

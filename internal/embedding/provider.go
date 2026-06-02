@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/realxen/cartograph/internal/embedding/local"
+	"github.com/onixhdz/cartograph/internal/embedding/local"
 )
 
 // Provider generates embedding vectors from text.

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/realxen/cartograph/plugin"
+	"github.com/onixhdz/cartograph/plugin"
 )
 
 func TestHost_ConfigGet(t *testing.T) {

@@ -178,4 +178,4 @@ jobs:
           GH_TOKEN: ${{ secrets.TAP_DISPATCH_TOKEN }}
         run: |
           jq -n '{event_type: "formula-update", client_payload: {tag: "${{ github.ref_name }}", formula: "cartograph"}}' \
-            | gh api repos/realxen/homebrew-tap/dispatches --input -
+            | gh api repos/onixhdz/homebrew-tap/dispatches --input -

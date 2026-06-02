@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	ts "github.com/realxen/cartograph/internal/treesitter"
+	ts "github.com/onixhdz/cartograph/internal/treesitter"
 )
 
 const (

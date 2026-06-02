@@ -12,12 +12,12 @@ import (
 
 	"github.com/cloudprivacylabs/lpg/v2"
 
-	"github.com/realxen/cartograph/internal/embedding"
-	"github.com/realxen/cartograph/internal/graph"
-	"github.com/realxen/cartograph/internal/search"
-	"github.com/realxen/cartograph/internal/storage"
-	"github.com/realxen/cartograph/internal/storage/bbolt"
-	"github.com/realxen/cartograph/internal/version"
+	"github.com/onixhdz/cartograph/internal/embedding"
+	"github.com/onixhdz/cartograph/internal/graph"
+	"github.com/onixhdz/cartograph/internal/search"
+	"github.com/onixhdz/cartograph/internal/storage"
+	"github.com/onixhdz/cartograph/internal/storage/bbolt"
+	"github.com/onixhdz/cartograph/internal/version"
 )
 
 // MemoryClient is an in-process implementation of the service API that

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/realxen/cartograph/plugin"
-	"github.com/realxen/cartograph/plugin/plugintest"
+	"github.com/onixhdz/cartograph/plugin"
+	"github.com/onixhdz/cartograph/plugin/plugintest"
 )
 
 // TestConcurrent_MultiplePluginBinaries launches N CAPEC plugin binaries

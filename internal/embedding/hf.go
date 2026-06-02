@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/realxen/cartograph/internal/sysutil"
+	"github.com/onixhdz/cartograph/internal/sysutil"
 )
 
 // HFModelInfo describes a GGUF file hosted on Hugging Face.

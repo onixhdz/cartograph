@@ -3,9 +3,9 @@ package extractors
 import (
 	"strings"
 
-	ts "github.com/realxen/cartograph/internal/treesitter"
+	ts "github.com/onixhdz/cartograph/internal/treesitter"
 
-	"github.com/realxen/cartograph/internal/graph"
+	"github.com/onixhdz/cartograph/internal/graph"
 )
 
 const (

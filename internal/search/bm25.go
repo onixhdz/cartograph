@@ -13,7 +13,7 @@ import (
 	"github.com/blevesearch/bleve/v2/search/query"
 	"github.com/cloudprivacylabs/lpg/v2"
 
-	"github.com/realxen/cartograph/internal/graph"
+	"github.com/onixhdz/cartograph/internal/graph"
 )
 
 // searchableLabels is the set of node labels that should be indexed for FTS.

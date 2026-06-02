@@ -11,12 +11,12 @@ import (
 
 	"github.com/cloudprivacylabs/lpg/v2"
 
-	"github.com/realxen/cartograph/internal/graph"
-	"github.com/realxen/cartograph/internal/search"
-	"github.com/realxen/cartograph/internal/storage"
-	"github.com/realxen/cartograph/internal/storage/bbolt"
-	"github.com/realxen/cartograph/internal/sysutil"
-	"github.com/realxen/cartograph/internal/version"
+	"github.com/onixhdz/cartograph/internal/graph"
+	"github.com/onixhdz/cartograph/internal/search"
+	"github.com/onixhdz/cartograph/internal/storage"
+	"github.com/onixhdz/cartograph/internal/storage/bbolt"
+	"github.com/onixhdz/cartograph/internal/sysutil"
+	"github.com/onixhdz/cartograph/internal/version"
 )
 
 type PluginDataset struct {

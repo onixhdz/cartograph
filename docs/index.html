@@ -86,7 +86,7 @@
   <header class="fixed top-0 z-50 w-full border-b border-outline-variant bg-background-deep/85 backdrop-blur-md">
     <nav class="mx-auto flex max-w-container-max items-center justify-between gap-4 px-margin-mobile py-4 md:px-margin-desktop">
       <div class="flex min-w-0 items-center gap-6">
-        <a class="flex min-w-0 items-center gap-2" href="https://github.com/realxen/cartograph" aria-label="Cartograph on GitHub">
+        <a class="flex min-w-0 items-center gap-2" href="https://github.com/onixhdz/cartograph" aria-label="Cartograph on GitHub">
           <img class="h-8 w-8 shrink-0" src="./logo.svg" alt="" aria-hidden="true">
           <span class="font-mono text-sm font-bold tracking-tight text-primary">Cartograph</span>
         </a>
@@ -99,7 +99,7 @@
       </div>
       <div class="flex items-center gap-3">
         <a class="bg-primary-container px-5 py-2 font-mono text-sm font-bold text-on-primary-container transition-transform hover:shadow-[0_0_15px_rgba(249,115,22,0.4)] active:scale-95" href="#quickstart">Install</a>
-        <a class="inline-flex h-9 w-9 items-center justify-center border border-outline-variant text-on-surface-variant transition-colors hover:border-primary hover:text-primary" href="https://github.com/realxen/cartograph" aria-label="Cartograph GitHub repository">
+        <a class="inline-flex h-9 w-9 items-center justify-center border border-outline-variant text-on-surface-variant transition-colors hover:border-primary hover:text-primary" href="https://github.com/onixhdz/cartograph" aria-label="Cartograph GitHub repository">
           <iconify-icon icon="simple-icons:github" aria-hidden="true"></iconify-icon>
         </a>
       </div>
@@ -135,10 +135,10 @@
                 <button class="install-tab border-r border-outline-variant bg-primary-container px-4 py-2 text-on-primary-container" type="button" data-install-target="script">Shell</button>
                 <button class="install-tab px-4 py-2 text-on-surface-variant transition-colors hover:text-primary" type="button" data-install-target="brew">Brew</button>
               </div>
-              <a class="mr-2 inline-flex" href="https://github.com/realxen/cartograph/releases/latest" aria-label="Latest Cartograph release"><img class="h-5" src="https://img.shields.io/github/v/release/realxen/cartograph?label=&style=flat-square&color=352720" alt="Latest GitHub release"></a>
+              <a class="mr-2 inline-flex" href="https://github.com/onixhdz/cartograph/releases/latest" aria-label="Latest Cartograph release"><img class="h-5" src="https://img.shields.io/github/v/release/onixhdz/cartograph?label=&style=flat-square&color=352720" alt="Latest GitHub release"></a>
             </div>
-            <div class="group flex cursor-pointer items-center justify-between gap-4 overflow-x-auto p-4 font-mono text-sm text-primary" data-copy="curl -sSfL https://realxen.github.io/cartograph/install.sh | sh">
-              <code class="install-command whitespace-nowrap">curl -sSfL https://realxen.github.io/cartograph/install.sh | sh</code>
+            <div class="group flex cursor-pointer items-center justify-between gap-4 overflow-x-auto p-4 font-mono text-sm text-primary" data-copy="curl -sSfL https://onixhdz.github.io/cartograph/install.sh | sh">
+              <code class="install-command whitespace-nowrap">curl -sSfL https://onixhdz.github.io/cartograph/install.sh | sh</code>
               <iconify-icon class="shrink-0 text-on-surface-variant group-hover:text-primary" icon="material-symbols:content-copy" aria-hidden="true"></iconify-icon>
             </div>
           </div>
@@ -244,7 +244,7 @@
           <p class="mt-4 max-w-3xl text-on-surface-variant">Cartograph is meant to sit in the agent loop. Install the binary, install the skills, then ask your coding agent to index, inspect, and reason through the graph.</p>
         </div>
         <div class="grid grid-cols-1 gap-8 md:grid-cols-3">
-          <div class="space-y-4"><div class="font-mono text-on-background">01 · INSTALL</div><div class="overflow-x-auto whitespace-nowrap border border-outline-variant bg-black p-4 font-mono text-xs leading-6"><span class="text-primary">$</span> brew install realxen/tap/cartograph<br><span class="text-on-surface-variant"># or</span><br><span class="text-primary">$</span> curl -sSfL https://realxen.github.io/cartograph/install.sh | sh</div><p class="text-sm text-on-surface-variant">Homebrew is recommended on macOS. The shell installer supports Linux and macOS, or check out the latest <a class="inline-flex items-center gap-1 font-mono text-primary hover:underline" href="https://github.com/realxen/cartograph/releases/latest">Releases <iconify-icon icon="material-symbols:open-in-new" aria-hidden="true"></iconify-icon></a>.</p></div>
+          <div class="space-y-4"><div class="font-mono text-on-background">01 · INSTALL</div><div class="overflow-x-auto whitespace-nowrap border border-outline-variant bg-black p-4 font-mono text-xs leading-6"><span class="text-primary">$</span> brew install onixhdz/tap/cartograph<br><span class="text-on-surface-variant"># or</span><br><span class="text-primary">$</span> curl -sSfL https://onixhdz.github.io/cartograph/install.sh | sh</div><p class="text-sm text-on-surface-variant">Homebrew is recommended on macOS. The shell installer supports Linux and macOS, or check out the latest <a class="inline-flex items-center gap-1 font-mono text-primary hover:underline" href="https://github.com/onixhdz/cartograph/releases/latest">Releases <iconify-icon icon="material-symbols:open-in-new" aria-hidden="true"></iconify-icon></a>.</p></div>
           <div class="space-y-4"><div class="font-mono text-on-background">02 · INSTALL SKILLS</div><div class="overflow-x-auto whitespace-nowrap border border-outline-variant bg-black p-4 font-mono text-xs leading-6"><span class="text-primary">$</span> cartograph skills install<br><span class="text-on-surface-variant"># targeted install</span><br><span class="text-primary">$</span> cartograph skills install --agent claude,opencode</div><p class="text-sm text-on-surface-variant">Adds Cartograph routing, prompts, and workflows to AI coding agents so they know when to use the graph.</p></div>
           <div class="space-y-4"><div class="font-mono text-on-background">03 · ASK YOUR AGENT</div><div class="overflow-x-auto whitespace-nowrap border border-outline-variant bg-black p-4 font-mono text-xs leading-6"><span class="text-on-surface-variant">"Use Cartograph to index this repo,</span><br><span class="text-on-surface-variant">then map the auth flow and impact</span><br><span class="text-on-surface-variant">for validateUser."</span></div><p class="text-sm text-on-surface-variant">The installed skill guides the agent to start the service when useful, index first, and use graph-aware commands like <code class="font-mono text-primary">context</code>, <code class="font-mono text-primary">impact</code>, and <code class="font-mono text-primary">query</code>.</p></div>
         </div>
@@ -254,8 +254,8 @@
         <h2 class="mb-6 font-display text-4xl font-bold tracking-[-0.04em] text-on-background sm:text-5xl">Teach your agent how the codebase works.</h2>
         <p class="mx-auto mb-10 max-w-2xl text-on-surface-variant">Cartograph maps repository context into one local graph so agents and researchers can explore code structure, trace behavior, and investigate risk.</p>
         <div class="flex flex-wrap justify-center gap-4">
-          <a class="bg-primary-container px-10 py-4 font-mono font-bold text-on-primary-container transition-all hover:shadow-[0_0_20px_rgba(249,115,22,0.5)]" href="https://github.com/realxen/cartograph">GitHub</a>
-          <a class="inline-flex items-center gap-2 border border-outline-variant px-10 py-4 font-mono transition-all hover:border-primary" href="https://github.com/realxen/cartograph/releases/latest">Releases <iconify-icon icon="material-symbols:open-in-new" aria-hidden="true"></iconify-icon></a>
+          <a class="bg-primary-container px-10 py-4 font-mono font-bold text-on-primary-container transition-all hover:shadow-[0_0_20px_rgba(249,115,22,0.5)]" href="https://github.com/onixhdz/cartograph">GitHub</a>
+          <a class="inline-flex items-center gap-2 border border-outline-variant px-10 py-4 font-mono transition-all hover:border-primary" href="https://github.com/onixhdz/cartograph/releases/latest">Releases <iconify-icon icon="material-symbols:open-in-new" aria-hidden="true"></iconify-icon></a>
         </div>
       </section>
     </div>
@@ -266,20 +266,20 @@
       <div class="space-y-5">
         <div class="flex items-center gap-2"><img class="h-6 w-6 shrink-0" src="./logo.svg" alt="" aria-hidden="true"><span class="font-mono text-sm font-bold text-primary">Cartograph</span></div>
         <p class="font-mono text-xs text-on-surface-variant">Early-stage local-first code intelligence. Built for the era of AI agents.</p>
-        <div class="flex flex-wrap items-center gap-2"><a class="inline-flex h-6 items-center border border-primary/80" href="https://github.com/realxen/cartograph/releases/latest" aria-label="Latest Cartograph release"><img class="h-full" src="https://img.shields.io/github/v/release/realxen/cartograph?label=release&style=flat-square&color=f97316&labelColor=160c06&logo=github&logoColor=ffb690" alt="Latest GitHub release"></a><span class="inline-flex h-6 items-center border border-success-green/40 bg-success-green/10 px-2 font-mono text-[10px] text-success-green">local graph</span><span class="inline-flex h-6 items-center border border-secondary/40 bg-secondary/10 px-2 font-mono text-[10px] text-secondary">MCP</span></div>
+        <div class="flex flex-wrap items-center gap-2"><a class="inline-flex h-6 items-center border border-primary/80" href="https://github.com/onixhdz/cartograph/releases/latest" aria-label="Latest Cartograph release"><img class="h-full" src="https://img.shields.io/github/v/release/onixhdz/cartograph?label=release&style=flat-square&color=f97316&labelColor=160c06&logo=github&logoColor=ffb690" alt="Latest GitHub release"></a><span class="inline-flex h-6 items-center border border-success-green/40 bg-success-green/10 px-2 font-mono text-[10px] text-success-green">local graph</span><span class="inline-flex h-6 items-center border border-secondary/40 bg-secondary/10 px-2 font-mono text-[10px] text-secondary">MCP</span></div>
       </div>
       <div class="grid grid-cols-2 gap-8 sm:grid-cols-3">
-        <div><h4 class="mb-4 font-mono text-xs font-bold text-on-background">Product</h4><ul class="space-y-2 font-mono text-xs text-on-surface-variant"><li><a class="hover:text-primary" href="#features">Features</a></li><li><a class="hover:text-primary" href="#quickstart">Quickstart</a></li><li><a class="hover:text-primary" href="https://github.com/realxen/cartograph/releases/latest">Release Notes</a></li></ul></div>
-        <div><h4 class="mb-4 font-mono text-xs font-bold text-on-background">Docs</h4><ul class="space-y-2 font-mono text-xs text-on-surface-variant"><li><a class="hover:text-primary" href="https://github.com/realxen/cartograph/blob/main/docs/plugin-guide.md">Plugin guide</a></li><li><a class="hover:text-primary" href="https://github.com/realxen/cartograph/blob/main/docs/capec-user-guide.md">CAPEC guide</a></li><li><a class="hover:text-primary" href="https://github.com/realxen/cartograph#ai-editor-integration-mcp">MCP</a></li></ul></div>
-        <div><h4 class="mb-4 font-mono text-xs font-bold text-on-background">Project</h4><ul class="space-y-2 font-mono text-xs text-on-surface-variant"><li><a class="hover:text-primary" href="https://github.com/realxen/cartograph">GitHub</a></li><li><a class="hover:text-primary" href="https://github.com/realxen/cartograph/blob/main/LICENSE">License</a></li><li><a class="hover:text-primary" href="https://github.com/realxen/cartograph/issues">Issues</a></li></ul></div>
+        <div><h4 class="mb-4 font-mono text-xs font-bold text-on-background">Product</h4><ul class="space-y-2 font-mono text-xs text-on-surface-variant"><li><a class="hover:text-primary" href="#features">Features</a></li><li><a class="hover:text-primary" href="#quickstart">Quickstart</a></li><li><a class="hover:text-primary" href="https://github.com/onixhdz/cartograph/releases/latest">Release Notes</a></li></ul></div>
+        <div><h4 class="mb-4 font-mono text-xs font-bold text-on-background">Docs</h4><ul class="space-y-2 font-mono text-xs text-on-surface-variant"><li><a class="hover:text-primary" href="https://github.com/onixhdz/cartograph/blob/main/docs/plugin-guide.md">Plugin guide</a></li><li><a class="hover:text-primary" href="https://github.com/onixhdz/cartograph/blob/main/docs/capec-user-guide.md">CAPEC guide</a></li><li><a class="hover:text-primary" href="https://github.com/onixhdz/cartograph#ai-editor-integration-mcp">MCP</a></li></ul></div>
+        <div><h4 class="mb-4 font-mono text-xs font-bold text-on-background">Project</h4><ul class="space-y-2 font-mono text-xs text-on-surface-variant"><li><a class="hover:text-primary" href="https://github.com/onixhdz/cartograph">GitHub</a></li><li><a class="hover:text-primary" href="https://github.com/onixhdz/cartograph/blob/main/LICENSE">License</a></li><li><a class="hover:text-primary" href="https://github.com/onixhdz/cartograph/issues">Issues</a></li></ul></div>
       </div>
     </div>
   </footer>
 
   <script>
     const installCommands = {
-      brew: 'brew install realxen/tap/cartograph',
-      script: 'curl -sSfL https://realxen.github.io/cartograph/install.sh | sh',
+      brew: 'brew install onixhdz/tap/cartograph',
+      script: 'curl -sSfL https://onixhdz.github.io/cartograph/install.sh | sh',
     };
 
     const navLinks = Array.from(document.querySelectorAll('[data-nav-link]'));

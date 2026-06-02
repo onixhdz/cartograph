@@ -1,6 +1,6 @@
 package main
 
-import "github.com/realxen/cartograph/plugin"
+import "github.com/onixhdz/cartograph/plugin"
 
 func main() {
 	plugin.Run(&capecPlugin{})

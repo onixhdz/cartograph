@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/realxen/cartograph/internal/graph"
+	"github.com/onixhdz/cartograph/internal/graph"
 )
 
 // cypherWriteRE matches Cypher write keywords that must be blocked.

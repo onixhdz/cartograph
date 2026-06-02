@@ -3,7 +3,7 @@ package service
 import (
 	"testing"
 
-	"github.com/realxen/cartograph/internal/storage"
+	"github.com/onixhdz/cartograph/internal/storage"
 )
 
 func TestServerHasCompleteEmbeddings(t *testing.T) {

@@ -7,9 +7,9 @@ import (
 
 	"github.com/cloudprivacylabs/lpg/v2"
 
-	"github.com/realxen/cartograph/internal/graph"
-	"github.com/realxen/cartograph/internal/search"
-	"github.com/realxen/cartograph/internal/service"
+	"github.com/onixhdz/cartograph/internal/graph"
+	"github.com/onixhdz/cartograph/internal/search"
+	"github.com/onixhdz/cartograph/internal/service"
 )
 
 // domainBoost describes a single relevance domain (HTTP, DB, config,

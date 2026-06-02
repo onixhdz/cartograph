@@ -7,7 +7,7 @@ import (
 
 	"github.com/cloudprivacylabs/lpg/v2"
 
-	"github.com/realxen/cartograph/internal/graph"
+	"github.com/onixhdz/cartograph/internal/graph"
 )
 
 // C3Linearize computes the C3 linearization (MRO) for each class in the
