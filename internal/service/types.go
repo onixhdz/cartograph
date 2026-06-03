@@ -73,12 +73,16 @@ const (
 	RouteContext = APIPrefix + "/context"
 	// RouteCypher is the endpoint for raw Cypher queries.
 	RouteCypher = APIPrefix + "/cypher"
+	// RouteGraphExplore is the endpoint for structured graph exploration.
+	RouteGraphExplore = APIPrefix + "/graph/explore"
 	// RouteImpact is the endpoint for blast radius analysis.
 	RouteImpact = APIPrefix + "/impact"
 	// RouteCat is the endpoint to retrieve file source content.
 	RouteCat = APIPrefix + "/cat"
 	// RouteTree is the endpoint to list indexed repository file paths.
 	RouteTree = APIPrefix + "/tree"
+	// RouteList is the endpoint to list indexed repositories from the registry.
+	RouteList = APIPrefix + "/list"
 	// RouteReload is the endpoint to reload a repo's graph.
 	RouteReload = APIPrefix + "/reload"
 	// RouteStatus is the endpoint for service health/status.
@@ -104,9 +108,11 @@ const (
 	MethodSearch             = "search"
 	MethodContext            = "context"
 	MethodCypher             = "cypher"
+	MethodGraphExplore       = "graph_explore"
 	MethodImpact             = "impact"
 	MethodCat                = "cat"
 	MethodTree               = "tree"
+	MethodList               = "list"
 	MethodReload             = "reload"
 	MethodStatus             = "status"
 	MethodShutdown           = "shutdown"
@@ -179,8 +185,8 @@ func AnalyzePreflightCommands(target string) []string {
 
 // AllMethods lists every valid method name.
 var AllMethods = []string{
-	MethodQuery, MethodSearch, MethodContext, MethodCypher, MethodImpact,
-	MethodCat, MethodTree, MethodReload, MethodStatus, MethodShutdown,
+	MethodQuery, MethodSearch, MethodContext, MethodCypher, MethodGraphExplore, MethodImpact,
+	MethodCat, MethodTree, MethodList, MethodReload, MethodStatus, MethodShutdown,
 	MethodSchema, MethodEmbed, MethodEmbedStatus, MethodAnalyzePreflight, MethodPluginIngest, MethodPluginIngestStatus,
 }
 
@@ -190,9 +196,11 @@ var MethodToRoute = map[string]string{
 	MethodSearch:             RouteSearch,
 	MethodContext:            RouteContext,
 	MethodCypher:             RouteCypher,
+	MethodGraphExplore:       RouteGraphExplore,
 	MethodImpact:             RouteImpact,
 	MethodCat:                RouteCat,
 	MethodTree:               RouteTree,
+	MethodList:               RouteList,
 	MethodReload:             RouteReload,
 	MethodStatus:             RouteStatus,
 	MethodShutdown:           RouteShutdown,
@@ -318,6 +326,7 @@ type ProcessMatch struct {
 
 // SymbolMatch represents a matched symbol in query/context results.
 type SymbolMatch struct {
+	UID         string  `json:"uid,omitempty"`
 	Name        string  `json:"name"`
 	FilePath    string  `json:"filePath"`
 	StartLine   int     `json:"startLine,omitempty"`
@@ -401,6 +410,55 @@ type CypherResult struct {
 	Rows    []map[string]any `json:"rows"`
 }
 
+// GraphExploreRequest is the JSON body for POST /api/graph/explore.
+type GraphExploreRequest struct {
+	Repo              string   `json:"repo"`
+	NodeKinds         []string `json:"nodeKinds,omitempty"`
+	RelationshipTypes []string `json:"relationshipTypes,omitempty"`
+	Limit             int      `json:"limit,omitempty"`
+	FocusNode         string   `json:"focusNode,omitempty"`
+	Depth             int      `json:"depth,omitempty"`
+	IncludeStructural bool     `json:"includeStructural,omitempty"`
+	ExcludeTests      bool     `json:"excludeTests,omitempty"`
+}
+
+// GraphExploreResult is a bounded, visual graph payload for the graph explorer.
+type GraphExploreResult struct {
+	Nodes         []GraphExploreNode         `json:"nodes"`
+	Relationships []GraphExploreRelationship `json:"relationships"`
+	Facets        GraphExploreFacets         `json:"facets"`
+	Stats         GraphExploreStats          `json:"stats"`
+}
+
+type GraphExploreNode struct {
+	ID         string         `json:"id"`
+	Labels     []string       `json:"labels"`
+	Properties map[string]any `json:"properties"`
+}
+
+type GraphExploreRelationship struct {
+	ID         string         `json:"id"`
+	Type       string         `json:"type"`
+	From       string         `json:"from"`
+	To         string         `json:"to"`
+	Properties map[string]any `json:"properties,omitempty"`
+}
+
+type GraphExploreFacets struct {
+	NodeLabels           []NodeLabelSummary           `json:"nodeLabels"`
+	RelTypes             []RelTypeSummary             `json:"relTypes"`
+	RelationshipPatterns []RelationshipPatternSummary `json:"relationshipPatterns"`
+}
+
+type GraphExploreStats struct {
+	TotalNodes            int  `json:"totalNodes"`
+	TotalEdges            int  `json:"totalEdges"`
+	ReturnedNodes         int  `json:"returnedNodes"`
+	ReturnedRelationships int  `json:"returnedRelationships"`
+	Limit                 int  `json:"limit"`
+	Truncated             bool `json:"truncated"`
+}
+
 // ImpactRequest is the JSON body for POST /api/impact.
 type ImpactRequest struct {
 	Repo         string `json:"repo"`
@@ -446,8 +504,27 @@ type TreeRequest struct {
 
 // TreeResult is the result payload for a tree response.
 type TreeResult struct {
-	Repo  string   `json:"repo"`
-	Files []string `json:"files"`
+	Repo        string                   `json:"repo"`
+	Files       []string                 `json:"files"`
+	FileSymbols map[string][]SymbolMatch `json:"fileSymbols,omitempty"`
+}
+
+// ListResult is the result payload for GET /api/list.
+type ListResult struct {
+	Repos []RepoListEntry `json:"repos"`
+}
+
+// RepoListEntry describes an indexed repository from the registry.
+type RepoListEntry struct {
+	Name          string `json:"name"`
+	Hash          string `json:"hash"`
+	Type          string `json:"type"`
+	IndexedAt     string `json:"indexedAt,omitempty"`
+	NodeCount     int    `json:"nodeCount"`
+	EdgeCount     int    `json:"edgeCount"`
+	BuiltWith     string `json:"builtWith,omitempty"`
+	Embedding     string `json:"embedding,omitempty"`
+	EmbeddingInfo string `json:"embeddingInfo,omitempty"`
 }
 
 // ReloadRequest is the JSON body for POST /api/reload.
@@ -477,6 +554,7 @@ type ToolBackend interface {
 	Search(SearchRequest) (*SearchResult, error)
 	Context(ContextRequest) (*ContextResult, error)
 	Cypher(CypherRequest) (*CypherResult, error)
+	GraphExplore(GraphExploreRequest) (*GraphExploreResult, error)
 	Impact(ImpactRequest) (*ImpactResult, error)
 	Schema(SchemaRequest) (*SchemaResult, error)
 }

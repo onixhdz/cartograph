@@ -24,6 +24,7 @@ type ServiceClient interface {
 	Impact(service.ImpactRequest) (*service.ImpactResult, error)
 	Cat(service.CatRequest) (*service.CatResult, error)
 	Tree(service.TreeRequest) (*service.TreeResult, error)
+	List() (*service.ListResult, error)
 	Schema(service.SchemaRequest) (*service.SchemaResult, error)
 	Reload(service.ReloadRequest) error
 	Status() (*service.StatusResult, error)

@@ -193,6 +193,23 @@ func (mc *MemoryClient) LoadAllFromRegistry() error {
 	return nil
 }
 
+// List retrieves indexed repositories from the registry.
+func (mc *MemoryClient) List() (*ListResult, error) {
+	if mc.dataDir == "" {
+		return &ListResult{}, nil
+	}
+	registry, err := storage.NewRegistry(mc.dataDir)
+	if err != nil {
+		return nil, fmt.Errorf("memory client: open registry: %w", err)
+	}
+	entries := registry.List()
+	repos := make([]RepoListEntry, 0, len(entries))
+	for _, entry := range entries {
+		repos = append(repos, repoListEntryFromRegistry(entry))
+	}
+	return &ListResult{Repos: repos}, nil
+}
+
 // Query performs a hybrid search query.
 func (mc *MemoryClient) Query(req QueryRequest) (*QueryResult, error) {
 	be, err := mc.getBackend(req.Repo)
@@ -240,6 +257,19 @@ func (mc *MemoryClient) Cypher(req CypherRequest) (*CypherResult, error) {
 	res, err := be.Cypher(req)
 	if err != nil {
 		return nil, fmt.Errorf("memory client: cypher %q: %w", req.Repo, err)
+	}
+	return res, nil
+}
+
+// GraphExplore returns a bounded visual graph for interactive exploration.
+func (mc *MemoryClient) GraphExplore(req GraphExploreRequest) (*GraphExploreResult, error) {
+	be, err := mc.getBackend(req.Repo)
+	if err != nil {
+		return nil, err
+	}
+	res, err := be.GraphExplore(req)
+	if err != nil {
+		return nil, fmt.Errorf("memory client: graph explore %q: %w", req.Repo, err)
 	}
 	return res, nil
 }

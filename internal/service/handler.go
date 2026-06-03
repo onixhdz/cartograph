@@ -265,6 +265,46 @@ func (s *Server) handleCypher(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, result)
 }
 
+func (s *Server) handleGraphExplore(w http.ResponseWriter, r *http.Request) {
+	s.resetIdleTimer(r.Context())
+	if !requirePOST(w, r) {
+		return
+	}
+	var req GraphExploreRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Repo == "" {
+		writeError(w, http.StatusBadRequest, "missing repo")
+		return
+	}
+
+	repo, err := s.ResolveRepoName(req.Repo)
+	if err != nil {
+		writeError(w, ErrCodeRepoNotFound, err.Error())
+		return
+	}
+	req.Repo = repo
+
+	backend, err := s.GetBackend(req.Repo)
+	if err != nil {
+		writeError(w, ErrCodeIncompatible, err.Error())
+		return
+	}
+	if backend == nil {
+		writeError(w, ErrCodeRepoNotFound, fmt.Sprintf("repository %q not indexed", req.Repo))
+		return
+	}
+
+	result, err := backend.GraphExplore(req)
+	if err != nil {
+		writeError(w, ErrCodeInternal, err.Error())
+		return
+	}
+	writeJSON(w, result)
+}
+
 func (s *Server) handleImpact(w http.ResponseWriter, r *http.Request) {
 	s.resetIdleTimer(r.Context())
 	if !requirePOST(w, r) {
@@ -418,6 +458,80 @@ func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, BuildTreeResult(req.Repo, g))
+}
+
+func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
+	s.resetIdleTimer(r.Context())
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed: use GET")
+		return
+	}
+
+	registry, err := storage.NewRegistry(s.dataDir)
+	if err != nil {
+		writeError(w, ErrCodeInternal, fmt.Sprintf("open registry: %v", err))
+		return
+	}
+
+	entries := registry.List()
+	repos := make([]RepoListEntry, 0, len(entries))
+	for _, entry := range entries {
+		repos = append(repos, repoListEntryFromRegistry(entry))
+	}
+	writeJSON(w, &ListResult{Repos: repos})
+}
+
+func repoListEntryFromRegistry(entry storage.RegistryEntry) RepoListEntry {
+	entryType := "local"
+	if entry.URL != "" {
+		entryType = "url"
+		if entry.Meta.ClonedOnly {
+			entryType = "cloned"
+		} else if entry.Meta.SourcePath != "" {
+			entryType = "url, cloned"
+		}
+	}
+
+	builtWith := entry.Meta.BinaryVersion
+	if builtWith == "" {
+		builtWith = "-"
+	}
+
+	return RepoListEntry{
+		Name:      entry.Name,
+		Hash:      entry.Hash,
+		Type:      entryType,
+		IndexedAt: entry.IndexedAt.Format("2006-01-02T15:04:05Z07:00"),
+		NodeCount: entry.NodeCount,
+		EdgeCount: entry.EdgeCount,
+		BuiltWith: builtWith,
+		Embedding: embeddingStatusLabel(entry.Meta),
+	}
+}
+
+func embeddingStatusLabel(meta storage.Meta) string {
+	switch meta.EmbeddingStatus {
+	case "":
+		return "none"
+	case storage.EmbeddingStatusComplete:
+		if meta.EmbeddingDuration != "" {
+			return fmt.Sprintf("complete (%d nodes, %s)", meta.EmbeddingTotal, meta.EmbeddingDuration)
+		}
+		return fmt.Sprintf("complete (%d nodes)", meta.EmbeddingTotal)
+	case storage.EmbeddingStatusRunning:
+		if meta.EmbeddingTotal > 0 {
+			pct := meta.EmbeddingNodes * 100 / meta.EmbeddingTotal
+			return fmt.Sprintf("running (%d/%d, %d%%)", meta.EmbeddingNodes, meta.EmbeddingTotal, pct)
+		}
+		return "running"
+	case storage.EmbeddingStatusFailed:
+		if meta.EmbeddingError != "" {
+			return fmt.Sprintf("failed (%s)", meta.EmbeddingError)
+		}
+		return statusFailed
+	default:
+		return meta.EmbeddingStatus
+	}
 }
 
 func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {

@@ -151,6 +151,10 @@ func (m *mockClient) Tree(req service.TreeRequest) (*service.TreeResult, error) 
 	}, nil
 }
 
+func (m *mockClient) List() (*service.ListResult, error) {
+	return &service.ListResult{Repos: []service.RepoListEntry{{Name: "cartograph", Hash: "abcdef12", Type: "local", NodeCount: 100, EdgeCount: 200}}}, nil
+}
+
 func (m *mockClient) Reload(req service.ReloadRequest) error {
 	m.reloadCalled = true
 	m.lastReloadReq = req

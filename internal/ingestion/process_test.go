@@ -142,6 +142,108 @@ func TestDetectProcesses_LinearChain(t *testing.T) {
 	}
 }
 
+func TestDetectProcesses_InvokesProcess(t *testing.T) {
+	g := lpg.NewGraph()
+
+	fnA := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "func:A", Name: "A"},
+		FilePath:      "a.go",
+		StartLine:     1,
+		EndLine:       10,
+	})
+	fnB := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "func:B", Name: "B"},
+		FilePath:      "b.go",
+		StartLine:     1,
+		EndLine:       10,
+	})
+	fnC := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "func:C", Name: "C"},
+		FilePath:      "c.go",
+		StartLine:     1,
+		EndLine:       10,
+	})
+
+	graph.AddEdge(g, fnA, fnB, graph.RelSpawns, nil)
+	graph.AddEdge(g, fnB, fnC, graph.RelSpawns, nil)
+
+	count := DetectProcesses(g, ProcessOptions{MinSteps: 1, MaxDepth: 2})
+	if count != 3 {
+		t.Fatalf("expected 3 processes, got %d", count)
+	}
+
+	processA := graph.FindNodeByID(g, "process:func:A-flow")
+	processB := graph.FindNodeByID(g, "process:func:B-flow")
+	processC := graph.FindNodeByID(g, "process:func:C-flow")
+	if processA == nil || processB == nil || processC == nil {
+		t.Fatalf("expected process nodes A/B/C, got A=%v B=%v C=%v", processA != nil, processB != nil, processC != nil)
+	}
+
+	assertInvokesProcessEdge(t, processA, processB)
+	assertInvokesProcessEdge(t, processA, processC)
+	assertInvokesProcessEdge(t, processB, processC)
+	assertNoInvokesProcessSelfEdge(t, processA)
+	assertNoInvokesProcessSelfEdge(t, processB)
+	assertNoInvokesProcessSelfEdge(t, processC)
+}
+
+func TestDetectProcesses_InvokesProcessRespectsMaxProcesses(t *testing.T) {
+	g := lpg.NewGraph()
+
+	fnA := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "func:A", Name: "A"},
+		FilePath:      "a.go",
+		StartLine:     1,
+		EndLine:       10,
+	})
+	fnB := graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{
+		BaseNodeProps: graph.BaseNodeProps{ID: "func:B", Name: "B"},
+		FilePath:      "b.go",
+		StartLine:     1,
+		EndLine:       10,
+	})
+
+	graph.AddEdge(g, fnA, fnB, graph.RelCalls, nil)
+
+	count := DetectProcesses(g, ProcessOptions{MinSteps: 1, MaxProcesses: 1})
+	if count != 1 {
+		t.Fatalf("expected 1 process, got %d", count)
+	}
+
+	for edges := g.GetEdges(); edges.Next(); {
+		edge := edges.Edge()
+		typ, err := graph.GetEdgeRelType(edge)
+		if err != nil || typ != graph.RelInvokesProcess {
+			continue
+		}
+		fromID := graph.GetStringProp(edge.GetFrom(), graph.PropID)
+		toID := graph.GetStringProp(edge.GetTo(), graph.PropID)
+		t.Fatalf("unexpected INVOKES_PROCESS edge with truncated process set: %s -> %s", fromID, toID)
+	}
+}
+
+func assertInvokesProcessEdge(t *testing.T, from, to *lpg.Node) {
+	t.Helper()
+	for _, edge := range graph.GetOutgoingEdges(from, graph.RelInvokesProcess) {
+		if edge.GetTo() == to {
+			return
+		}
+	}
+	fromID := graph.GetStringProp(from, graph.PropID)
+	toID := graph.GetStringProp(to, graph.PropID)
+	t.Fatalf("expected INVOKES_PROCESS edge %s -> %s", fromID, toID)
+}
+
+func assertNoInvokesProcessSelfEdge(t *testing.T, process *lpg.Node) {
+	t.Helper()
+	for _, edge := range graph.GetOutgoingEdges(process, graph.RelInvokesProcess) {
+		if edge.GetTo() == process {
+			processID := graph.GetStringProp(process, graph.PropID)
+			t.Fatalf("unexpected self INVOKES_PROCESS edge on %s", processID)
+		}
+	}
+}
+
 func TestDetectProcesses_MaxDepthLimits(t *testing.T) {
 	g := lpg.NewGraph()
 

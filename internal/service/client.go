@@ -158,6 +158,15 @@ func (c *Client) Cypher(req CypherRequest) (*CypherResult, error) {
 	return &res, nil
 }
 
+// GraphExplore returns a bounded visual graph for interactive exploration.
+func (c *Client) GraphExplore(req GraphExploreRequest) (*GraphExploreResult, error) {
+	var res GraphExploreResult
+	if err := c.do(http.MethodPost, RouteGraphExplore, req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
 // Impact computes blast radius analysis.
 func (c *Client) Impact(req ImpactRequest) (*ImpactResult, error) {
 	var res ImpactResult
@@ -180,6 +189,15 @@ func (c *Client) Cat(req CatRequest) (*CatResult, error) {
 func (c *Client) Tree(req TreeRequest) (*TreeResult, error) {
 	var res TreeResult
 	if err := c.do(http.MethodPost, RouteTree, req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+// List retrieves indexed repositories from the registry.
+func (c *Client) List() (*ListResult, error) {
+	var res ListResult
+	if err := c.do(http.MethodGet, RouteList, nil, &res); err != nil {
 		return nil, err
 	}
 	return &res, nil

@@ -53,6 +53,13 @@ func (stubBackend) Cypher(req CypherRequest) (*CypherResult, error) {
 	}, nil
 }
 
+func (stubBackend) GraphExplore(req GraphExploreRequest) (*GraphExploreResult, error) {
+	return &GraphExploreResult{
+		Nodes:         []GraphExploreNode{},
+		Relationships: []GraphExploreRelationship{},
+	}, nil
+}
+
 func (stubBackend) Impact(req ImpactRequest) (*ImpactResult, error) {
 	return &ImpactResult{
 		Target:   SymbolMatch{},
@@ -328,6 +335,18 @@ func TestHandleCypherBlocksWrite(t *testing.T) {
 		if resp.Error.Code != ErrCodeQueryBlocked {
 			t.Errorf("query %q: wrong error code %d", q, resp.Error.Code)
 		}
+	}
+}
+
+func TestHandleGraphExplore(t *testing.T) {
+	s := newTestServer()
+	body := jsonBody(t, GraphExploreRequest{Repo: "testrepo", NodeKinds: []string{"Function"}, RelationshipTypes: []string{"CALLS"}, Limit: 10})
+	req := httptest.NewRequestWithContext(context.Background(), "POST", RouteGraphExplore, body)
+	rec := httptest.NewRecorder()
+	s.handleGraphExplore(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: %d, body: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -820,4 +839,39 @@ func TestHandleTree_ConcurrentColdLoad(t *testing.T) {
 		})
 	}
 	wg.Wait()
+}
+
+func TestHandleTreeSerializesFileSymbols(t *testing.T) {
+	s := newTestServer()
+	g := s.graph["testrepo"]
+	graph.AddFileNode(g, graph.FileProps{BaseNodeProps: graph.BaseNodeProps{ID: "file:main", Name: "main.go"}, FilePath: "main.go"})
+	graph.AddSymbolNode(g, graph.LabelFunction, graph.SymbolProps{BaseNodeProps: graph.BaseNodeProps{ID: "fn:main", Name: "main"}, FilePath: "main.go", StartLine: 3, EndLine: 7})
+
+	body := jsonBody(t, TreeRequest{Repo: "testrepo"})
+	req := httptest.NewRequestWithContext(context.Background(), "POST", RouteTree, body)
+	rec := httptest.NewRecorder()
+	s.handleTree(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	resp := decodeResponse(t, rec)
+	data, err := json.Marshal(resp.Result)
+	if err != nil {
+		t.Fatalf("marshal result: %v", err)
+	}
+	var result TreeResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal tree result: %v", err)
+	}
+	if got := strings.Join(result.Files, ","); got != "main.go" {
+		t.Fatalf("files = %q, want main.go", got)
+	}
+	symbols := result.FileSymbols["main.go"]
+	if len(symbols) != 1 {
+		t.Fatalf("main.go symbols = %d, want 1", len(symbols))
+	}
+	if symbols[0].UID != "fn:main" || symbols[0].Name != "main" || symbols[0].StartLine != 3 || symbols[0].EndLine != 7 {
+		t.Fatalf("unexpected symbol payload: %#v", symbols[0])
+	}
 }

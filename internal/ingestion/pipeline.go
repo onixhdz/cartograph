@@ -582,8 +582,8 @@ func (p *Pipeline) addSymbolsToGraph(pr *extractors.ParseResult, absToRel map[st
 				Name: sym.Name,
 			},
 			FilePath:    relPath,
-			StartLine:   sym.StartLine,
-			EndLine:     sym.EndLine,
+			StartLine:   sourceLine(sym.StartLine),
+			EndLine:     sourceLine(sym.EndLine),
 			IsExported:  isExported,
 			Content:     sym.Content,
 			Description: sym.DocComment,
@@ -636,6 +636,13 @@ func (p *Pipeline) addSymbolsToGraph(pr *extractors.ParseResult, absToRel map[st
 		}
 		graph.AddEdge(p.Graph, ownerNode, ref.node, relType, nil)
 	}
+}
+
+func sourceLine(row int) int {
+	if row < 0 {
+		return row
+	}
+	return row + 1
 }
 
 func selectOwnerNode(candidates []*lpg.Node, memberFilePath string) *lpg.Node {

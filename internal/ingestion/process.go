@@ -825,7 +825,8 @@ func DetectProcessesDetailed(g *lpg.Graph, opts ProcessOptions) ProcessResult {
 		}
 	}
 
-	for _, fs := range flowScores {
+	processNodes := make([]*lpg.Node, len(flowScores))
+	for i, fs := range flowScores {
 		rp := fs.rp
 		importance := fs.importance
 		epPath := fs.epPath
@@ -848,6 +849,7 @@ func DetectProcessesDetailed(g *lpg.Graph, opts ProcessOptions) ProcessResult {
 		if rp.crossCommunity {
 			processNode.SetProperty("crossCommunity", true)
 		}
+		processNodes[i] = processNode
 
 		for _, step := range rp.steps {
 			graph.AddTypedEdge(g, step.node, processNode, graph.EdgeProps{
@@ -868,6 +870,22 @@ func DetectProcessesDetailed(g *lpg.Graph, opts ProcessOptions) ProcessResult {
 			CrossCommunity: rp.crossCommunity,
 			Communities:    rp.communities,
 		})
+	}
+
+	for invokedIdx, invokerIndexes := range flowInvokers {
+		invokedProcess := processNodes[invokedIdx]
+		if invokedProcess == nil {
+			continue
+		}
+		for _, invokerIdx := range invokerIndexes {
+			invokerProcess := processNodes[invokerIdx]
+			if invokerProcess == nil || invokerProcess == invokedProcess {
+				continue
+			}
+			graph.AddTypedEdge(g, invokerProcess, invokedProcess, graph.EdgeProps{
+				Type: graph.RelInvokesProcess,
+			})
+		}
 	}
 
 	return result
