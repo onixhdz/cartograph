@@ -18,7 +18,7 @@ require (
 	github.com/gortexhq/tree-sitter-swift v0.1.1-0.20260424235305-8dde3a3327dd
 	github.com/klauspost/compress v1.18.6
 	github.com/modelcontextprotocol/go-sdk v1.6.1
-	github.com/odvcencio/gotreesitter v0.19.1
+	github.com/odvcencio/gotreesitter v0.20.2
 	github.com/pelletier/go-toml/v2 v2.3.1
 	github.com/posener/complete v1.2.3
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
