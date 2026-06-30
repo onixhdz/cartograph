@@ -3,9 +3,6 @@
 // The primary type is [Host], a mock implementation of [plugin.Host] that
 // records emitted nodes, edges, and log messages for assertion in tests.
 // No Cartograph installation or running host process is required.
-// For full integration testing against a compiled plugin binary,
-// [RunBinary] launches the binary as a subprocess and runs the complete
-// protocol lifecycle (handshake → info → ingest → close).
 package plugintest
 
 import (
@@ -13,12 +10,10 @@ import (
 	"fmt"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/onixhdz/cartograph/plugin"
 )
 
-// Compile-time check.
 var _ plugin.Host = (*Host)(nil)
 
 // Config is a convenience alias for plugin configuration maps.
@@ -50,16 +45,10 @@ type LogEntry struct {
 type Host struct {
 	mu     sync.Mutex
 	config Config
-	cache  map[string]cacheEntry
 
 	nodes []Node
 	edges []Edge
 	logs  []LogEntry
-}
-
-type cacheEntry struct {
-	value   string
-	expires time.Time
 }
 
 // NewHost creates a mock Host with the given config values.
@@ -67,10 +56,7 @@ func NewHost(config Config) *Host {
 	if config == nil {
 		config = Config{}
 	}
-	return &Host{
-		config: config,
-		cache:  make(map[string]cacheEntry),
-	}
+	return &Host{config: config}
 }
 
 // ConfigGet returns the config value for key, or an error if not found.
@@ -84,30 +70,13 @@ func (h *Host) ConfigGet(_ context.Context, key string) (string, error) {
 	return val, nil
 }
 
-// CacheGet returns the cached value for key. Expired entries are not returned.
-func (h *Host) CacheGet(_ context.Context, key string) (string, bool, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	entry, ok := h.cache[key]
-	if !ok {
-		return "", false, nil
-	}
-	if !entry.expires.IsZero() && time.Now().After(entry.expires) {
-		delete(h.cache, key)
-		return "", false, nil
-	}
-	return entry.value, true, nil
+// CacheGet always misses, matching Cartograph's in-process host.
+func (h *Host) CacheGet(context.Context, string) (string, bool, error) {
+	return "", false, nil
 }
 
-// CacheSet stores a value with a TTL in seconds. Zero means no expiry.
-func (h *Host) CacheSet(_ context.Context, key, value string, ttlSeconds int) error {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	entry := cacheEntry{value: value}
-	if ttlSeconds > 0 {
-		entry.expires = time.Now().Add(time.Duration(ttlSeconds) * time.Second)
-	}
-	h.cache[key] = entry
+// CacheSet is accepted as a no-op, matching Cartograph's in-process host.
+func (h *Host) CacheSet(context.Context, string, string, int) error {
 	return nil
 }
 

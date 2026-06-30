@@ -2,7 +2,6 @@ package plugin
 
 import (
 	"errors"
-	"runtime"
 	"sync/atomic"
 	"time"
 )
@@ -120,19 +119,4 @@ func (c *emissionCounter) err() error {
 		return *p
 	}
 	return nil
-}
-
-// waitForSettled polls briefly for pending notification goroutines to
-// update the counter. This is needed because conn.go dispatches
-// notifications in goroutines, and they may not have executed by the
-// time the ingest response arrives.
-func (c *emissionCounter) waitForSettled(timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if err := c.err(); err != nil {
-			return err
-		}
-		runtime.Gosched()
-	}
-	return c.err()
 }

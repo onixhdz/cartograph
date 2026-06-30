@@ -3,13 +3,18 @@ package cartograph
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cloudprivacylabs/lpg/v2"
+
+	internalplugin "github.com/onixhdz/cartograph/internal/plugin"
+	pluginsdk "github.com/onixhdz/cartograph/plugin"
 
 	"github.com/onixhdz/cartograph/internal/graph"
 	"github.com/onixhdz/cartograph/internal/service"
@@ -66,6 +71,160 @@ func main() { _ = Hello() }
 	}
 	if _, err := client.Cypher(context.Background(), res.RepoHash, "MATCH (n) RETURN n LIMIT 1", CypherOptions{}); err != nil {
 		t.Fatalf("Cypher: %v", err)
+	}
+}
+
+type registerPluginTestPlugin struct {
+	version        string
+	label          string
+	fail           bool
+	blockResources bool
+}
+
+func (p registerPluginTestPlugin) Info() pluginsdk.Info {
+	version := p.version
+	if version == "" {
+		version = "v1"
+	}
+	label := p.label
+	if label == "" {
+		label = "Widget"
+	}
+	return pluginsdk.Info{
+		Name:        "test-plugin",
+		Version:     version,
+		Description: "test plugin",
+		Entities: []pluginsdk.Entity{{
+			Name:  "Widget",
+			Label: label,
+			Query: &pluginsdk.EntityQuery{
+				SearchProps: []string{"name", "description"},
+				Display:     []pluginsdk.DisplayField{{Prop: "name", Label: "Name"}},
+			},
+		}},
+	}
+}
+
+func (p registerPluginTestPlugin) Resources(ctx context.Context) ([]pluginsdk.PluginResource, error) {
+	if p.blockResources {
+		<-ctx.Done()
+		return nil, fmt.Errorf("resources canceled: %w", ctx.Err())
+	}
+	return []pluginsdk.PluginResource{{Name: "Guide", Content: "# Guide"}}, nil
+}
+
+func (p registerPluginTestPlugin) Ingest(ctx context.Context, host pluginsdk.Host, _ pluginsdk.IngestOptions) (pluginsdk.IngestResult, error) {
+	if p.fail {
+		return pluginsdk.IngestResult{}, errors.New("ingest failed")
+	}
+	err := host.Emit(ctx, pluginsdk.Node{
+		ID:    "widget:1",
+		Label: "Widget",
+		Properties: map[string]any{
+			"name":        "Sprocket",
+			"description": "A useful widget",
+		},
+	})
+	if err != nil {
+		return pluginsdk.IngestResult{}, fmt.Errorf("emit widget: %w", err)
+	}
+	return pluginsdk.IngestResult{Nodes: 1}, nil
+}
+
+func TestClientRegisterPluginPersistsAndQueries(t *testing.T) {
+	dataDir := t.TempDir()
+	client, err := Open(Config{DataDir: dataDir})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer client.Close()
+
+	status, err := client.RegisterPlugin(context.Background(), registerPluginTestPlugin{}, RegisterPluginOptions{})
+	if err != nil {
+		t.Fatalf("RegisterPlugin: %v", err)
+	}
+	if status.PluginName != "test-plugin" || status.Repo != "test-plugin" || status.NodeCount != 1 || status.ResourceCount != 1 {
+		t.Fatalf("status = %+v", status)
+	}
+	if status.RepoHash != internalplugin.PluginDatasetHash("test-plugin", "test-plugin") {
+		t.Fatalf("repo hash = %q", status.RepoHash)
+	}
+
+	res, err := client.Query(context.Background(), status.Repo, "sprocket", QueryOptions{Plugin: true, Limit: 5})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(res.PluginResults) != 1 || res.PluginResults[0].NodeID != "widget:1" {
+		t.Fatalf("plugin results = %#v", res.PluginResults)
+	}
+
+	status2, err := client.RegisterPlugin(context.Background(), registerPluginTestPlugin{}, RegisterPluginOptions{})
+	if err != nil {
+		t.Fatalf("RegisterPlugin second: %v", err)
+	}
+	if status2.RepoHash != status.RepoHash {
+		t.Fatalf("second repo hash = %q, want %q", status2.RepoHash, status.RepoHash)
+	}
+}
+
+func TestClientRegisterPluginTimeoutCoversResources(t *testing.T) {
+	client, err := Open(Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer client.Close()
+
+	_, err = client.RegisterPlugin(context.Background(), registerPluginTestPlugin{blockResources: true}, RegisterPluginOptions{Timeout: time.Millisecond})
+	if err == nil || !strings.Contains(err.Error(), "resources canceled") {
+		t.Fatalf("err = %v, want resources cancellation", err)
+	}
+}
+
+func TestClientRegisterPluginFailedReregisterKeepsOldDatasetQueryable(t *testing.T) {
+	dataDir := t.TempDir()
+	client, err := Open(Config{DataDir: dataDir})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	status, err := client.RegisterPlugin(context.Background(), registerPluginTestPlugin{}, RegisterPluginOptions{})
+	if err != nil {
+		t.Fatalf("RegisterPlugin: %v", err)
+	}
+	if err := client.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	client, err = Open(Config{DataDir: dataDir})
+	if err != nil {
+		t.Fatalf("Open second: %v", err)
+	}
+	_, err = client.RegisterPlugin(context.Background(), registerPluginTestPlugin{version: "v2", label: "OtherWidget", fail: true}, RegisterPluginOptions{})
+	if err == nil {
+		t.Fatal("expected failed re-register")
+	}
+	reg, err := internalplugin.LoadInstalledRegistry(internalplugin.InstalledRegistryPath(dataDir))
+	if err != nil {
+		t.Fatalf("LoadInstalledRegistry: %v", err)
+	}
+	installed := internalplugin.FindInstalledPlugin(reg, "test-plugin")
+	if installed == nil || installed.Version != "v1" || len(installed.Entities) != 1 || installed.Entities[0].Label != "Widget" {
+		t.Fatalf("failed re-register changed installed metadata: %+v", installed)
+	}
+	if err := client.Close(); err != nil {
+		t.Fatalf("Close second: %v", err)
+	}
+
+	client, err = Open(Config{DataDir: dataDir})
+	if err != nil {
+		t.Fatalf("Open third: %v", err)
+	}
+	defer client.Close()
+	res, err := client.Query(context.Background(), status.Repo, "sprocket", QueryOptions{Plugin: true, Limit: 5})
+	if err != nil {
+		t.Fatalf("Query old dataset: %v", err)
+	}
+	if len(res.PluginResults) != 1 || res.PluginResults[0].NodeID != "widget:1" {
+		t.Fatalf("plugin results after failed re-register = %#v", res.PluginResults)
 	}
 }
 

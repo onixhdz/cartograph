@@ -136,32 +136,6 @@ func TestDecodeJSONEmpty(t *testing.T) {
 	}
 }
 
-func TestHandlePluginIngestRejectsUnsafeName(t *testing.T) {
-	s := newTestServer()
-	body := jsonBody(t, PluginIngestRequest{PluginName: "../plugin"})
-	req := httptest.NewRequestWithContext(context.Background(), "POST", RoutePluginIngest, body)
-	rec := httptest.NewRecorder()
-
-	s.handlePluginIngest(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status: %d, body: %s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestHandlePluginIngestStatusRejectsUnsafeName(t *testing.T) {
-	s := newTestServer()
-	body := jsonBody(t, PluginIngestStatusRequest{PluginName: "../plugin"})
-	req := httptest.NewRequestWithContext(context.Background(), "POST", RoutePluginIngestStatus, body)
-	rec := httptest.NewRecorder()
-
-	s.handlePluginIngestStatus(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status: %d, body: %s", rec.Code, rec.Body.String())
-	}
-}
-
 func TestHandleQuery(t *testing.T) {
 	s := newTestServer()
 	body := jsonBody(t, QueryRequest{Repo: "testrepo", Text: "hello", Limit: 10})

@@ -438,7 +438,7 @@ func TestPluginIngest_WithFixture(t *testing.T) {
 	host.AssertLogContains(t, "info", "emitted 6 nodes, 7 edges")
 }
 
-func TestPluginIngest_CacheSkip(t *testing.T) {
+func TestPluginIngest_NoHostCache(t *testing.T) {
 	fixtureData, err := os.ReadFile("testdata/mini-capec.json")
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
@@ -468,24 +468,22 @@ func TestPluginIngest_CacheSkip(t *testing.T) {
 		t.Errorf("first Ingest nodes: got %d, want 6", result1.Nodes)
 	}
 
-	// Second ingest: same data, should skip.
+	// Second ingest: in-process host cache is a no-op, so it emits again.
 	result2, err := p.Ingest(ctx, host, plugin.IngestOptions{})
 	if err != nil {
 		t.Fatalf("second Ingest: %v", err)
 	}
-	if result2.Nodes != 0 {
-		t.Errorf("second Ingest nodes: got %d, want 0 (cached)", result2.Nodes)
+	if result2.Nodes != 6 {
+		t.Errorf("second Ingest nodes: got %d, want 6", result2.Nodes)
 	}
-	if result2.Edges != 0 {
-		t.Errorf("second Ingest edges: got %d, want 0 (cached)", result2.Edges)
+	if result2.Edges != 7 {
+		t.Errorf("second Ingest edges: got %d, want 7", result2.Edges)
 	}
 
-	// Should have been fetched twice (cache only skips emission, not download).
+	// Should have been fetched twice.
 	if requests != 2 {
 		t.Errorf("HTTP requests: got %d, want 2", requests)
 	}
-
-	host.AssertLogContains(t, "info", "unchanged")
 }
 
 func TestPluginIngest_HTTPError(t *testing.T) {

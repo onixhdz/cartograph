@@ -94,7 +94,27 @@ _ = impact
 
 `Schema` summarizes labels, relationship types, relationship patterns, and property names so callers can guide agents away from invalid Cypher queries.
 
-Plugin datasets are addressed with the existing plugin SDK and registry behavior. `QueryOptions.Plugin` routes plugin query search. Cypher queries address plugin datasets by repository name, such as `mitre-cwe` or `mitre-capec`.
+## Plugin registration
+
+Embedded callers can register Go plugin implementations directly in-process:
+
+```go
+status, err := client.RegisterPlugin(ctx, myPlugin, cartograph.RegisterPluginOptions{
+    Config: map[string]string{"token": token},
+})
+if err != nil {
+    return err
+}
+
+matches, err := client.Query(ctx, status.Repo, "search text", cartograph.QueryOptions{
+    Plugin: true,
+    Limit:  5,
+})
+```
+
+`RegisterPlugin` calls `Info`, stores `Resources`, runs `Ingest`, persists emitted nodes/edges as a plugin dataset, and reloads the dataset so it is immediately queryable through `QueryOptions.Plugin`. Cancellation and timeout are cooperative: Cartograph passes the context to plugin methods and host operations, but plugin code must honor the context to stop promptly.
+
+Cypher queries can address registered plugin datasets by `status.Repo` or `status.RepoHash`.
 
 ## Build requirements
 
@@ -108,7 +128,7 @@ The first embedded API deliberately excludes:
 
 - remote URL/GitHub-shorthand analysis,
 - embedding-backed semantic search and embedding job management,
-- plugin ingestion lifecycle management,
+- out-of-process or polyglot plugin runtimes,
 - public storage interfaces,
 - public query backend interfaces,
 - direct graph mutation,

@@ -8,6 +8,30 @@ type Config struct {
 	DataDir string
 }
 
+// RegisterPluginOptions configures in-process plugin registration.
+type RegisterPluginOptions struct {
+	ConnectionName string
+	Config         map[string]string
+	ResourceTypes  []string
+	Concurrency    int
+	Timeout        time.Duration
+	MaxNodes       int
+	MaxEdges       int
+}
+
+// PluginDatasetStatus summarizes a registered plugin dataset.
+type PluginDatasetStatus struct {
+	PluginName     string
+	PluginVersion  string
+	ConnectionName string
+	Repo           string
+	RepoHash       string
+	NodeCount      int
+	EdgeCount      int
+	ResourceCount  int
+	Duration       time.Duration
+}
+
 // AnalyzeOptions controls local repository analysis.
 type AnalyzeOptions struct {
 	Force          bool

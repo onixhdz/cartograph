@@ -6,10 +6,13 @@ import (
 	"strings"
 	"testing"
 
+	internalplugin "github.com/onixhdz/cartograph/internal/plugin"
 	pluginsdk "github.com/onixhdz/cartograph/plugin"
+
+	"github.com/onixhdz/cartograph/internal/storage"
 )
 
-const testSkillsPluginName = "mitre-capec" //nolint:misspell // MITRE is the organization name
+const testSkillsPluginName = "test-plugin"
 
 // TestInstallSkillFiles verifies that the embedded skill files are
 // correctly written to a temporary directory.
@@ -187,8 +190,8 @@ func TestSkillsInstallCmdToPath(t *testing.T) {
 			Content: "# CAPEC",
 		}},
 	}
-	if err := storeInstalledPluginMetadata(testSkillsPluginName, meta); err != nil {
-		t.Fatalf("storeInstalledPluginMetadata: %v", err)
+	if err := internalplugin.StoreInstalledPluginMetadata(storage.DefaultDataDir(), testSkillsPluginName, meta); err != nil {
+		t.Fatalf("StoreInstalledPluginMetadata: %v", err)
 	}
 
 	dir := t.TempDir()

@@ -115,6 +115,7 @@ func (mc *MemoryClient) GetBackendResources(repo string) (BackendResources, bool
 		Resolver:           func() *storage.ContentResolver { return mc.GetContentResolver(repo) },
 		RepoDir:            repoDir,
 		PluginName:         entry.Meta.PluginName,
+		Entities:           pluginEntities(mc.dataDir, entry),
 		EmbeddingsComplete: embeddingComplete(mc.dataDir, repo),
 	}, true
 }
@@ -465,16 +466,6 @@ func (mc *MemoryClient) EmbedStatus(_ EmbedStatusRequest) (*EmbedStatusResult, e
 
 func (mc *MemoryClient) AnalyzePreflight(req AnalyzePreflightRequest) (*AnalyzePreflightResult, error) {
 	return BuildAnalyzePreflight(req)
-}
-
-// PluginIngest is not supported by MemoryClient — plugin background ingestion requires the background service.
-func (mc *MemoryClient) PluginIngest(_ PluginIngestRequest) (*PluginIngestStatusResult, error) {
-	return nil, errors.New("plugin ingest not supported via in-memory client; use the background service")
-}
-
-// PluginIngestStatus is not supported by MemoryClient.
-func (mc *MemoryClient) PluginIngestStatus(_ PluginIngestStatusRequest) (*PluginIngestStatusResult, error) {
-	return nil, errors.New("plugin ingest status not supported via in-memory client; use the background service")
 }
 
 // ReleaseSearchIndex closes and removes a specific repo's Bleve search

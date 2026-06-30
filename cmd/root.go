@@ -91,7 +91,6 @@ type CLI struct {
 	Mcp        McpCmd           `cmd:"" help:"Start MCP server over stdin/stdout (for AI editor integration)." needs-client:"false"`
 	Skills     SkillsCmd        `cmd:"" help:"Install/manage cartograph skills for AI coding agents."`
 	Models     ModelsCmd        `cmd:"" help:"Manage embedding models (download, list, remove)."`
-	Plugin     PluginCmd        `cmd:"" help:"Manage plugins (install, list, remove, ingest)." needs-client:"false"`
 	Completion completionCmd    `cmd:"" help:"Set up shell tab-completion (bash, zsh, fish)." needs-client:"false"`
 	Version    kong.VersionFlag `help:"Print version and exit." short:"v"`
 

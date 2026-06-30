@@ -14,16 +14,12 @@ import (
 	"github.com/onixhdz/cartograph/plugin/plugintest"
 )
 
-// TestConcurrent_MultiplePluginBinaries launches N CAPEC plugin binaries
-// concurrently and verifies all produce correct results. This simulates
-// the scenario where multiple plugin instances run in parallel (e.g.,
-// different connections or scheduled ingestion).
-func TestConcurrent_MultiplePluginBinaries(t *testing.T) {
+// TestConcurrent_MultiplePluginInstances launches N CAPEC plugin instances
+// concurrently and verifies all produce correct results independently.
+func TestConcurrent_MultiplePluginInstances(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping concurrent binary test in short mode")
+		t.Skip("skipping concurrent plugin test in short mode")
 	}
-
-	binPath := buildCAPECPlugin(t)
 
 	fixtureData, err := os.ReadFile("testdata/mini-capec.json")
 	if err != nil {
@@ -36,7 +32,7 @@ func TestConcurrent_MultiplePluginBinaries(t *testing.T) {
 	defer srv.Close()
 
 	const numPlugins = 5
-	results := make([]*plugintest.BinaryResult, numPlugins)
+	hosts := make([]*plugintest.Host, numPlugins)
 	errs := make([]error, numPlugins)
 
 	start := time.Now()
@@ -46,32 +42,26 @@ func TestConcurrent_MultiplePluginBinaries(t *testing.T) {
 	for i := range numPlugins {
 		go func(idx int) {
 			defer wg.Done()
-			results[idx] = plugintest.RunBinary(t, binPath, plugintest.RunBinaryOptions{
-				Config: plugintest.Config{
-					"stix_url": srv.URL + "/stix-capec.json",
-				},
-			})
-			if len(results[idx].Errors()) > 0 {
-				errs[idx] = results[idx].Errors()[0]
-			}
+			host := plugintest.NewHost(plugintest.Config{"stix_url": srv.URL + "/stix-capec.json"})
+			hosts[idx] = host
+			_, errs[idx] = (&capecPlugin{}).Ingest(context.Background(), host, plugin.IngestOptions{})
 		}(i)
 	}
 	wg.Wait()
 
 	elapsed := time.Since(start)
-	t.Logf("%d concurrent plugins completed in %v (avg %v/plugin)", numPlugins, elapsed, elapsed/time.Duration(numPlugins))
+	t.Logf("%d concurrent plugin instances completed in %v (avg %v/plugin)", numPlugins, elapsed, elapsed/time.Duration(numPlugins))
 
-	// Verify each plugin produced correct results independently.
 	for i := range numPlugins {
 		if errs[i] != nil {
 			t.Errorf("plugin %d error: %v", i, errs[i])
 			continue
 		}
-		r := results[i]
-		r.AssertNodeCount(t, 6)
-		r.AssertEdgeCount(t, 7)
-		r.AssertNodeExists(t, patternNodeID(testCapecSQLInjection), labelPattern)
-		r.AssertEdgeExists(t, patternNodeID(testCapecSQLInjection), patternNodeID(testCapecCategoryMeta), edgeChildOf)
+		h := hosts[i]
+		h.AssertNodeCount(t, 6)
+		h.AssertEdgeCount(t, 7)
+		h.AssertNodeExists(t, patternNodeID(testCapecSQLInjection), labelPattern)
+		h.AssertEdgeExists(t, patternNodeID(testCapecSQLInjection), patternNodeID(testCapecCategoryMeta), edgeChildOf)
 	}
 }
 

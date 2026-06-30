@@ -9,10 +9,14 @@ import (
 	"strings"
 	"time"
 
+	internalplugin "github.com/onixhdz/cartograph/internal/plugin"
+	pluginsdk "github.com/onixhdz/cartograph/plugin"
+
 	"github.com/onixhdz/cartograph/internal/analyze"
 	"github.com/onixhdz/cartograph/internal/query"
 	"github.com/onixhdz/cartograph/internal/service"
 	"github.com/onixhdz/cartograph/internal/storage"
+	"github.com/onixhdz/cartograph/internal/sysutil"
 )
 
 // ErrDataDirInUse is returned when a background Cartograph service owns the
@@ -73,6 +77,105 @@ func (c *Client) Close() error {
 	}
 	c.client.Close()
 	return nil
+}
+
+// RegisterPlugin registers and ingests a plugin directly in this process.
+func (c *Client) RegisterPlugin(ctx context.Context, p pluginsdk.Plugin, opts RegisterPluginOptions) (*PluginDatasetStatus, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("cartograph register plugin: %w", err)
+	}
+	if p == nil {
+		return nil, errors.New("cartograph register plugin: nil plugin")
+	}
+	info := p.Info()
+	if info.Name == "" || !sysutil.IsPathSegment(info.Name) {
+		return nil, fmt.Errorf("cartograph register plugin %q: invalid plugin name", info.Name)
+	}
+	connectionName := opts.ConnectionName
+	if connectionName == "" {
+		connectionName = info.Name
+	}
+	if !sysutil.IsPathSegment(connectionName) {
+		return nil, fmt.Errorf("cartograph register plugin %q: invalid connection name %q", info.Name, connectionName)
+	}
+
+	timeout := opts.Timeout
+	if timeout <= 0 {
+		timeout = internalplugin.DefaultTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	resources, err := p.Resources(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("cartograph register plugin %q: resources: %w", info.Name, err)
+	}
+	if resources == nil {
+		resources = []pluginsdk.PluginResource{}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("cartograph register plugin: %w", err)
+	}
+	res, err := internalplugin.RunInProcess(ctx, p, internalplugin.DirectRunOptions{
+		Config:        opts.Config,
+		ResourceTypes: opts.ResourceTypes,
+		Concurrency:   opts.Concurrency,
+		Limits: internalplugin.Limits{
+			Timeout:  timeout,
+			MaxNodes: opts.MaxNodes,
+			MaxEdges: opts.MaxEdges,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("cartograph register plugin %q: %w", info.Name, err)
+	}
+	meta := &pluginsdk.InstallMetadata{
+		Name:        info.Name,
+		Version:     info.Version,
+		Description: info.Description,
+		Entities:    info.Entities,
+		Resources:   resources,
+	}
+	if err := internalplugin.StoreInstalledPluginMetadata(c.dataDir, info.Name, meta); err != nil {
+		return nil, fmt.Errorf("cartograph register plugin %q: store metadata: %w", info.Name, err)
+	}
+	pluginDataDir, err := internalplugin.PluginDataDirPath(c.dataDir, info.Name)
+	if err != nil {
+		return nil, fmt.Errorf("cartograph register plugin %q: plugin data dir: %w", info.Name, err)
+	}
+	if err := internalplugin.PersistPluginDataset(internalplugin.PluginDataset{
+		PluginName:     info.Name,
+		PluginVersion:  info.Version,
+		ConnectionName: connectionName,
+		DataDir:        c.dataDir,
+		PluginDataDir:  pluginDataDir,
+		Entities:       info.Entities,
+		Graph:          res.Graph,
+		NodeCount:      res.Nodes,
+		EdgeCount:      res.Edges,
+		StartedAt:      res.StartedAt,
+		IndexedAt:      time.Now(),
+	}); err != nil {
+		return nil, fmt.Errorf("cartograph register plugin %q: persist dataset: %w", info.Name, err)
+	}
+	repoHash := internalplugin.PluginDatasetHash(info.Name, connectionName)
+	if err := c.client.Reload(service.ReloadRequest{Repo: repoHash}); err != nil {
+		return nil, fmt.Errorf("cartograph register plugin reload %q: %w", connectionName, err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("cartograph register plugin: %w", err)
+	}
+	return &PluginDatasetStatus{
+		PluginName:     info.Name,
+		PluginVersion:  info.Version,
+		ConnectionName: connectionName,
+		Repo:           connectionName,
+		RepoHash:       repoHash,
+		NodeCount:      res.Nodes,
+		EdgeCount:      res.Edges,
+		ResourceCount:  len(resources),
+		Duration:       res.Duration,
+	}, nil
 }
 
 // Analyze analyzes and indexes one local repository.

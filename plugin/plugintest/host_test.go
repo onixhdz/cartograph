@@ -44,19 +44,16 @@ func TestHost_Cache(t *testing.T) {
 		}
 	})
 
-	t.Run("set and get", func(t *testing.T) {
+	t.Run("set is no-op", func(t *testing.T) {
 		if err := h.CacheSet(ctx, "k", "v", 0); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		val, found, err := h.CacheGet(ctx, "k")
+		_, found, err := h.CacheGet(ctx, "k")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !found {
-			t.Fatal("expected found")
-		}
-		if val != "v" {
-			t.Errorf("got %q, want %q", val, "v")
+		if found {
+			t.Fatal("expected cache miss after no-op set")
 		}
 	})
 }

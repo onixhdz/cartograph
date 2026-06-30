@@ -257,21 +257,3 @@ func (c *Client) AnalyzePreflight(req AnalyzePreflightRequest) (*AnalyzePrefligh
 	}
 	return &res, nil
 }
-
-// PluginIngest sends a POST /api/plugin/ingest request to trigger background plugin ingestion.
-func (c *Client) PluginIngest(req PluginIngestRequest) (*PluginIngestStatusResult, error) {
-	var res PluginIngestStatusResult
-	if err := c.do(http.MethodPost, RoutePluginIngest, req, &res); err != nil {
-		return nil, err
-	}
-	return &res, nil
-}
-
-// PluginIngestStatus polls plugin ingestion status for a plugin.
-func (c *Client) PluginIngestStatus(req PluginIngestStatusRequest) (*PluginIngestStatusResult, error) {
-	var res PluginIngestStatusResult
-	if err := c.do(http.MethodPost, RoutePluginIngestStatus, req, &res); err != nil {
-		return nil, err
-	}
-	return &res, nil
-}

@@ -188,14 +188,6 @@ func (m *mockClient) AnalyzePreflight(req service.AnalyzePreflightRequest) (*ser
 	return &res, nil
 }
 
-func (m *mockClient) PluginIngest(_ service.PluginIngestRequest) (*service.PluginIngestStatusResult, error) {
-	return &service.PluginIngestStatusResult{Status: "pending"}, nil
-}
-
-func (m *mockClient) PluginIngestStatus(_ service.PluginIngestStatusRequest) (*service.PluginIngestStatusResult, error) {
-	return &service.PluginIngestStatusResult{Status: ""}, nil
-}
-
 func (m *mockClient) Schema(req service.SchemaRequest) (*service.SchemaResult, error) {
 	if req.Repo == "plugin-dataset" {
 		return &service.SchemaResult{

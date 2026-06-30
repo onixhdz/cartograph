@@ -15,7 +15,7 @@ import (
 
 const (
 	mcpTestRepo       = "myrepo"
-	mcpTestPluginRepo = "mitre-cwe" //nolint:misspell // MITRE is the organization name.
+	mcpTestPluginRepo = "plugin-dataset"
 )
 
 // mockClient implements the Client interface with canned responses

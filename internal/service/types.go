@@ -97,31 +97,25 @@ const (
 	RouteEmbedStatus = APIPrefix + "/embed/status"
 	// RouteAnalyzePreflight is the endpoint for analyze repo candidate selection preflight.
 	RouteAnalyzePreflight = APIPrefix + "/analyze/preflight"
-	// RoutePluginIngest is the endpoint to trigger background plugin ingestion.
-	RoutePluginIngest = APIPrefix + "/plugin/ingest"
-	// RoutePluginIngestStatus is the endpoint to check plugin ingestion progress.
-	RoutePluginIngestStatus = APIPrefix + "/plugin/ingest/status"
 )
 
 const (
-	MethodQuery              = "query"
-	MethodSearch             = "search"
-	MethodContext            = "context"
-	MethodCypher             = "cypher"
-	MethodImpact             = "impact"
-	MethodCat                = "cat"
-	MethodTree               = "tree"
-	MethodReload             = "reload"
-	MethodHealth             = "health"
-	MethodList               = "list"
-	MethodStatus             = "status"
-	MethodShutdown           = "shutdown"
-	MethodSchema             = "schema"
-	MethodEmbed              = "embed"
-	MethodEmbedStatus        = "embed_status"
-	MethodAnalyzePreflight   = "analyze_preflight"
-	MethodPluginIngest       = "plugin_ingest"
-	MethodPluginIngestStatus = "plugin_ingest_status"
+	MethodQuery            = "query"
+	MethodSearch           = "search"
+	MethodContext          = "context"
+	MethodCypher           = "cypher"
+	MethodImpact           = "impact"
+	MethodCat              = "cat"
+	MethodTree             = "tree"
+	MethodReload           = "reload"
+	MethodHealth           = "health"
+	MethodList             = "list"
+	MethodStatus           = "status"
+	MethodShutdown         = "shutdown"
+	MethodSchema           = "schema"
+	MethodEmbed            = "embed"
+	MethodEmbedStatus      = "embed_status"
+	MethodAnalyzePreflight = "analyze_preflight"
 )
 
 type AnalyzeRepoSelectionMode string
@@ -187,29 +181,27 @@ func AnalyzePreflightCommands(target string) []string {
 var AllMethods = []string{
 	MethodQuery, MethodSearch, MethodContext, MethodCypher, MethodImpact,
 	MethodCat, MethodTree, MethodReload, MethodHealth, MethodList, MethodStatus, MethodShutdown,
-	MethodSchema, MethodEmbed, MethodEmbedStatus, MethodAnalyzePreflight, MethodPluginIngest, MethodPluginIngestStatus,
+	MethodSchema, MethodEmbed, MethodEmbedStatus, MethodAnalyzePreflight,
 }
 
 // MethodToRoute maps method names to their HTTP route.
 var MethodToRoute = map[string]string{
-	MethodQuery:              RouteQuery,
-	MethodSearch:             RouteSearch,
-	MethodContext:            RouteContext,
-	MethodCypher:             RouteCypher,
-	MethodImpact:             RouteImpact,
-	MethodCat:                RouteCat,
-	MethodTree:               RouteTree,
-	MethodReload:             RouteReload,
-	MethodHealth:             RouteHealth,
-	MethodList:               RouteList,
-	MethodStatus:             RouteStatus,
-	MethodShutdown:           RouteShutdown,
-	MethodSchema:             RouteSchema,
-	MethodEmbed:              RouteEmbed,
-	MethodEmbedStatus:        RouteEmbedStatus,
-	MethodAnalyzePreflight:   RouteAnalyzePreflight,
-	MethodPluginIngest:       RoutePluginIngest,
-	MethodPluginIngestStatus: RoutePluginIngestStatus,
+	MethodQuery:            RouteQuery,
+	MethodSearch:           RouteSearch,
+	MethodContext:          RouteContext,
+	MethodCypher:           RouteCypher,
+	MethodImpact:           RouteImpact,
+	MethodCat:              RouteCat,
+	MethodTree:             RouteTree,
+	MethodReload:           RouteReload,
+	MethodHealth:           RouteHealth,
+	MethodList:             RouteList,
+	MethodStatus:           RouteStatus,
+	MethodShutdown:         RouteShutdown,
+	MethodSchema:           RouteSchema,
+	MethodEmbed:            RouteEmbed,
+	MethodEmbedStatus:      RouteEmbedStatus,
+	MethodAnalyzePreflight: RouteAnalyzePreflight,
 }
 
 // Response wraps all API responses with a uniform envelope.
@@ -628,27 +620,4 @@ type EmbedStatusResult struct {
 	Duration        string `json:"duration,omitempty"`         // human-readable (set on completion)
 	DownloadFile    string `json:"download_file,omitempty"`    // filename being downloaded
 	DownloadPercent int    `json:"download_percent,omitempty"` // 0-100
-}
-
-// PluginIngestRequest is the JSON body for POST /api/plugin/ingest.
-type PluginIngestRequest struct {
-	PluginName     string   `json:"pluginName"`
-	ConnectionName string   `json:"connectionName,omitempty"`
-	ResourceTypes  []string `json:"resourceTypes,omitempty"`
-	Concurrency    int      `json:"concurrency,omitempty"`
-}
-
-// PluginIngestStatusRequest is the JSON body for POST /api/plugin/ingest/status.
-type PluginIngestStatusRequest struct {
-	PluginName string `json:"pluginName"`
-}
-
-// PluginIngestStatusResult is the result payload for a plugin ingest status response.
-type PluginIngestStatusResult struct {
-	PluginName string `json:"pluginName"`
-	Status     string `json:"status"`
-	Nodes      int    `json:"nodes,omitempty"`
-	Edges      int    `json:"edges,omitempty"`
-	Error      string `json:"error,omitempty"`
-	Duration   string `json:"duration,omitempty"`
 }

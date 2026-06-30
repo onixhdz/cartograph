@@ -31,8 +31,6 @@ type ServiceClient interface {
 	Embed(service.EmbedRequest) (*service.EmbedStatusResult, error)
 	EmbedStatus(service.EmbedStatusRequest) (*service.EmbedStatusResult, error)
 	AnalyzePreflight(service.AnalyzePreflightRequest) (*service.AnalyzePreflightResult, error)
-	PluginIngest(service.PluginIngestRequest) (*service.PluginIngestStatusResult, error)
-	PluginIngestStatus(service.PluginIngestStatusRequest) (*service.PluginIngestStatusResult, error)
 }
 
 // detectRepo returns the repo name from git, falling back to the cwd basename.
