@@ -115,6 +115,7 @@ func (mc *MemoryClient) GetBackendResources(repo string) (BackendResources, bool
 		Resolver:           func() *storage.ContentResolver { return mc.GetContentResolver(repo) },
 		RepoDir:            repoDir,
 		PluginName:         entry.Meta.PluginName,
+		Entities:           pluginEntities(mc.dataDir, entry),
 		EmbeddingsComplete: embeddingComplete(mc.dataDir, repo),
 	}, true
 }
@@ -467,16 +468,6 @@ func (mc *MemoryClient) AnalyzePreflight(req AnalyzePreflightRequest) (*AnalyzeP
 	return BuildAnalyzePreflight(req)
 }
 
-// PluginIngest is not supported by MemoryClient — plugin background ingestion requires the background service.
-func (mc *MemoryClient) PluginIngest(_ PluginIngestRequest) (*PluginIngestStatusResult, error) {
-	return nil, errors.New("plugin ingest not supported via in-memory client; use the background service")
-}
-
-// PluginIngestStatus is not supported by MemoryClient.
-func (mc *MemoryClient) PluginIngestStatus(_ PluginIngestStatusRequest) (*PluginIngestStatusResult, error) {
-	return nil, errors.New("plugin ingest status not supported via in-memory client; use the background service")
-}
-
 // ReleaseSearchIndex closes and removes a specific repo's Bleve search
 // index, releasing the bbolt file lock so another process (e.g. the
 // background service) can open the same index. The graph remains loaded.
@@ -600,7 +591,7 @@ func (mc *MemoryClient) loadFromDisk(repo string) error {
 	repoDir := filepath.Join(mc.dataDir, entry.Name, entry.Hash)
 	dbPath := filepath.Join(repoDir, "graph.db")
 
-	store, err := bbolt.New(dbPath)
+	store, err := bbolt.NewReadOnly(dbPath)
 	if err != nil {
 		return fmt.Errorf("memory client: open store for %q: %w", repo, err)
 	}
@@ -681,7 +672,7 @@ func (mc *MemoryClient) getContentResolver(repo string) *storage.ContentResolver
 	}
 	if entry.Meta.HasContentBucket {
 		dbPath := filepath.Join(repoDir, "graph.db")
-		cs, err := bbolt.NewContentStore(dbPath)
+		cs, err := bbolt.NewReadOnlyContentStore(dbPath)
 		if err != nil {
 			return nil
 		}

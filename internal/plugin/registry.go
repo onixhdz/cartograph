@@ -63,14 +63,6 @@ func SaveInstalledRegistry(path string, reg *InstalledRegistry) error {
 	return nil
 }
 
-func InstalledPluginVersion(reg *InstalledRegistry, pluginName string) string {
-	plugin := FindInstalledPlugin(reg, pluginName)
-	if plugin == nil {
-		return ""
-	}
-	return plugin.Version
-}
-
 func InstalledPluginEntities(reg *InstalledRegistry, pluginName string) []plugin.Entity {
 	plugin := FindInstalledPlugin(reg, pluginName)
 	if plugin == nil {
@@ -89,4 +81,80 @@ func FindInstalledPlugin(reg *InstalledRegistry, pluginName string) *InstalledPl
 		}
 	}
 	return nil
+}
+
+// InstalledRegistryPath returns the installed-plugin registry path under dataDir.
+func InstalledRegistryPath(dataDir string) string {
+	return filepath.Join(dataDir, "plugins", "plugins.json")
+}
+
+// PluginDataDirPath returns the installed plugin data directory under dataDir.
+func PluginDataDirPath(dataDir, name string) (string, error) {
+	return JoinName(filepath.Join(dataDir, "plugins", "data"), name)
+}
+
+// StoreInstalledPluginMetadata stores plugin metadata and resources in the
+// existing installed-plugin registry/resource layout.
+func StoreInstalledPluginMetadata(dataDir, pluginName string, meta *plugin.InstallMetadata) error {
+	pluginDir, err := PluginDataDirPath(dataDir, pluginName)
+	if err != nil {
+		return fmt.Errorf("invalid plugin name %q: %w", pluginName, err)
+	}
+	resourcesDir := filepath.Join(pluginDir, "resources")
+	if err := os.MkdirAll(resourcesDir, 0o750); err != nil {
+		return fmt.Errorf("mkdir %s: %w", resourcesDir, err)
+	}
+
+	entry := InstalledPlugin{Name: pluginName}
+	if meta != nil {
+		entry.Description = meta.Description
+		entry.Version = meta.Version
+		entry.Entities = meta.Entities
+		for _, r := range meta.Resources {
+			fileName := sanitizePluginResourceName(r.Name) + ".md"
+			path, err := JoinName(resourcesDir, fileName)
+			if err != nil {
+				return fmt.Errorf("invalid resource name %q: %w", r.Name, err)
+			}
+			if err := os.WriteFile(path, []byte(r.Content), 0o600); err != nil {
+				return fmt.Errorf("write resource %s: %w", path, err)
+			}
+			entry.Resources = append(entry.Resources, InstalledPluginResource{Name: r.Name, Path: path})
+		}
+	}
+
+	reg, err := LoadInstalledRegistry(InstalledRegistryPath(dataDir))
+	if err != nil {
+		return fmt.Errorf("load installed plugin registry: %w", err)
+	}
+	replaced := false
+	for i := range reg.Plugins {
+		if reg.Plugins[i].Name == pluginName {
+			reg.Plugins[i] = entry
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		reg.Plugins = append(reg.Plugins, entry)
+	}
+	if err := SaveInstalledRegistry(InstalledRegistryPath(dataDir), reg); err != nil {
+		return fmt.Errorf("save installed plugin registry: %w", err)
+	}
+	return nil
+}
+
+func sanitizePluginResourceName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	name = strings.ReplaceAll(name, " ", "-")
+	var b strings.Builder
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			b.WriteRune(r)
+		}
+	}
+	if b.Len() == 0 {
+		return "resource"
+	}
+	return b.String()
 }

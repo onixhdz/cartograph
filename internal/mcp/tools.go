@@ -12,9 +12,10 @@ import (
 
 // QueryInput is the input schema for the cartograph_query tool.
 type QueryInput struct {
-	Repo  string `json:"repo,omitempty" jsonschema:"Repository name. Auto-detected from the working directory if omitted."`
-	Query string `json:"query" jsonschema:"Search text to find execution flows, functions, or code patterns."`
-	Limit int    `json:"limit,omitempty" jsonschema:"Maximum number of results to return (default 10)."`
+	Repo   string `json:"repo,omitempty" jsonschema:"Repository name. Auto-detected from the working directory if omitted."`
+	Plugin bool   `json:"plugin,omitempty" jsonschema:"Query an installed plugin dataset instead of a repository graph. Use with repo set to the plugin dataset name, for example a CAPEC or CWE plugin repo."`
+	Query  string `json:"query" jsonschema:"Search text to find execution flows, functions, code patterns, or plugin security taxonomy entries."`
+	Limit  int    `json:"limit,omitempty" jsonschema:"Maximum number of results to return (default 10)."`
 }
 
 type SearchInput struct {
@@ -57,6 +58,11 @@ type CatInput struct {
 	Repo  string   `json:"repo,omitempty" jsonschema:"Repository name. Auto-detected from the working directory if omitted."`
 	Files []string `json:"files" jsonschema:"File paths to retrieve source code for."`
 	Lines string   `json:"lines,omitempty" jsonschema:"Line range to extract (e.g. 40-60). Returns full file if omitted."`
+}
+
+// TreeInput is the input schema for the cartograph_tree tool.
+type TreeInput struct {
+	Repo string `json:"repo,omitempty" jsonschema:"Repository name. Auto-detected from the working directory if omitted."`
 }
 
 // SchemaInput is the input schema for the cartograph_schema tool.
@@ -109,6 +115,11 @@ func (s *Server) registerTools() {
 	}, s.handleCat)
 
 	sdkmcp.AddTool(s.server, &sdkmcp.Tool{
+		Name:        "cartograph_tree",
+		Description: "Return the indexed repository file inventory from Cartograph's graph as sorted repo-relative paths. Use this to discover files known to the index; it is not a raw filesystem walk.",
+	}, s.handleTree)
+
+	sdkmcp.AddTool(s.server, &sdkmcp.Tool{
 		Name:        "cartograph_schema",
 		Description: "Show the knowledge graph schema: node labels, relationship types, properties, and counts. Use this to understand the graph structure before writing Cypher queries.",
 	}, s.handleSchema)
@@ -141,9 +152,10 @@ func (s *Server) handleQuery(ctx context.Context, _ *sdkmcp.CallToolRequest, inp
 		limit = 10
 	}
 	result, err := s.client.Query(service.QueryRequest{
-		Repo:  repo,
-		Text:  input.Query,
-		Limit: limit,
+		Repo:   repo,
+		Plugin: input.Plugin,
+		Text:   input.Query,
+		Limit:  limit,
 	})
 	if err != nil {
 		return toolError("query failed: %v", err)
@@ -252,6 +264,18 @@ func (s *Server) handleCat(ctx context.Context, _ *sdkmcp.CallToolRequest, input
 	})
 	if err != nil {
 		return toolError("cat failed: %v", err)
+	}
+	return jsonResult(result)
+}
+
+func (s *Server) handleTree(ctx context.Context, _ *sdkmcp.CallToolRequest, input TreeInput) (*sdkmcp.CallToolResult, any, error) {
+	repo, err := resolveRepo(ctx, input.Repo)
+	if err != nil {
+		return toolError("%v", err)
+	}
+	result, err := s.client.Tree(service.TreeRequest{Repo: repo})
+	if err != nil {
+		return toolError("tree failed: %v", err)
 	}
 	return jsonResult(result)
 }

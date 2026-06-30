@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -12,7 +13,10 @@ import (
 	"github.com/onixhdz/cartograph/internal/service"
 )
 
-const mcpTestRepo = "myrepo"
+const (
+	mcpTestRepo       = "myrepo"
+	mcpTestPluginRepo = "plugin-dataset"
+)
 
 // mockClient implements the Client interface with canned responses
 // for testing the MCP tool handlers without needing a real graph.
@@ -23,6 +27,7 @@ type mockClient struct {
 	impactResult  *service.ImpactResult
 	cypherResult  *service.CypherResult
 	catResult     *service.CatResult
+	treeResult    *service.TreeResult
 	schemaResult  *service.SchemaResult
 	healthResult  *service.HealthResult
 	statusResult  *service.StatusResult
@@ -36,6 +41,7 @@ type mockClient struct {
 	lastImpactReq  service.ImpactRequest
 	lastCypherReq  service.CypherRequest
 	lastCatReq     service.CatRequest
+	lastTreeReq    service.TreeRequest
 	lastSchemaReq  service.SchemaRequest
 	lastStatusReq  service.StatusRequest
 }
@@ -68,6 +74,11 @@ func (m *mockClient) Impact(req service.ImpactRequest) (*service.ImpactResult, e
 func (m *mockClient) Cat(req service.CatRequest) (*service.CatResult, error) {
 	m.lastCatReq = req
 	return m.catResult, m.err
+}
+
+func (m *mockClient) Tree(req service.TreeRequest) (*service.TreeResult, error) {
+	m.lastTreeReq = req
+	return m.treeResult, m.err
 }
 
 func (m *mockClient) Schema(req service.SchemaRequest) (*service.SchemaResult, error) {
@@ -135,6 +146,7 @@ func TestToolsList(t *testing.T) {
 		"cartograph_impact":  false,
 		"cartograph_cypher":  false,
 		"cartograph_cat":     false,
+		"cartograph_tree":    false,
 		"cartograph_schema":  false,
 		"cartograph_status":  false,
 		"cartograph_health":  false,
@@ -191,6 +203,9 @@ func TestQueryTool(t *testing.T) {
 	if mock.lastQueryReq.Limit != 5 {
 		t.Errorf("limit = %d, want %d", mock.lastQueryReq.Limit, 5)
 	}
+	if mock.lastQueryReq.Plugin {
+		t.Error("plugin = true, want false")
+	}
 
 	text := extractText(t, res)
 	var result service.QueryResult
@@ -199,6 +214,63 @@ func TestQueryTool(t *testing.T) {
 	}
 	if len(result.Processes) != 1 || result.Processes[0].Name != "handleRequest" {
 		t.Errorf("unexpected processes: %+v", result.Processes)
+	}
+}
+
+func TestQueryToolPluginTarget(t *testing.T) {
+	mock := &mockClient{
+		queryResult: &service.QueryResult{
+			PluginResults: []service.PluginQueryMatch{{
+				EntityLabel: "CWEWeakness",
+				NodeID:      "cwe:weakness:CWE-918",
+				Score:       1,
+				Fields: []service.PluginDisplayField{{
+					Label: "CWE",
+					Value: "CWE-918",
+				}},
+			}},
+		},
+	}
+	session := connectTestServer(t, mock)
+	defer session.Close()
+
+	ctx := context.Background()
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "cartograph_query",
+		Arguments: map[string]any{
+			"repo":   mcpTestPluginRepo,
+			"plugin": true,
+			"query":  "SSRF",
+			"limit":  float64(5),
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("tool returned error: %v", res.Content)
+	}
+
+	if mock.lastQueryReq.Repo != mcpTestPluginRepo {
+		t.Errorf("repo = %q, want %q", mock.lastQueryReq.Repo, mcpTestPluginRepo)
+	}
+	if !mock.lastQueryReq.Plugin {
+		t.Error("plugin = false, want true")
+	}
+	if mock.lastQueryReq.Text != "SSRF" {
+		t.Errorf("text = %q, want %q", mock.lastQueryReq.Text, "SSRF")
+	}
+	if mock.lastQueryReq.Limit != 5 {
+		t.Errorf("limit = %d, want %d", mock.lastQueryReq.Limit, 5)
+	}
+
+	text := extractText(t, res)
+	var result service.QueryResult
+	if err := json.Unmarshal([]byte(text), &result); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if len(result.PluginResults) != 1 || result.PluginResults[0].NodeID != "cwe:weakness:CWE-918" {
+		t.Errorf("unexpected plugin results: %+v", result.PluginResults)
 	}
 }
 
@@ -394,6 +466,36 @@ func TestCatToolNoFiles(t *testing.T) {
 	}
 	if !res.IsError {
 		t.Error("expected IsError=true for empty files")
+	}
+}
+
+func TestTreeTool(t *testing.T) {
+	mock := &mockClient{
+		treeResult: &service.TreeResult{Repo: mcpTestRepo, Files: []string{"internal/a_test.go", "main.go"}},
+	}
+	session := connectTestServer(t, mock)
+	defer session.Close()
+
+	res, err := session.CallTool(context.Background(), &sdkmcp.CallToolParams{
+		Name:      "cartograph_tree",
+		Arguments: map[string]any{"repo": mcpTestRepo},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("tool returned error: %v", res.Content)
+	}
+	if mock.lastTreeReq.Repo != mcpTestRepo {
+		t.Errorf("repo = %q, want %q", mock.lastTreeReq.Repo, mcpTestRepo)
+	}
+
+	var result service.TreeResult
+	if err := json.Unmarshal([]byte(extractText(t, res)), &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if result.Repo != mcpTestRepo || strings.Join(result.Files, ",") != "internal/a_test.go,main.go" {
+		t.Errorf("unexpected tree: %+v", result)
 	}
 }
 
@@ -625,8 +727,8 @@ func TestStreamableHTTPTransport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
 	}
-	if len(tools.Tools) != 10 {
-		t.Errorf("tool count = %d, want 10", len(tools.Tools))
+	if len(tools.Tools) != 11 {
+		t.Errorf("tool count = %d, want 11", len(tools.Tools))
 	}
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{

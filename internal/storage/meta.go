@@ -60,6 +60,9 @@ type Meta struct {
 	// PluginVersion is the installed plugin version that produced this dataset.
 	PluginVersion string `json:"pluginVersion,omitempty"`
 
+	// PluginEntities is the query/display metadata snapshot for this dataset.
+	PluginEntities []PluginEntity `json:"pluginEntities,omitempty"`
+
 	// Embedding state (updated atomically by the embed job).
 
 	// EmbeddingStatus: "" (never run), "running", "complete", "failed".
@@ -85,6 +88,25 @@ type Meta struct {
 
 	// EmbeddingDuration is how long the last embedding run took (human-readable).
 	EmbeddingDuration string `json:"embeddingDuration,omitempty"`
+}
+
+// PluginEntity declares a plugin-backed entity type for query/display metadata.
+type PluginEntity struct {
+	Name  string             `json:"name"`
+	Label string             `json:"label"`
+	Query *PluginEntityQuery `json:"query,omitempty"`
+}
+
+// PluginEntityQuery configures plugin entity search and display behavior.
+type PluginEntityQuery struct {
+	SearchProps []string             `json:"searchProps,omitempty"`
+	Display     []PluginDisplayField `json:"display,omitempty"`
+}
+
+// PluginDisplayField projects a node property into plugin query output.
+type PluginDisplayField struct {
+	Prop  string `json:"prop"`
+	Label string `json:"label"`
 }
 
 // Embedding status values stored in Meta.EmbeddingStatus.

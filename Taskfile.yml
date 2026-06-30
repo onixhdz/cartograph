@@ -53,13 +53,11 @@ tasks:
     cmds:
       - task: clean:zig
       - rm -rf '{{joinPath .ROOT_DIR ".task"}}'
-      - rm -rf '{{joinPath .ROOT_DIR "plugins/bin"}}'
       - rm -f '{{joinPath .ROOT_DIR "cartograph"}}' '{{joinPath .ROOT_DIR "cartograph-darwin-amd64"}}' '{{joinPath .ROOT_DIR "cartograph-darwin-arm64"}}' '{{joinPath .ROOT_DIR "cartograph-linux-amd64"}}' '{{joinPath .ROOT_DIR "cartograph-linux-arm64"}}' '{{joinPath .ROOT_DIR "cartograph-windows-amd64.exe"}}'
 
   clean:artifacts:
     desc: Remove generated build artifacts but keep caches
     cmds:
-      - rm -rf '{{joinPath .ROOT_DIR "plugins/bin"}}'
       - rm -f '{{joinPath .ROOT_DIR "cartograph"}}' '{{joinPath .ROOT_DIR "cartograph-darwin-amd64"}}' '{{joinPath .ROOT_DIR "cartograph-darwin-arm64"}}' '{{joinPath .ROOT_DIR "cartograph-linux-amd64"}}' '{{joinPath .ROOT_DIR "cartograph-linux-arm64"}}' '{{joinPath .ROOT_DIR "cartograph-windows-amd64.exe"}}'
 
   clean:zig:
@@ -141,19 +139,6 @@ tasks:
       - task: build:target:mac
       - task: build:target:windows
 
-  build:plugins:
-    desc: Build all plugin binaries
-    cmds:
-      - mkdir -p '{{joinPath .ROOT_DIR "plugins/bin"}}'
-      - >
-        for main in plugins/*/main.go; do
-          [ -f "$main" ] || continue
-          dir=$(dirname "$main")
-          name=$(basename "$dir")
-          echo "Building plugin: $name"
-          go build -trimpath -o "{{joinPath .ROOT_DIR "plugins/bin"}}/$name" "./$dir"
-        done
-
   build:target:linux:
     desc: Build cartograph for all Linux targets
     cmds:
@@ -221,7 +206,7 @@ tasks:
         CXX='{{.HOST_CXX}}'
         go build -trimpath -tags embedding_cgo
         -ldflags "{{.GO_LDFLAGS}} {{.EXTRA_LDFLAGS}}"
-        -o {{.BIN_NAME}}
+        -o {{.BIN_NAME}} ./cmd/cartograph
       - echo "✓ {{.BIN_NAME}} ($(du -h {{.BIN_NAME}} | cut -f1))"
 
   # ── Dev symlink ─────────────────────────────────────────────────────
@@ -261,7 +246,7 @@ tasks:
         CXX='zig c++ -target x86_64-linux-musl'
         go build -trimpath -tags embedding_cgo
         -ldflags "{{.GO_LDFLAGS}} -linkmode external -extldflags '-static'"
-        -o cartograph-linux-amd64
+        -o cartograph-linux-amd64 ./cmd/cartograph
 
   build:target:linux:arm64:
     desc: Build cartograph for Linux (aarch64) — native CGO, static (musl)
@@ -287,7 +272,7 @@ tasks:
         CXX='zig c++ -target aarch64-linux-musl'
         go build -trimpath -tags embedding_cgo
         -ldflags "{{.GO_LDFLAGS}} -linkmode external -extldflags '-static'"
-        -o cartograph-linux-arm64
+        -o cartograph-linux-arm64 ./cmd/cartograph
 
   build:target:mac:
     desc: Build cartograph for all macOS targets
@@ -319,7 +304,7 @@ tasks:
         CXX='zig c++ -target aarch64-macos'
         go build -trimpath -tags embedding_cgo
         -ldflags "{{.GO_LDFLAGS}} -extldflags '-undefined dynamic_lookup'"
-        -o cartograph-darwin-arm64
+        -o cartograph-darwin-arm64 ./cmd/cartograph
       - |
         if command -v codesign >/dev/null 2>&1; then
           codesign --force --sign - cartograph-darwin-arm64
@@ -352,7 +337,7 @@ tasks:
         CXX='zig c++ -target x86_64-macos'
         go build -trimpath -tags embedding_cgo
         -ldflags "{{.GO_LDFLAGS}} -extldflags '-undefined dynamic_lookup'"
-        -o cartograph-darwin-amd64
+        -o cartograph-darwin-amd64 ./cmd/cartograph
       - |
         if command -v codesign >/dev/null 2>&1; then
           codesign --force --sign - cartograph-darwin-amd64
@@ -385,4 +370,4 @@ tasks:
         CXX='zig c++ -target x86_64-windows-gnu'
         go build -trimpath -tags embedding_cgo
         -ldflags "{{.GO_LDFLAGS}}"
-        -o cartograph-windows-amd64.exe
+        -o cartograph-windows-amd64.exe ./cmd/cartograph

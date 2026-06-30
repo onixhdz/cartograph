@@ -63,6 +63,22 @@ func New(path string) (*Store, error) {
 	return &Store{db: db, path: path}, nil
 }
 
+// NewReadOnly opens an existing bbolt database for read-only graph access.
+// Multiple processes may hold read-only handles concurrently.
+func NewReadOnly(path string) (*Store, error) {
+	db, err := bolt.Open(path, 0o600, &bolt.Options{
+		ReadOnly: true,
+		Timeout:  openLockTimeout,
+	})
+	if err != nil {
+		if errors.Is(err, bolterrors.ErrTimeout) {
+			return nil, fmt.Errorf("bbolt: open read-only %s: database busy (locked by another process): %w", path, err)
+		}
+		return nil, fmt.Errorf("bbolt: open read-only %s: %w", path, err)
+	}
+	return &Store{db: db, path: path}, nil
+}
+
 // SaveGraph persists the entire in-memory graph into bbolt using msgpack.
 // Nodes and edges are each stored as a single blob to minimize B+‑tree overhead.
 func (s *Store) SaveGraph(g *lpg.Graph) error {

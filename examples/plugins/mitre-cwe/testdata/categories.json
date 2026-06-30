@@ -1,0 +1,33 @@
+{
+  "Categories": [
+    {
+      "ID": "1011",
+      "Name": "Authorize Actors",
+      "Status": "Draft",
+      "Summary": "Weaknesses in this category are related to authorization components.",
+      "Relationships": [
+        {"CweID": "918", "ViewID": "1008"},
+        {"CweID": "441", "ViewID": "1008"},
+        {"CweID": "1012", "ViewID": "1008"}
+      ],
+      "MappingNotes": {"Usage": "Prohibited"}
+    },
+    {
+      "ID": "1012",
+      "Name": "Cross Cutting",
+      "Status": "Draft",
+      "Summary": "Weaknesses in this category are related to multiple security tactics.",
+      "Relationships": [
+        {"CweID": "200", "ViewID": "1008"}
+      ],
+      "MappingNotes": {"Usage": "Prohibited"}
+    },
+    {
+      "ID": "1",
+      "Name": "DEPRECATED: Location",
+      "Status": "Deprecated",
+      "Summary": "Deprecated category.",
+      "MappingNotes": {"Usage": "Prohibited"}
+    }
+  ]
+}

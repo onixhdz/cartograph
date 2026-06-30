@@ -6,7 +6,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"os"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
@@ -72,11 +71,6 @@ type Server struct {
 	embedMu   sync.Mutex
 	embedSem  chan struct{} // concurrency limiter for embed jobs (capacity = max concurrent)
 
-	// Plugin ingest job tracking
-	pluginIngestJobs map[string]*pluginIngestJob
-	pluginIngestMu   sync.Mutex
-	pluginIngestSem  chan struct{}
-
 	// queryProvider is a lazily initialized embedding provider for
 	// embedding query text at search time (hybrid search).
 	queryProvider     embedding.Provider
@@ -103,17 +97,6 @@ type embedJob struct {
 	DownloadPercent int    // 0-100
 }
 
-type pluginIngestJob struct {
-	PluginName string
-	Status     string
-	Nodes      int
-	Edges      int
-	Error      string
-	Duration   string
-	StartedAt  time.Time
-	Cancel     context.CancelFunc
-}
-
 // NewServer creates a Server. It tries to listen on the unix socket at
 // socketPath first; if that fails (e.g. unsupported OS / permissions) it
 // falls back to TCP on localhost with an ephemeral port.
@@ -137,21 +120,19 @@ func NewServer(socketPath string, lockfile *Lockfile, dataDir string) (*Server, 
 	}
 
 	s := &Server{
-		graph:            make(map[string]*lpg.Graph),
-		searchIdx:        make(map[string]*search.Index),
-		resolvers:        make(map[string]*storage.ContentResolver),
-		repoDirs:         make(map[string]string),
-		embedJobs:        make(map[string]*embedJob),
-		embedSem:         make(chan struct{}, 1), // serialize embed jobs by default
-		pluginIngestJobs: make(map[string]*pluginIngestJob),
-		pluginIngestSem:  make(chan struct{}, 1),
-		dataDir:          dataDir,
-		listener:         ln,
-		lockfile:         lockfile,
-		idleTimeout:      DefaultIdleTimeout,
-		done:             make(chan struct{}),
-		Addr:             addr,
-		Network:          network,
+		graph:       make(map[string]*lpg.Graph),
+		searchIdx:   make(map[string]*search.Index),
+		resolvers:   make(map[string]*storage.ContentResolver),
+		repoDirs:    make(map[string]string),
+		embedJobs:   make(map[string]*embedJob),
+		embedSem:    make(chan struct{}, 1), // serialize embed jobs by default
+		dataDir:     dataDir,
+		listener:    ln,
+		lockfile:    lockfile,
+		idleTimeout: DefaultIdleTimeout,
+		done:        make(chan struct{}),
+		Addr:        addr,
+		Network:     network,
 	}
 
 	mux := s.setupRoutes()
@@ -332,7 +313,7 @@ func (s *Server) GetBackendResources(repo string) (BackendResources, bool) {
 		RepoDir:            repoDir,
 		PluginName:         entry.Meta.PluginName,
 		EmbeddingsComplete: embeddingComplete(s.dataDir, repo),
-		Entities:           installedPluginEntities(s.dataDir, entry.Meta.PluginName),
+		Entities:           pluginEntities(s.dataDir, entry),
 	}, true
 }
 
@@ -502,18 +483,10 @@ func (s *Server) loadGraphFromRegistry(repo string) error {
 			return fmt.Errorf("repo %s: %w", repo, err)
 		}
 	}
-	if entry.Meta.PluginName != "" && entry.Meta.PluginVersion != "" {
-		currentVersion := installedPluginVersion(s.dataDir, entry.Meta.PluginName)
-		if currentVersion != "" && currentVersion != entry.Meta.PluginVersion {
-			return fmt.Errorf("repo %s: plugin dataset is stale (built with plugin %s %s, installed version is %s); run 'cartograph plugin ingest %s'",
-				repo, entry.Meta.PluginName, entry.Meta.PluginVersion, currentVersion, entry.Meta.PluginName)
-		}
-	}
-
 	repoDir := filepath.Join(s.dataDir, entry.Name, entry.Hash)
 	dbPath := filepath.Join(repoDir, "graph.db")
 
-	store, err := bbolt.New(dbPath)
+	store, err := bbolt.NewReadOnly(dbPath)
 	if err != nil {
 		return nil //nolint:nilerr // db open failure — repo not loadable
 	}
@@ -669,7 +642,7 @@ func (s *Server) lazyInitResolver(repo string) *storage.ContentResolver {
 
 	if entry.Meta.HasContentBucket {
 		dbPath := filepath.Join(repoDir, "graph.db")
-		cs, err := bbolt.NewContentStore(dbPath)
+		cs, err := bbolt.NewReadOnlyContentStore(dbPath)
 		if err != nil {
 			return nil
 		}
@@ -693,15 +666,11 @@ func (s *Server) SetBackendFactory(f BackendFactory) {
 	s.backendFactory = f
 }
 
-func installedPluginVersion(dataDir, pluginName string) string {
-	if dataDir == "" || pluginName == "" {
-		return ""
+func pluginEntities(dataDir string, entry storage.RegistryEntry) []pluginsdk.Entity {
+	if len(entry.Meta.PluginEntities) > 0 {
+		return pluginEntitiesFromStorage(entry.Meta.PluginEntities)
 	}
-	reg, err := loadInstalledPluginRegistry(dataDir)
-	if err != nil {
-		return ""
-	}
-	return plugin.InstalledPluginVersion(reg, pluginName)
+	return installedPluginEntities(dataDir, entry.Meta.PluginName)
 }
 
 func installedPluginEntities(dataDir, pluginName string) []pluginsdk.Entity {
@@ -712,9 +681,27 @@ func installedPluginEntities(dataDir, pluginName string) []pluginsdk.Entity {
 	return plugin.InstalledPluginEntities(reg, pluginName)
 }
 
+func pluginEntitiesFromStorage(in []storage.PluginEntity) []pluginsdk.Entity {
+	out := make([]pluginsdk.Entity, 0, len(in))
+	for _, entity := range in {
+		item := pluginsdk.Entity{Name: entity.Name, Label: entity.Label}
+		if entity.Query != nil {
+			query := &pluginsdk.EntityQuery{
+				SearchProps: append([]string(nil), entity.Query.SearchProps...),
+				Display:     make([]pluginsdk.DisplayField, 0, len(entity.Query.Display)),
+			}
+			for _, field := range entity.Query.Display {
+				query.Display = append(query.Display, pluginsdk.DisplayField{Prop: field.Prop, Label: field.Label})
+			}
+			item.Query = query
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
 func loadInstalledPluginRegistry(dataDir string) (*plugin.InstalledRegistry, error) {
-	path := filepath.Join(dataDir, "plugins", "plugins.json")
-	reg, err := plugin.LoadInstalledRegistry(path)
+	reg, err := plugin.LoadInstalledRegistry(plugin.InstalledRegistryPath(dataDir))
 	if err != nil {
 		return nil, fmt.Errorf("load installed plugin registry: %w", err)
 	}
@@ -824,8 +811,6 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc(RouteEmbed, s.handleEmbed)
 	mux.HandleFunc(RouteEmbedStatus, s.handleEmbedStatus)
 	mux.HandleFunc(RouteAnalyzePreflight, s.handleAnalyzePreflight)
-	mux.HandleFunc(RoutePluginIngest, s.handlePluginIngest)
-	mux.HandleFunc(RoutePluginIngestStatus, s.handlePluginIngestStatus)
 	return mux
 }
 
@@ -878,131 +863,6 @@ func (s *Server) StartEmbedJob(ctx context.Context, req EmbedRequest) *embedJob 
 
 	go func() { defer cancel(); s.runEmbedJob(jobCtx, job, req) }()
 	return job
-}
-
-func (s *Server) GetPluginIngestJob(name string) *pluginIngestJob {
-	s.pluginIngestMu.Lock()
-	defer s.pluginIngestMu.Unlock()
-	j, ok := s.pluginIngestJobs[name]
-	if !ok {
-		return nil
-	}
-	cp := *j
-	return &cp
-}
-
-func (s *Server) StartPluginIngestJob(ctx context.Context, req PluginIngestRequest) *pluginIngestJob {
-	s.pluginIngestMu.Lock()
-	if existing, ok := s.pluginIngestJobs[req.PluginName]; ok {
-		if existing.Status == statusPending || existing.Status == embedStatusRunning {
-			s.pluginIngestMu.Unlock()
-			return existing
-		}
-	}
-	jobCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	job := &pluginIngestJob{
-		PluginName: req.PluginName,
-		Status:     statusPending,
-		Cancel:     cancel,
-	}
-	s.pluginIngestJobs[req.PluginName] = job
-	s.pluginIngestMu.Unlock()
-
-	go func() { defer cancel(); s.runPluginIngestJob(jobCtx, job, req) }()
-	return job
-}
-
-func (s *Server) runPluginIngestJob(ctx context.Context, job *pluginIngestJob, req PluginIngestRequest) {
-	setFailed := func(msg string) {
-		s.pluginIngestMu.Lock()
-		job.Status = statusFailed
-		job.Error = msg
-		s.pluginIngestMu.Unlock()
-	}
-
-	select {
-	case s.pluginIngestSem <- struct{}{}:
-		defer func() { <-s.pluginIngestSem }()
-	case <-ctx.Done():
-		setFailed("canceled")
-		return
-	}
-
-	s.pluginIngestMu.Lock()
-	job.Status = embedStatusRunning
-	job.StartedAt = time.Now()
-	s.pluginIngestMu.Unlock()
-
-	connection := req.ConnectionName
-	if connection == "" {
-		connection = req.PluginName
-	}
-	if s.dataDir == "" {
-		setFailed("no data directory configured")
-		return
-	}
-	configPath := filepath.Join(s.dataDir, "config.toml")
-	pc := plugin.PluginConfig{}
-	if cfg, err := plugin.LoadConfig(configPath); err == nil {
-		if got, ok := cfg.Plugins[connection]; ok {
-			pc = got
-		}
-	}
-
-	// CodeQL FP: PluginName is validated as one path segment before
-	// the job starts, and JoinName preserves that installed-binary boundary.
-	binPath, err := plugin.JoinName(filepath.Join(s.dataDir, "plugins", "bin"), req.PluginName)
-	if err != nil {
-		setFailed("invalid plugin name")
-		return
-	}
-	if _, err := os.Stat(binPath); err != nil {
-		setFailed("plugin binary not found: " + req.PluginName)
-		return
-	}
-
-	g := lpg.NewGraph()
-	builder := plugin.NewLPGGraphBuilder(g, plugin.LPGGraphBuilderOptions{Transactional: true})
-	ds := &plugin.PluginDataSource{
-		BinaryPath:     binPath,
-		PluginConfig:   pc,
-		ConnectionName: connection,
-	}
-	if err := ds.Ingest(ctx, builder, pluginsdk.IngestOptions{
-		ResourceTypes: req.ResourceTypes,
-		Concurrency:   req.Concurrency,
-	}); err != nil {
-		setFailed(err.Error())
-		return
-	}
-	nodes, edges := builder.Commit()
-	pluginDataDir, err := plugin.JoinName(filepath.Join(s.dataDir, "plugins", "data"), req.PluginName)
-	if err != nil {
-		setFailed("invalid plugin data path")
-		return
-	}
-	if err := plugin.PersistPluginDataset(plugin.PluginDataset{
-		PluginName:     req.PluginName,
-		PluginVersion:  installedPluginVersion(s.dataDir, req.PluginName),
-		ConnectionName: connection,
-		DataDir:        s.dataDir,
-		PluginDataDir:  pluginDataDir,
-		Graph:          g,
-		NodeCount:      nodes,
-		EdgeCount:      edges,
-		StartedAt:      job.StartedAt,
-	}); err != nil {
-		setFailed(err.Error())
-		return
-	}
-	s.DropGraph(connection)
-	dur := time.Since(job.StartedAt).Round(time.Millisecond)
-	s.pluginIngestMu.Lock()
-	job.Status = statusComplete
-	job.Nodes = nodes
-	job.Edges = edges
-	job.Duration = dur.String()
-	s.pluginIngestMu.Unlock()
 }
 
 // runEmbedJob performs embedding in a background goroutine. Vectors are

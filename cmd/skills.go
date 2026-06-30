@@ -13,6 +13,9 @@ import (
 
 	"github.com/charmbracelet/huh"
 	"golang.org/x/term"
+
+	internalplugin "github.com/onixhdz/cartograph/internal/plugin"
+	"github.com/onixhdz/cartograph/internal/storage"
 )
 
 //go:embed skills/cartograph
@@ -456,7 +459,7 @@ func syncInstalledPluginRegistryToSkillBase(baseDir string) error {
 		return fmt.Errorf("mkdir %s: %w", refsDir, err)
 	}
 
-	data, err := os.ReadFile(PluginRegistryPath())
+	data, err := os.ReadFile(internalplugin.InstalledRegistryPath(storage.DefaultDataDir()))
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("read plugin registry: %w", err)

@@ -32,6 +32,7 @@ type Client interface {
 	Cypher(service.CypherRequest) (*service.CypherResult, error)
 	Impact(service.ImpactRequest) (*service.ImpactResult, error)
 	Cat(service.CatRequest) (*service.CatResult, error)
+	Tree(service.TreeRequest) (*service.TreeResult, error)
 	Schema(service.SchemaRequest) (*service.SchemaResult, error)
 	Health() (*service.HealthResult, error)
 	List() (*service.ListResult, error)

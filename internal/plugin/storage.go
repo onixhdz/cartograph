@@ -17,6 +17,7 @@ import (
 	"github.com/onixhdz/cartograph/internal/storage/bbolt"
 	"github.com/onixhdz/cartograph/internal/sysutil"
 	"github.com/onixhdz/cartograph/internal/version"
+	pluginsdk "github.com/onixhdz/cartograph/plugin"
 )
 
 type PluginDataset struct {
@@ -25,6 +26,7 @@ type PluginDataset struct {
 	ConnectionName string
 	DataDir        string
 	PluginDataDir  string
+	Entities       []pluginsdk.Entity
 	Graph          *lpg.Graph
 	NodeCount      int
 	EdgeCount      int
@@ -119,6 +121,7 @@ func PersistPluginDataset(ds PluginDataset) error {
 			Languages:            collectPluginLanguages(ds.Graph),
 			PluginName:           ds.PluginName,
 			PluginVersion:        ds.PluginVersion,
+			PluginEntities:       storagePluginEntities(ds.Entities),
 		},
 	}); err != nil {
 		return fmt.Errorf("persist plugin dataset: update registry: %w", err)
@@ -158,6 +161,28 @@ func RemovePluginDatasets(dataDir, pluginName string) error {
 func PluginDatasetHash(pluginName, connectionName string) string {
 	h := sha256.Sum256([]byte("plugin:" + pluginName + ":" + connectionName))
 	return hex.EncodeToString(h[:8])
+}
+
+func storagePluginEntities(in []pluginsdk.Entity) []storage.PluginEntity {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]storage.PluginEntity, 0, len(in))
+	for _, entity := range in {
+		item := storage.PluginEntity{Name: entity.Name, Label: entity.Label}
+		if entity.Query != nil {
+			query := &storage.PluginEntityQuery{
+				SearchProps: append([]string(nil), entity.Query.SearchProps...),
+				Display:     make([]storage.PluginDisplayField, 0, len(entity.Query.Display)),
+			}
+			for _, field := range entity.Query.Display {
+				query.Display = append(query.Display, storage.PluginDisplayField{Prop: field.Prop, Label: field.Label})
+			}
+			item.Query = query
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 func collectPluginLanguages(g *lpg.Graph) []string {
