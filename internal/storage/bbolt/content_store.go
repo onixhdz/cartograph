@@ -36,6 +36,23 @@ func initStore(db *bolt.DB, ownsDB bool) (*ContentStore, error) {
 		return nil, fmt.Errorf("content store: create bucket: %w", err)
 	}
 
+	return newContentStore(db, ownsDB)
+}
+
+func initReadOnlyStore(db *bolt.DB, ownsDB bool) (*ContentStore, error) {
+	if err := db.View(func(tx *bolt.Tx) error {
+		if tx.Bucket(bucketContent) == nil {
+			return errors.New("content store: bucket not found")
+		}
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("content store: validate read-only bucket: %w", err)
+	}
+
+	return newContentStore(db, ownsDB)
+}
+
+func newContentStore(db *bolt.DB, ownsDB bool) (*ContentStore, error) {
 	enc, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedDefault))
 	if err != nil {
 		return nil, fmt.Errorf("content store: zstd encoder: %w", err)
@@ -62,6 +79,28 @@ func NewContentStore(path string) (*ContentStore, error) {
 	}
 
 	cs, err := initStore(db, true)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return cs, nil
+}
+
+// NewReadOnlyContentStore opens an existing BBolt database for read-only
+// content access. Multiple processes may hold read-only handles concurrently.
+func NewReadOnlyContentStore(path string) (*ContentStore, error) {
+	db, err := bolt.Open(path, 0o600, &bolt.Options{
+		ReadOnly: true,
+		Timeout:  openLockTimeout,
+	})
+	if err != nil {
+		if errors.Is(err, bolterrors.ErrTimeout) {
+			return nil, fmt.Errorf("content store: open read-only %s: database busy (locked by another process): %w", path, err)
+		}
+		return nil, fmt.Errorf("content store: open read-only %s: %w", path, err)
+	}
+
+	cs, err := initReadOnlyStore(db, true)
 	if err != nil {
 		_ = db.Close()
 		return nil, err

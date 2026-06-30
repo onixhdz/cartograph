@@ -3,8 +3,6 @@ package cmd
 import (
 	"bufio"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,6 +25,7 @@ import (
 	"github.com/go-git/go-billy/v5"
 	"golang.org/x/term"
 
+	analyzecore "github.com/onixhdz/cartograph/internal/analyze"
 	"github.com/onixhdz/cartograph/internal/graph"
 	"github.com/onixhdz/cartograph/internal/ingestion"
 	"github.com/onixhdz/cartograph/internal/remote"
@@ -118,7 +117,7 @@ func resolveRepo(explicit string) (string, error) {
 	}
 
 	// Try to resolve through the registry for short-name / alias support.
-	resolved, err := storage.ResolveRepoName(DefaultDataDir(), name)
+	resolved, err := storage.ResolveRepoName(storage.DefaultDataDir(), name)
 	if err != nil {
 		// If the name is ambiguous, surface the error immediately.
 		if strings.Contains(err.Error(), "ambiguous") {
@@ -171,8 +170,8 @@ func (c *CloneCmd) Run(cli *CLI) error {
 	}
 
 	repoName := identity.Name
-	repoHash := shortHash(identity.Canonical)
-	dataDir := DefaultDataDir()
+	repoHash := analyzecore.ShortHash(identity.Canonical)
+	dataDir := storage.DefaultDataDir()
 	repoDir := filepath.Join(dataDir, repoName, repoHash)
 	srcDir := filepath.Join(repoDir, "src")
 
@@ -319,7 +318,7 @@ func (c *AnalyzeCmd) runOne(cli *CLI, target string) error {
 	// Resolve from registry so "cartograph analyze nomad --embed=async"
 	// works without re-typing the full URL.
 	if _, err := os.Stat(target); os.IsNotExist(err) {
-		dataDir := DefaultDataDir()
+		dataDir := storage.DefaultDataDir()
 		if reg, regErr := storage.NewRegistry(dataDir); regErr == nil {
 			if entry, resolveErr := reg.Resolve(target); resolveErr == nil {
 				if entry.URL != "" {
@@ -458,150 +457,93 @@ func (c *AnalyzeCmd) runLocal(cli *CLI, target string) error {
 		return err
 	}
 	if split {
-		if err := guardSplitContainerEntry(DefaultDataDir(), filepath.Base(abs), shortHash(abs)); err != nil {
+		if err := guardSplitContainerEntry(storage.DefaultDataDir(), filepath.Base(abs), analyzecore.ShortHash(abs)); err != nil {
 			return err
 		}
 		for _, candidate := range selected {
-			if err := c.runLocalSingle(cli, candidate.Path, candidate.Name, shortHash(candidate.Path), false); err != nil {
+			if err := c.runLocalSingle(cli, candidate.Path, candidate.Name, analyzecore.ShortHash(candidate.Path), false); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-	return c.runLocalSingle(cli, abs, filepath.Base(abs), shortHash(abs), true)
-}
-
-func repoRelPath(root, rel string) (string, error) {
-	local, err := filepath.Localize(strings.TrimPrefix(rel, "./"))
-	if err != nil || root == "" || local == "." {
-		return "", os.ErrPermission
-	}
-	return filepath.Join(root, local), nil
+	return c.runLocalSingle(cli, abs, filepath.Base(abs), analyzecore.ShortHash(abs), true)
 }
 
 func (c *AnalyzeCmd) runLocalSingle(cli *CLI, abs, repoName, repoHash string, allowIdempotency bool) error {
 	write(fmt.Sprintf("Analyzing %s\n", abs))
 
-	dataDir := DefaultDataDir()
-
-	// Check if re-analyzing with changed versions — force cleanup of
-	// stale derived state (search index) if schema or algorithm changed.
-	if !c.Force && allowIdempotency {
-		if reg, err := storage.NewRegistry(dataDir); err == nil {
-			if prev, ok := reg.Get(repoName); ok && prev.Hash == repoHash {
-				sv, av, _ := prev.Meta.Versions()
-				if reason, needed := version.ShouldReindexOnAnalyze(version.VersionInfo{
-					SchemaVersion:    sv,
-					AlgorithmVersion: av,
-				}); needed {
-					fmt.Printf("  ℹ %s. Rebuilding...\n", reason)
-					c.Force = true
+	start := time.Now()
+	var activeSpinner *spinner
+	res, err := analyzecore.Local(context.Background(), abs, analyzecore.Options{
+		DataDir:          storage.DefaultDataDir(),
+		RepoName:         repoName,
+		RepoHash:         repoHash,
+		Force:            c.Force,
+		Timing:           c.Timing,
+		AllowIdempotency: allowIdempotency,
+		OnEvent: func(event analyzecore.Event) {
+			switch event.Phase {
+			case analyzecore.PhaseReindexRequired:
+				fmt.Printf("  ℹ %s. Rebuilding...\n", event.ReindexReason)
+			case analyzecore.PhasePipelineStart:
+				activeSpinner = newSpinner("Walking repository...")
+				activeSpinner.Start()
+			case analyzecore.PhasePipelineStep:
+				if activeSpinner != nil {
+					activeSpinner.Update(fmt.Sprintf("[%d/%d] %s", event.Current, event.Total, event.Message))
 				}
-
-				// Idempotency: skip re-analysis if HEAD hasn't changed.
-				if !c.Force {
-					if currentSHA := gitHeadHash(abs); currentSHA != "" && currentSHA == prev.Meta.CommitHash {
-						fmt.Printf("  Up to date (commit %s). ", currentSHA[:min(12, len(currentSHA))])
-
-						if c.Embed != embedOff {
-							fmt.Println("Triggering embedding...")
-							c.requestEmbedding(repoName)
-							return nil
-						}
-
-						fmt.Println("Use --force to re-analyze.")
-						return nil
-					}
+			case analyzecore.PhaseFileProgress:
+				if activeSpinner != nil {
+					activeSpinner.Update(fmt.Sprintf("[3/%d] Parsing files (%d/%d)", ingestion.PipelineStepCount, event.Current, event.Total))
+				}
+			case analyzecore.PhasePipelineDone:
+				if activeSpinner != nil {
+					activeSpinner.StopWithSuccess("Pipeline complete")
+					activeSpinner = nil
+				}
+			case analyzecore.PhaseGraphSaveStart:
+				activeSpinner = newSpinner("Persisting graph...")
+				activeSpinner.Start()
+			case analyzecore.PhaseGraphSaveDone:
+				if activeSpinner != nil {
+					activeSpinner.StopWithSuccess("Graph persisted")
+					activeSpinner = nil
+				}
+			case analyzecore.PhaseIndexStart:
+				activeSpinner = newSpinner("Building search indexes...")
+				activeSpinner.Start()
+			case analyzecore.PhaseIndexDone:
+				if activeSpinner != nil {
+					activeSpinner.StopWithSuccess(fmt.Sprintf("Search indexes: BM25 %d documents, regex %d files", event.Index.BM25Documents, event.Index.RegexFiles))
+					activeSpinner = nil
 				}
 			}
-		}
-	}
-
-	start := time.Now()
-	spPipeline := newSpinner("Walking repository...")
-	spPipeline.Start()
-	pipeline := ingestion.NewPipeline(abs, ingestion.PipelineOptions{
-		Force:  c.Force,
-		Timing: c.Timing,
-		OnStep: func(step string, current, total int) {
-			spPipeline.Update(fmt.Sprintf("[%d/%d] %s", current, total, step))
-		},
-		OnFileProgress: func(done, total int) {
-			spPipeline.Update(fmt.Sprintf("[3/%d] Parsing files (%d/%d)", ingestion.PipelineStepCount, done, total))
 		},
 	})
-	if err := pipeline.Run(); err != nil {
-		spPipeline.StopWithFailure("Pipeline failed")
-		return fmt.Errorf("analyze: %w", err)
-	}
-	spPipeline.StopWithSuccess("Pipeline complete")
-	g := pipeline.GetGraph()
-
-	nodeCount := graph.NodeCount(g)
-	edgeCount := graph.EdgeCount(g)
-	fmt.Printf("  Graph: %d nodes, %d edges\n", nodeCount, edgeCount)
-
-	repoDir := filepath.Join(dataDir, repoName, repoHash)
-
-	if err := os.MkdirAll(repoDir, 0o750); err != nil {
-		return fmt.Errorf("analyze: create dir: %w", err)
-	}
-	dbPath := filepath.Join(repoDir, "graph.db")
-	spGraph := newSpinner("Persisting graph...")
-	spGraph.Start()
-	store, err := bbolt.New(dbPath)
 	if err != nil {
-		spGraph.StopWithFailure("Failed to open store")
-		return fmt.Errorf("analyze: open store: %w", err)
-	}
-	if err := store.SaveGraph(g); err != nil {
-		store.Close() //nolint:gosec
-		spGraph.StopWithFailure("Failed to persist graph")
-		return fmt.Errorf("analyze: save graph: %w", err)
-	}
-	store.Close() //nolint:gosec
-	spGraph.StopWithSuccess("Graph persisted")
-
-	regexStats, err := buildAnalyzeIndexes(repoDir, g, c.Force, func(relPath string) (io.ReadCloser, error) {
-		path, err := repoRelPath(abs, relPath)
-		if err != nil {
-			return nil, fmt.Errorf("analyze: open indexed file %q: %w", relPath, err)
+		if activeSpinner != nil {
+			activeSpinner.StopWithFailure("Analysis failed")
 		}
-		return os.Open(path)
-	})
-	if err != nil {
-		return err
+		return fmt.Errorf("analyze local: %w", err)
 	}
+	if res.Skipped {
+		if res.Commit != "" {
+			fmt.Printf("  Up to date (commit %s). ", res.Commit[:min(12, len(res.Commit))])
+		}
+		if c.Embed != embedOff {
+			fmt.Println("Triggering embedding...")
+			c.requestEmbedding(repoName)
+			return nil
+		}
+		fmt.Println("Use --force to re-analyze.")
+		return nil
+	}
+	fmt.Printf("  Graph: %d nodes, %d edges\n", res.NodeCount, res.EdgeCount)
 
-	langs := collectLanguages(g)
-
-	duration := time.Since(start)
-	registry, err := storage.NewRegistry(dataDir)
+	registry, err := storage.NewRegistry(storage.DefaultDataDir())
 	if err != nil {
 		return fmt.Errorf("analyze: open registry: %w", err)
-	}
-	if err := registry.Add(storage.RegistryEntry{
-		Name:      repoName,
-		Path:      abs,
-		Hash:      repoHash,
-		IndexedAt: time.Now(),
-		NodeCount: nodeCount,
-		EdgeCount: edgeCount,
-		Meta: storage.Meta{
-			CommitHash:           gitHeadHash(abs),
-			Languages:            langs,
-			Duration:             duration.Round(time.Millisecond).String(),
-			SourcePath:           abs,
-			SchemaVersion:        version.SchemaVersion,
-			AlgorithmVersion:     version.AlgorithmVersion,
-			EmbeddingTextVersion: version.EmbeddingTextVersion,
-			BinaryVersion:        version.BuildVersion,
-			RegexIndexVersion:    search.RegexIndexVersion,
-			RegexIndexFiles:      regexStats.Files,
-			RegexIndexBytes:      regexStats.Bytes,
-		},
-	}); err != nil {
-		return fmt.Errorf("analyze: update registry: %w", err)
 	}
 	if err := finalizeEmbeddingMode(registry, repoHash, c.Embed); err != nil {
 		return err
@@ -611,10 +553,7 @@ func (c *AnalyzeCmd) runLocalSingle(cli *CLI, abs, repoName, repoHash string, al
 		_ = cli.Client.Reload(service.ReloadRequest{Repo: repoHash})
 	}
 
-	// Embedding in sync mode blocks until complete.
 	if c.Embed != embedOff {
-		// Release the search index file lock so the background service
-		// can open it. The MC is no longer needed after this point.
 		if mc, ok := cli.Client.(*service.MemoryClient); ok {
 			mc.ReleaseSearchIndex(repoHash)
 		}
@@ -635,8 +574,8 @@ func (c *AnalyzeCmd) runRemote(cli *CLI, url string) error {
 	write(fmt.Sprintf("Analyzing %s\n", identity.Canonical))
 
 	repoName := identity.Name
-	repoHash := shortHash(identity.Canonical)
-	dataDir := DefaultDataDir()
+	repoHash := analyzecore.ShortHash(identity.Canonical)
+	dataDir := storage.DefaultDataDir()
 	repoDir := filepath.Join(dataDir, repoName, repoHash)
 
 	// Check idempotency: ls-remote the current HEAD and compare with
@@ -1181,7 +1120,7 @@ func (c *AnalyzeCmd) indexMemoryClone(
 		return err
 	}
 
-	langs := collectLanguages(g)
+	langs := analyzecore.CollectLanguages(g)
 	duration := time.Since(start)
 	registry, err := storage.NewRegistry(dataDir)
 	if err != nil {
@@ -1206,8 +1145,8 @@ func (c *AnalyzeCmd) indexMemoryClone(
 			EmbeddingTextVersion: version.EmbeddingTextVersion,
 			BinaryVersion:        version.BuildVersion,
 			RegexIndexVersion:    search.RegexIndexVersion,
-			RegexIndexFiles:      regexStats.Files,
-			RegexIndexBytes:      regexStats.Bytes,
+			RegexIndexFiles:      regexStats.RegexFiles,
+			RegexIndexBytes:      regexStats.RegexBytes,
 		},
 	}); err != nil {
 		return fmt.Errorf("analyze: update registry: %w", err)
@@ -1339,7 +1278,7 @@ func (c *AnalyzeCmd) indexDiskClone(
 	spGraph.StopWithSuccess("Graph persisted")
 
 	regexStats, err := buildAnalyzeIndexes(repoDir, g, c.Force, func(relPath string) (io.ReadCloser, error) {
-		path, err := repoRelPath(srcDir, relPath)
+		path, err := analyzecore.RepoRelPath(srcDir, relPath)
 		if err != nil {
 			return nil, fmt.Errorf("analyze: open indexed file %q: %w", relPath, err)
 		}
@@ -1349,7 +1288,7 @@ func (c *AnalyzeCmd) indexDiskClone(
 		return err
 	}
 
-	langs := collectLanguages(g)
+	langs := analyzecore.CollectLanguages(g)
 	duration := time.Since(start)
 	registry, err := storage.NewRegistry(dataDir)
 	if err != nil {
@@ -1374,8 +1313,8 @@ func (c *AnalyzeCmd) indexDiskClone(
 			EmbeddingTextVersion: version.EmbeddingTextVersion,
 			BinaryVersion:        version.BuildVersion,
 			RegexIndexVersion:    search.RegexIndexVersion,
-			RegexIndexFiles:      regexStats.Files,
-			RegexIndexBytes:      regexStats.Bytes,
+			RegexIndexFiles:      regexStats.RegexFiles,
+			RegexIndexBytes:      regexStats.RegexBytes,
 		},
 	}); err != nil {
 		return fmt.Errorf("analyze: update registry: %w", err)
@@ -1404,7 +1343,7 @@ func (c *AnalyzeCmd) indexDiskClone(
 // if needed) and sends an embed request. For --embed=sync it polls until
 // completion; for --embed=async it returns immediately.
 func (c *AnalyzeCmd) requestEmbedding(repoName string) {
-	dataDir := DefaultDataDir()
+	dataDir := storage.DefaultDataDir()
 	client := connectOrStartService(dataDir)
 	if client == nil {
 		fmt.Println("  Embedding skipped (could not connect to service).")
@@ -1551,66 +1490,15 @@ func isServiceAlive(network, addr string) bool {
 	return true
 }
 
-// collectLanguages extracts unique language strings from File nodes.
-func collectLanguages(g *lpg.Graph) []string {
-	langSet := make(map[string]bool)
-	for _, fn := range graph.FindNodesByLabel(g, graph.LabelFile) {
-		lang := graph.GetStringProp(fn, graph.PropLanguage)
-		if lang != "" {
-			langSet[lang] = true
-		}
-	}
-	langs := make([]string, 0, len(langSet))
-	for l := range langSet {
-		langs = append(langs, l)
-	}
-	return langs
-}
-
-func buildAnalyzeIndexes(repoDir string, g *lpg.Graph, force bool, openFile func(string) (io.ReadCloser, error)) (search.RegexBuildStats, error) {
-	blevePath := filepath.Join(repoDir, "search.bleve")
-	if force {
-		// Embeddings are intentionally preserved; node IDs are deterministic,
-		// and orphaned vectors are cleaned on the next embed run.
-		os.RemoveAll(blevePath) //nolint:gosec
-	}
+func buildAnalyzeIndexes(repoDir string, g *lpg.Graph, force bool, openFile func(string) (io.ReadCloser, error)) (analyzecore.IndexStats, error) {
 	spSearch := newSpinner("Building search indexes...")
 	spSearch.Start()
-	idx, err := search.NewIndex(blevePath)
+	stats, err := analyzecore.BuildIndexes(repoDir, g, force, openFile)
 	if err != nil {
-		spSearch.StopWithFailure("Failed to create BM25 search index")
-		return search.RegexBuildStats{}, fmt.Errorf("analyze: create search index: %w", err)
+		spSearch.StopWithFailure("Failed to build search indexes")
+		return analyzecore.IndexStats{}, fmt.Errorf("analyze: build search indexes: %w", err)
 	}
-	indexed, err := idx.IndexGraph(g)
-	if err != nil {
-		idx.Close() //nolint:gosec
-		spSearch.StopWithFailure("Failed to build BM25 search index")
-		return search.RegexBuildStats{}, fmt.Errorf("analyze: index graph: %w", err)
-	}
-	idx.Close() //nolint:gosec
-
-	regexStats, err := buildRegexIndexForGraph(repoDir, g, openFile)
-	if err != nil {
-		spSearch.StopWithFailure("Failed to build regex search index")
-		return search.RegexBuildStats{}, fmt.Errorf("analyze: build regex search index: %w", err)
-	}
-	spSearch.StopWithSuccess(fmt.Sprintf("Search indexes: BM25 %d documents, regex %d files", indexed, regexStats.Files))
-	return regexStats, nil
-}
-
-func buildRegexIndexForGraph(repoDir string, g *lpg.Graph, openFile func(string) (io.ReadCloser, error)) (search.RegexBuildStats, error) {
-	paths := make([]string, 0)
-	for _, node := range graph.FindNodesByLabel(g, graph.LabelFile) {
-		fp := graph.GetStringProp(node, graph.PropFilePath)
-		if fp != "" {
-			paths = append(paths, fp)
-		}
-	}
-	sort.Strings(paths)
-	stats, err := search.BuildRegexIndexFromOpener(filepath.Join(repoDir, "search.regex"), paths, openFile)
-	if err != nil {
-		return search.RegexBuildStats{}, fmt.Errorf("build regex index: %w", err)
-	}
+	spSearch.StopWithSuccess(fmt.Sprintf("Search indexes: BM25 %d documents, regex %d files", stats.BM25Documents, stats.RegexFiles))
 	return stats, nil
 }
 
@@ -1686,18 +1574,12 @@ func collectFiles(fs billy.Filesystem, dir, base string, files map[string][]byte
 	return nil
 }
 
-// shortHash returns a short hash of the path for storage directory naming.
-func shortHash(path string) string {
-	h := sha256.Sum256([]byte(path))
-	return hex.EncodeToString(h[:8])
-}
-
 func splitRemoteRepoHash(identity remote.RepoIdentity, relPath, branch string) string {
 	canonical := identity.Canonical
 	if !strings.Contains(canonical, "@") && branch != "" {
 		canonical += "@" + branch
 	}
-	return shortHash(canonical + "//" + filepath.ToSlash(relPath))
+	return analyzecore.ShortHash(canonical + "//" + filepath.ToSlash(relPath))
 }
 
 // gitHeadHash returns the current HEAD commit hash for the repo at dir,
@@ -1730,7 +1612,7 @@ func gitCurrentBranch(dir string) string {
 type ListCmd struct{}
 
 func (c *ListCmd) Run(cli *CLI) error {
-	dataDir := DefaultDataDir()
+	dataDir := storage.DefaultDataDir()
 	registry, err := storage.NewRegistry(dataDir)
 	if err != nil {
 		return fmt.Errorf("list: open registry: %w", err)
@@ -1926,7 +1808,7 @@ func (c *StatusCmd) watchStatus(cli *CLI, repo string) error {
 // writeStatus writes the full status output to w and returns the current
 // embedding status string (e.g. "running", "complete", "failed", "").
 func (c *StatusCmd) writeStatus(w io.Writer, cli *CLI, repo string) (string, error) {
-	dataDir := DefaultDataDir()
+	dataDir := storage.DefaultDataDir()
 	registry, err := storage.NewRegistry(dataDir)
 	if err != nil {
 		return "", fmt.Errorf("status: open registry: %w", err)
@@ -2073,7 +1955,7 @@ type CleanCmd struct {
 }
 
 func (c *CleanCmd) Run(cli *CLI) error {
-	dataDir := DefaultDataDir()
+	dataDir := storage.DefaultDataDir()
 
 	if c.All {
 		fmt.Println("Cleaning all indexes...")

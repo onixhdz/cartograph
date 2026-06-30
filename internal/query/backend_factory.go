@@ -1,9 +1,8 @@
-package cmd
+package query
 
 import (
 	"context"
 
-	"github.com/onixhdz/cartograph/internal/query"
 	"github.com/onixhdz/cartograph/internal/service"
 )
 
@@ -14,12 +13,11 @@ type BackendProvider interface {
 	QueryEmbed(ctx context.Context, text string) ([]float32, error)
 }
 
-// NewQueryBackendFactory returns a BackendFactory that builds a
-// query.Backend from the provider's cached resources. Embedding-backed
-// hybrid search is enabled only when the registry marks embeddings
-// complete, ensuring stale or in-progress embedding state never leaks
-// into query results.
-func NewQueryBackendFactory(p BackendProvider) service.BackendFactory {
+// NewBackendFactory returns a BackendFactory that builds a Backend from the
+// provider's cached resources. Embedding-backed hybrid search is enabled only
+// when the registry marks embeddings complete, ensuring stale or in-progress
+// embedding state never leaks into query results.
+func NewBackendFactory(p BackendProvider) service.BackendFactory {
 	return func(repo string) service.ToolBackend {
 		resources, ok := p.GetBackendResources(repo)
 		if !ok {
@@ -27,13 +25,13 @@ func NewQueryBackendFactory(p BackendProvider) service.BackendFactory {
 		}
 		var (
 			embedDir string
-			embedFn  query.QueryEmbedFn
+			embedFn  QueryEmbedFn
 		)
 		if resources.EmbeddingsComplete {
 			embedDir = resources.RepoDir
 			embedFn = p.QueryEmbed
 		}
-		return &query.Backend{
+		return &Backend{
 			Graph:      resources.Graph,
 			Index:      resources.Index,
 			ResolverFn: resources.Resolver,

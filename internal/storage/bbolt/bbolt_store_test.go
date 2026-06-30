@@ -275,3 +275,35 @@ func TestRoundTrip_CypherAfterLoad(t *testing.T) {
 		t.Error("expected rows for relationship traversal on loaded graph")
 	}
 }
+
+func TestNewReadOnlyAllowsConcurrentGraphLoads(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "graph.db")
+	store, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := store.SaveGraph(testutil.SampleGraph()); err != nil {
+		t.Fatalf("SaveGraph: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	first, err := NewReadOnly(dbPath)
+	if err != nil {
+		t.Fatalf("NewReadOnly first: %v", err)
+	}
+	defer first.Close()
+	second, err := NewReadOnly(dbPath)
+	if err != nil {
+		t.Fatalf("NewReadOnly second: %v", err)
+	}
+	defer second.Close()
+
+	if _, err := first.LoadGraph(); err != nil {
+		t.Fatalf("first LoadGraph: %v", err)
+	}
+	if _, err := second.LoadGraph(); err != nil {
+		t.Fatalf("second LoadGraph: %v", err)
+	}
+}

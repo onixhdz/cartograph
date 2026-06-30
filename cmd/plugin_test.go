@@ -167,7 +167,7 @@ func TestPersistPluginDataset(t *testing.T) {
 		PluginName:     testPluginName,
 		PluginVersion:  "0.1.0",
 		ConnectionName: testPluginName,
-		DataDir:        DefaultDataDir(),
+		DataDir:        storage.DefaultDataDir(),
 		PluginDataDir:  PluginDataDir(testPluginName),
 		Graph:          g,
 		NodeCount:      2,
@@ -178,7 +178,7 @@ func TestPersistPluginDataset(t *testing.T) {
 	}
 
 	repoHash := plugin.PluginDatasetHash(testPluginName, testPluginName)
-	repoDir := filepath.Join(DefaultDataDir(), testPluginName, repoHash)
+	repoDir := filepath.Join(storage.DefaultDataDir(), testPluginName, repoHash)
 	if _, err := os.Stat(filepath.Join(repoDir, "graph.db")); err != nil {
 		t.Fatalf("graph.db missing: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestPersistPluginDataset(t *testing.T) {
 		t.Fatalf("search.bleve missing: %v", err)
 	}
 
-	reg, err := storage.NewRegistry(DefaultDataDir())
+	reg, err := storage.NewRegistry(storage.DefaultDataDir())
 	if err != nil {
 		t.Fatalf("NewRegistry: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestRemovePluginDataset(t *testing.T) {
 		PluginName:     testPluginName,
 		PluginVersion:  "0.1.0",
 		ConnectionName: testPluginName,
-		DataDir:        DefaultDataDir(),
+		DataDir:        storage.DefaultDataDir(),
 		PluginDataDir:  PluginDataDir(testPluginName),
 		Graph:          g,
 		NodeCount:      1,
@@ -248,17 +248,17 @@ func TestRemovePluginDataset(t *testing.T) {
 		t.Fatalf("PersistPluginDataset: %v", err)
 	}
 
-	if err := plugin.RemovePluginDatasets(DefaultDataDir(), testPluginName); err != nil {
+	if err := plugin.RemovePluginDatasets(storage.DefaultDataDir(), testPluginName); err != nil {
 		t.Fatalf("RemovePluginDatasets: %v", err)
 	}
 
 	repoHash := plugin.PluginDatasetHash(testPluginName, testPluginName)
-	repoDir := filepath.Join(DefaultDataDir(), testPluginName, repoHash)
+	repoDir := filepath.Join(storage.DefaultDataDir(), testPluginName, repoHash)
 	if _, err := os.Stat(repoDir); !os.IsNotExist(err) {
 		t.Fatalf("repo dir still exists: %v", err)
 	}
 
-	reg, err := storage.NewRegistry(DefaultDataDir())
+	reg, err := storage.NewRegistry(storage.DefaultDataDir())
 	if err != nil {
 		t.Fatalf("NewRegistry: %v", err)
 	}
@@ -281,7 +281,7 @@ func TestPluginRmRejectsTraversalName(t *testing.T) {
 	if err := os.MkdirAll(binDir, 0o750); err != nil {
 		t.Fatalf("create plugin bin dir: %v", err)
 	}
-	outsidePath := filepath.Join(DefaultDataDir(), "config.toml")
+	outsidePath := filepath.Join(storage.DefaultDataDir(), "config.toml")
 	if err := os.WriteFile(outsidePath, []byte("[plugins]\n"), 0o600); err != nil {
 		t.Fatalf("write outside file: %v", err)
 	}
@@ -319,7 +319,7 @@ func TestPersistPluginDatasetReplacesDatasetAtomically(t *testing.T) {
 		PluginName:     testPluginName,
 		PluginVersion:  "0.1.0",
 		ConnectionName: testPluginName,
-		DataDir:        DefaultDataDir(),
+		DataDir:        storage.DefaultDataDir(),
 		PluginDataDir:  PluginDataDir(testPluginName),
 		Graph:          buildGraph("first"),
 		NodeCount:      1,
@@ -333,7 +333,7 @@ func TestPersistPluginDatasetReplacesDatasetAtomically(t *testing.T) {
 		PluginName:     testPluginName,
 		PluginVersion:  "0.2.0",
 		ConnectionName: testPluginName,
-		DataDir:        DefaultDataDir(),
+		DataDir:        storage.DefaultDataDir(),
 		PluginDataDir:  PluginDataDir(testPluginName),
 		Graph:          buildGraph("second"),
 		NodeCount:      1,
@@ -344,7 +344,7 @@ func TestPersistPluginDatasetReplacesDatasetAtomically(t *testing.T) {
 	}
 
 	repoHash := plugin.PluginDatasetHash(testPluginName, testPluginName)
-	repoDir := filepath.Join(DefaultDataDir(), testPluginName, repoHash)
+	repoDir := filepath.Join(storage.DefaultDataDir(), testPluginName, repoHash)
 	if _, err := os.Stat(repoDir + ".tmp"); !os.IsNotExist(err) {
 		t.Fatalf("temp dir still exists: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestPersistPluginDatasetReplacesDatasetAtomically(t *testing.T) {
 		t.Fatalf("old dir still exists: %v", err)
 	}
 
-	reg, err := storage.NewRegistry(DefaultDataDir())
+	reg, err := storage.NewRegistry(storage.DefaultDataDir())
 	if err != nil {
 		t.Fatalf("NewRegistry: %v", err)
 	}

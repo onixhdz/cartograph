@@ -1,4 +1,4 @@
-package cmd
+package query
 
 import (
 	"context"
@@ -28,9 +28,9 @@ func (p *backendProviderStub) QueryEmbed(context.Context, string) ([]float32, er
 	return nil, nil
 }
 
-func TestNewQueryBackendFactoryDoesNotEagerlyResolveContent(t *testing.T) {
+func TestNewBackendFactoryDoesNotEagerlyResolveContent(t *testing.T) {
 	provider := &backendProviderStub{}
-	factory := NewQueryBackendFactory(provider)
+	factory := NewBackendFactory(provider)
 	backend := factory("repo")
 	if backend == nil {
 		t.Fatal("expected backend")

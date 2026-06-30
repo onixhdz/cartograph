@@ -82,6 +82,16 @@ That's it. The graph and search indexes are built, persisted locally, and ready 
 
 Use `cartograph search` when you know the text shape: identifiers, string literals, errors, TODOs, config keys, route strings, or regex patterns. Use `cartograph query` when you need meaning: behavior, execution flows, ownership, impact, or architecture.
 
+## Embedded Go API
+
+Go programs can embed Cartograph in-process through the root package:
+
+```go
+import "github.com/onixhdz/cartograph"
+```
+
+Use this when building a long-running local tool that needs Cartograph's index, query, Cypher, schema, and source-read operations without shelling out to the CLI or running a separate service. See [docs/embedded-api.md](docs/embedded-api.md).
+
 When a target contains multiple repo candidates, run plain `cartograph analyze <folder>` first. Analyze prints the candidate list and recommended follow-up commands.
 
 ---

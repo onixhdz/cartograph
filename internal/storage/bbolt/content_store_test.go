@@ -216,3 +216,35 @@ func TestContentStore_BinaryContent(t *testing.T) {
 		t.Errorf("binary round-trip mismatch")
 	}
 }
+
+func TestNewReadOnlyContentStoreAllowsConcurrentReaders(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "content.db")
+	writer, err := NewContentStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewContentStore: %v", err)
+	}
+	if err := writer.Put("main.go", []byte("package main")); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close writer: %v", err)
+	}
+
+	first, err := NewReadOnlyContentStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewReadOnlyContentStore first: %v", err)
+	}
+	defer first.Close()
+	second, err := NewReadOnlyContentStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewReadOnlyContentStore second: %v", err)
+	}
+	defer second.Close()
+
+	if got, err := first.Get("main.go"); err != nil || string(got) != "package main" {
+		t.Fatalf("first Get = %q, %v", got, err)
+	}
+	if got, err := second.Get("main.go"); err != nil || string(got) != "package main" {
+		t.Fatalf("second Get = %q, %v", got, err)
+	}
+}

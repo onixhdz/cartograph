@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/onixhdz/cartograph/internal/service"
+	"github.com/onixhdz/cartograph/internal/storage"
 )
 
 func TestFormatTable(t *testing.T) {
@@ -139,7 +140,7 @@ func TestDefaultSocketPath(t *testing.T) {
 }
 
 func TestDefaultDataDir(t *testing.T) {
-	d := DefaultDataDir()
+	d := storage.DefaultDataDir()
 	if d == "" {
 		t.Error("DefaultDataDir returned empty string")
 	}
@@ -151,7 +152,7 @@ func TestDefaultDataDir(t *testing.T) {
 func TestDefaultDataDirRespectsXDG(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", tmp)
-	d := DefaultDataDir()
+	d := storage.DefaultDataDir()
 	expected := filepath.Join(tmp, "cartograph")
 	if d != expected {
 		t.Errorf("expected %q, got %q", expected, d)

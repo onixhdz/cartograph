@@ -9,7 +9,9 @@ import (
 	"syscall"
 
 	mcpserver "github.com/onixhdz/cartograph/internal/mcp"
+	"github.com/onixhdz/cartograph/internal/query"
 	"github.com/onixhdz/cartograph/internal/service"
+	"github.com/onixhdz/cartograph/internal/storage"
 )
 
 // McpCmd runs the MCP (Model Context Protocol) server over stdin/stdout.
@@ -18,7 +20,7 @@ import (
 type McpCmd struct{}
 
 func (c *McpCmd) Run(cli *CLI) error {
-	dataDir := DefaultDataDir()
+	dataDir := storage.DefaultDataDir()
 
 	appVersion := cli.AppVersion
 	if appVersion == "" {
@@ -38,7 +40,7 @@ func (c *McpCmd) Run(cli *CLI) error {
 		// Last resort when no service can start (e.g. sandboxed/read-only env).
 		// Safe only because nothing else is contending for the same files.
 		mc := service.NewMemoryClient(dataDir)
-		mc.SetBackendFactory(NewQueryBackendFactory(mc))
+		mc.SetBackendFactory(query.NewBackendFactory(mc))
 		_ = mc.LoadAllFromRegistry()
 		defer mc.Close()
 		backend = mc

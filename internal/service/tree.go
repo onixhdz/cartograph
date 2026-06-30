@@ -1,7 +1,7 @@
 package service
 
 import (
-	"path/filepath"
+	"path"
 	"sort"
 	"strings"
 
@@ -17,25 +17,32 @@ func BuildTreeResult(repo string, g *lpg.Graph) *TreeResult {
 		if !n.HasLabel(string(graph.LabelFile)) {
 			return true
 		}
-		path := normalizeTreePath(graph.GetStringProp(n, graph.PropFilePath))
-		if path != "" {
-			seen[path] = struct{}{}
+		p := normalizeTreePath(graph.GetStringProp(n, graph.PropFilePath))
+		if p != "" {
+			seen[p] = struct{}{}
 		}
 		return true
 	})
 
 	files := make([]string, 0, len(seen))
-	for path := range seen {
-		files = append(files, path)
+	for p := range seen {
+		files = append(files, p)
 	}
 	sort.Strings(files)
 
 	return &TreeResult{Repo: repo, Files: files}
 }
 
-func normalizeTreePath(path string) string {
-	path = filepath.ToSlash(strings.TrimSpace(path))
-	path = strings.TrimPrefix(path, "./")
-	path = strings.Trim(path, "/")
-	return path
+func normalizeTreePath(filePath string) string {
+	filePath = strings.ReplaceAll(strings.TrimSpace(filePath), "\\", "/")
+	filePath = strings.TrimPrefix(filePath, "./")
+	filePath = strings.Trim(filePath, "/")
+	if filePath == "" {
+		return ""
+	}
+	filePath = path.Clean(filePath)
+	if filePath == "." || filePath == ".." || strings.HasPrefix(filePath, "../") {
+		return ""
+	}
+	return filePath
 }

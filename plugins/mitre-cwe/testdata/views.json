@@ -1,0 +1,17 @@
+{
+  "Views": [
+    {
+      "ID": "1000",
+      "Name": "Research Concepts",
+      "Type": "Graph",
+      "Status": "Draft",
+      "Objective": "This view is intended to facilitate research into weaknesses.",
+      "Members": [
+        {"CweID": "918", "ViewID": "1000"},
+        {"CweID": "441", "ViewID": "1000"},
+        {"CweID": "1011", "ViewID": "1000"}
+      ],
+      "MappingNotes": {"Usage": "Prohibited"}
+    }
+  ]
+}

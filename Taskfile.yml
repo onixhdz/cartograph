@@ -221,7 +221,7 @@ tasks:
         CXX='{{.HOST_CXX}}'
         go build -trimpath -tags embedding_cgo
         -ldflags "{{.GO_LDFLAGS}} {{.EXTRA_LDFLAGS}}"
-        -o {{.BIN_NAME}}
+        -o {{.BIN_NAME}} ./cmd/cartograph
       - echo "✓ {{.BIN_NAME}} ($(du -h {{.BIN_NAME}} | cut -f1))"
 
   # ── Dev symlink ─────────────────────────────────────────────────────
@@ -261,7 +261,7 @@ tasks:
         CXX='zig c++ -target x86_64-linux-musl'
         go build -trimpath -tags embedding_cgo
         -ldflags "{{.GO_LDFLAGS}} -linkmode external -extldflags '-static'"
-        -o cartograph-linux-amd64
+        -o cartograph-linux-amd64 ./cmd/cartograph
 
   build:target:linux:arm64:
     desc: Build cartograph for Linux (aarch64) — native CGO, static (musl)
@@ -287,7 +287,7 @@ tasks:
         CXX='zig c++ -target aarch64-linux-musl'
         go build -trimpath -tags embedding_cgo
         -ldflags "{{.GO_LDFLAGS}} -linkmode external -extldflags '-static'"
-        -o cartograph-linux-arm64
+        -o cartograph-linux-arm64 ./cmd/cartograph
 
   build:target:mac:
     desc: Build cartograph for all macOS targets
@@ -319,7 +319,7 @@ tasks:
         CXX='zig c++ -target aarch64-macos'
         go build -trimpath -tags embedding_cgo
         -ldflags "{{.GO_LDFLAGS}} -extldflags '-undefined dynamic_lookup'"
-        -o cartograph-darwin-arm64
+        -o cartograph-darwin-arm64 ./cmd/cartograph
       - |
         if command -v codesign >/dev/null 2>&1; then
           codesign --force --sign - cartograph-darwin-arm64
@@ -352,7 +352,7 @@ tasks:
         CXX='zig c++ -target x86_64-macos'
         go build -trimpath -tags embedding_cgo
         -ldflags "{{.GO_LDFLAGS}} -extldflags '-undefined dynamic_lookup'"
-        -o cartograph-darwin-amd64
+        -o cartograph-darwin-amd64 ./cmd/cartograph
       - |
         if command -v codesign >/dev/null 2>&1; then
           codesign --force --sign - cartograph-darwin-amd64
@@ -385,4 +385,4 @@ tasks:
         CXX='zig c++ -target x86_64-windows-gnu'
         go build -trimpath -tags embedding_cgo
         -ldflags "{{.GO_LDFLAGS}}"
-        -o cartograph-windows-amd64.exe
+        -o cartograph-windows-amd64.exe ./cmd/cartograph

@@ -17,6 +17,7 @@ import (
 
 	"github.com/onixhdz/cartograph/internal/plugin"
 	"github.com/onixhdz/cartograph/internal/service"
+	"github.com/onixhdz/cartograph/internal/storage"
 	"github.com/onixhdz/cartograph/internal/sysutil"
 
 	pluginsdk "github.com/onixhdz/cartograph/plugin"
@@ -217,7 +218,7 @@ func (c *PluginRmCmd) Run(_ *CLI) error {
 	if err := os.RemoveAll(dataDir); err != nil {
 		fmt.Printf("  Warning: failed to remove data directory %s: %v\n", dataDir, err)
 	}
-	if err := plugin.RemovePluginDatasets(DefaultDataDir(), c.Name); err != nil {
+	if err := plugin.RemovePluginDatasets(storage.DefaultDataDir(), c.Name); err != nil {
 		fmt.Printf("  Warning: failed to remove plugin dataset: %v\n", err)
 	}
 	if err := removeInstalledPluginMetadata(c.Name); err != nil {
@@ -262,12 +263,12 @@ func (c *PluginIngestCmd) Run(_ *CLI) error {
 
 // PluginBinDir returns the directory where plugin binaries are installed.
 func PluginBinDir() string {
-	return filepath.Join(DefaultDataDir(), "plugins", "bin")
+	return filepath.Join(storage.DefaultDataDir(), "plugins", "bin")
 }
 
 // PluginDataDir returns the per-plugin data directory for the given plugin name.
 func PluginDataDir(name string) string {
-	dataDir, err := plugin.JoinName(filepath.Join(DefaultDataDir(), "plugins", "data"), name)
+	dataDir, err := plugin.JoinName(filepath.Join(storage.DefaultDataDir(), "plugins", "data"), name)
 	if err != nil {
 		return ""
 	}
@@ -275,7 +276,7 @@ func PluginDataDir(name string) string {
 }
 
 func PluginRegistryPath() string {
-	return filepath.Join(DefaultDataDir(), "plugins", "plugins.json")
+	return filepath.Join(storage.DefaultDataDir(), "plugins", "plugins.json")
 }
 
 // resolvePluginBinary looks for a plugin binary in the plugins bin directory.
@@ -296,7 +297,7 @@ func resolvePluginBinary(name string) string {
 // PluginConfig (the plugin runs with its own defaults).
 
 func resolvePluginConfig(name string) plugin.PluginConfig {
-	configPath := filepath.Join(DefaultDataDir(), "config.toml")
+	configPath := filepath.Join(storage.DefaultDataDir(), "config.toml")
 	cfg, err := plugin.LoadConfig(configPath)
 	if err == nil {
 		if pc, ok := cfg.Plugins[name]; ok {
@@ -368,7 +369,7 @@ func runIngest(pluginName, connectionName string, pc plugin.PluginConfig) error 
 		PluginName:     pluginName,
 		PluginVersion:  installedPluginVersion(pluginName),
 		ConnectionName: connectionName,
-		DataDir:        DefaultDataDir(),
+		DataDir:        storage.DefaultDataDir(),
 		PluginDataDir:  PluginDataDir(pluginName),
 		Graph:          g,
 		NodeCount:      nodes,
@@ -419,7 +420,7 @@ func requestPluginIngest(pluginName, connectionName string, resourceTypes []stri
 		return nil
 	}
 
-	dataDir := DefaultDataDir()
+	dataDir := storage.DefaultDataDir()
 	client := connectOrStartService(dataDir)
 	if client == nil {
 		if mode == embedAsync {
@@ -689,7 +690,7 @@ func sanitizePluginResourceName(name string) string {
 // warnIfReferenced checks if a plugin is referenced in the default
 // config.toml and prints a warning if so.
 func warnIfReferenced(pluginName string) {
-	configPath := filepath.Join(DefaultDataDir(), "config.toml")
+	configPath := filepath.Join(storage.DefaultDataDir(), "config.toml")
 	cfg, err := plugin.LoadConfig(configPath)
 	if err != nil {
 		return // No config or can't read — skip warning.

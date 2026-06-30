@@ -513,7 +513,7 @@ func (s *Server) loadGraphFromRegistry(repo string) error {
 	repoDir := filepath.Join(s.dataDir, entry.Name, entry.Hash)
 	dbPath := filepath.Join(repoDir, "graph.db")
 
-	store, err := bbolt.New(dbPath)
+	store, err := bbolt.NewReadOnly(dbPath)
 	if err != nil {
 		return nil //nolint:nilerr // db open failure — repo not loadable
 	}
@@ -669,7 +669,7 @@ func (s *Server) lazyInitResolver(repo string) *storage.ContentResolver {
 
 	if entry.Meta.HasContentBucket {
 		dbPath := filepath.Join(repoDir, "graph.db")
-		cs, err := bbolt.NewContentStore(dbPath)
+		cs, err := bbolt.NewReadOnlyContentStore(dbPath)
 		if err != nil {
 			return nil
 		}

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/onixhdz/cartograph/internal/query"
 	"github.com/onixhdz/cartograph/internal/search"
 	"github.com/onixhdz/cartograph/internal/service"
 	"github.com/onixhdz/cartograph/internal/storage"
@@ -39,7 +40,7 @@ func newTestServerMCPClient(t *testing.T, sourceDir string) *serverMCPClient {
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
-	srv.SetBackendFactory(NewQueryBackendFactory(srv))
+	srv.SetBackendFactory(query.NewBackendFactory(srv))
 
 	g := testutil.SampleGraph()
 	idx, err := search.NewMemoryIndex()
@@ -185,7 +186,7 @@ func TestServerHTTPClient_ConcurrentMixedReadCommands(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
-	srv.SetBackendFactory(NewQueryBackendFactory(srv))
+	srv.SetBackendFactory(query.NewBackendFactory(srv))
 
 	g := testutil.SampleGraph()
 	idx, err := search.NewMemoryIndex()
@@ -418,7 +419,7 @@ func TestServerMCPClient_CatNoResolver(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
-	srv.SetBackendFactory(NewQueryBackendFactory(srv))
+	srv.SetBackendFactory(query.NewBackendFactory(srv))
 
 	g := testutil.SampleGraph()
 	srv.LoadGraphDirect("testrepo", g, nil)

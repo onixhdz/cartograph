@@ -1,0 +1,76 @@
+{
+  "Weaknesses": [
+    {
+      "ID": "918",
+      "Name": "Server-Side Request Forgery (SSRF)",
+      "Abstraction": "Base",
+      "Status": "Stable",
+      "Description": "The web server receives a URL or similar request from an upstream component and retrieves the contents of this URL, but it does not sufficiently ensure that the request is being sent to the expected destination.",
+      "ExtendedDescription": "Attackers can induce the server to make requests to unintended locations such as internal services.",
+      "LikelihoodOfExploit": "High",
+      "RelatedWeaknesses": [
+        {"Nature": "ChildOf", "CweID": "441", "ViewID": "1000", "Ordinal": "Primary"},
+        {"Nature": "CanPrecede", "CweID": "200", "ViewID": "1000"},
+        {"Nature": "CanAlsoBe", "CweID": "610", "ViewID": "1000"}
+      ],
+      "ApplicablePlatforms": [
+        {"Type": "Technology", "Class": "Web Based", "Prevalence": "Often"}
+      ],
+      "AlternateTerms": [
+        {"Term": "SSRF", "Description": "Common abbreviation."}
+      ],
+      "CommonConsequences": [
+        {"Scope": ["Confidentiality"], "Impact": ["Read Application Data"], "Note": "An attacker may read internal metadata or service responses."}
+      ],
+      "DetectionMethods": [
+        {"Method": "Manual Analysis", "Description": "Trace attacker-controlled URLs to outbound HTTP clients and verify allowlist/private-network controls.", "Effectiveness": "High"}
+      ],
+      "PotentialMitigations": [
+        {"MitigationID": "MIT-SSRF", "Phase": ["Implementation"], "Strategy": "Input Validation", "Description": "Use strict allowlists for schemes, hosts, and resolved IP ranges; block redirects to private networks."}
+      ],
+      "DemonstrativeExamples": [
+        {"ID": "DX-918", "Entries": [
+          {"IntroText": "A handler accepts a URL parameter and fetches it on the server."},
+          {"Nature": "Bad", "Language": "Go", "ExampleCode": "http.Get(request.URL.Query().Get(\"url\"))"}
+        ]}
+      ],
+      "ObservedExamples": [
+        {"Reference": "CVE-2024-1234", "Description": "Product allowed SSRF through webhook URL.", "Link": "https://www.cve.org/CVERecord?id=CVE-2024-1234"}
+      ],
+      "MappingNotes": {"Usage": "Allowed"},
+      "RelatedAttackPatterns": ["664", "115"]
+    },
+    {
+      "ID": "441",
+      "Name": "Unintended Proxy or Intermediary ('Confused Deputy')",
+      "Abstraction": "Class",
+      "Status": "Stable",
+      "Description": "The product receives a request, message, or directive from an upstream component, but the product does not sufficiently preserve the original source context.",
+      "MappingNotes": {"Usage": "Allowed"}
+    },
+    {
+      "ID": "200",
+      "Name": "Exposure of Sensitive Information to an Unauthorized Actor",
+      "Abstraction": "Class",
+      "Status": "Stable",
+      "Description": "The product exposes sensitive information to an actor that is not explicitly authorized to have access to that information.",
+      "MappingNotes": {"Usage": "Allowed"}
+    },
+    {
+      "ID": "610",
+      "Name": "Externally Controlled Reference to a Resource in Another Sphere",
+      "Abstraction": "Base",
+      "Status": "Stable",
+      "Description": "The product uses an externally controlled name or reference that resolves to a resource outside the intended control sphere.",
+      "MappingNotes": {"Usage": "Allowed"}
+    },
+    {
+      "ID": "9999",
+      "Name": "DEPRECATED: Old Weakness",
+      "Abstraction": "Base",
+      "Status": "Deprecated",
+      "Description": "Deprecated weakness.",
+      "MappingNotes": {"Usage": "Prohibited"}
+    }
+  ]
+}

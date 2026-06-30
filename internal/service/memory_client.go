@@ -600,7 +600,7 @@ func (mc *MemoryClient) loadFromDisk(repo string) error {
 	repoDir := filepath.Join(mc.dataDir, entry.Name, entry.Hash)
 	dbPath := filepath.Join(repoDir, "graph.db")
 
-	store, err := bbolt.New(dbPath)
+	store, err := bbolt.NewReadOnly(dbPath)
 	if err != nil {
 		return fmt.Errorf("memory client: open store for %q: %w", repo, err)
 	}
@@ -681,7 +681,7 @@ func (mc *MemoryClient) getContentResolver(repo string) *storage.ContentResolver
 	}
 	if entry.Meta.HasContentBucket {
 		dbPath := filepath.Join(repoDir, "graph.db")
-		cs, err := bbolt.NewContentStore(dbPath)
+		cs, err := bbolt.NewReadOnlyContentStore(dbPath)
 		if err != nil {
 			return nil
 		}

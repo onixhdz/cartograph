@@ -17,7 +17,9 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	mcpserver "github.com/onixhdz/cartograph/internal/mcp"
+	"github.com/onixhdz/cartograph/internal/query"
 	"github.com/onixhdz/cartograph/internal/service"
+	"github.com/onixhdz/cartograph/internal/storage"
 	"github.com/onixhdz/cartograph/internal/sysutil"
 )
 
@@ -50,7 +52,7 @@ func (c *ServeStartCmd) Run(cli *CLI) error {
 // runDetached re-execs as a detached child process and waits for it to
 // become healthy, then prints the PID and returns.
 func (c *ServeStartCmd) runDetached() error {
-	dataDir := DefaultDataDir()
+	dataDir := storage.DefaultDataDir()
 
 	if client := tryConnectExisting(dataDir); client != nil {
 		fmt.Println("Service is already running.")
@@ -144,7 +146,7 @@ func (c *ServeStartCmd) runDetached() error {
 }
 
 func (c *ServeStartCmd) runForeground(cli *CLI) error {
-	dataDir := DefaultDataDir()
+	dataDir := storage.DefaultDataDir()
 	socketPath := c.Socket
 	if socketPath == "" {
 		socketPath = DefaultSocketPath()
@@ -173,7 +175,7 @@ func (c *ServeStartCmd) runForeground(cli *CLI) error {
 		_ = lf.Release()
 		return fmt.Errorf("serve: %w", err)
 	}
-	srv.SetBackendFactory(NewQueryBackendFactory(srv))
+	srv.SetBackendFactory(query.NewBackendFactory(srv))
 
 	if !c.NoMCP {
 		appVersion := cli.AppVersion
@@ -266,7 +268,7 @@ func (c *ServeStartCmd) runForeground(cli *CLI) error {
 type ServeStopCmd struct{}
 
 func (c *ServeStopCmd) Run(cli *CLI) error {
-	dataDir := DefaultDataDir()
+	dataDir := storage.DefaultDataDir()
 	lf := service.NewLockfile(dataDir)
 
 	pid, _, _, err := lf.ReadFullInfo()
@@ -317,7 +319,7 @@ func (c *ServeStopCmd) Run(cli *CLI) error {
 type ServeStatusCmd struct{}
 
 func (c *ServeStatusCmd) Run(cli *CLI) error {
-	dataDir := DefaultDataDir()
+	dataDir := storage.DefaultDataDir()
 	lf := service.NewLockfile(dataDir)
 
 	pid, addr, network, err := lf.ReadFullInfo()
@@ -619,6 +621,21 @@ func (c *serverMCPClient) Cat(req service.CatRequest) (*service.CatResult, error
 		})
 	}
 	return &result, nil
+}
+
+func (c *serverMCPClient) Tree(req service.TreeRequest) (*service.TreeResult, error) {
+	resolved, _, err := c.resolveBackend(req.Repo)
+	if err != nil {
+		return nil, err
+	}
+	g, _, ok := c.srv.GetRepoResources(resolved)
+	if !ok || g == nil {
+		return nil, &service.APIError{
+			Code:    service.ErrCodeRepoNotFound,
+			Message: fmt.Sprintf("repository %q not indexed", resolved),
+		}
+	}
+	return service.BuildTreeResult(resolved, g), nil
 }
 
 func (c *serverMCPClient) Schema(req service.SchemaRequest) (*service.SchemaResult, error) {

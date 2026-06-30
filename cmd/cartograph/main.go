@@ -10,7 +10,9 @@ import (
 	"github.com/alecthomas/kong"
 
 	"github.com/onixhdz/cartograph/cmd"
+	"github.com/onixhdz/cartograph/internal/query"
 	"github.com/onixhdz/cartograph/internal/service"
+	"github.com/onixhdz/cartograph/internal/storage"
 	"github.com/onixhdz/cartograph/internal/version"
 )
 
@@ -55,7 +57,7 @@ func main() {
 		return
 	}
 
-	dataDir := cmd.DefaultDataDir()
+	dataDir := storage.DefaultDataDir()
 
 	// If a background service is already running, delegate to it via
 	// HTTP client. This avoids file-lock contention (e.g. Bleve bbolt
@@ -77,7 +79,7 @@ func main() {
 
 	// Fall back to an in-process MemoryClient when no service is reachable.
 	mc := service.NewMemoryClient(dataDir)
-	mc.SetBackendFactory(cmd.NewQueryBackendFactory(mc))
+	mc.SetBackendFactory(query.NewBackendFactory(mc))
 	_ = mc.LoadAllFromRegistry() // best-effort preload
 	cli.Client = mc
 

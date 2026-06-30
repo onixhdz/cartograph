@@ -14,6 +14,7 @@ import (
 	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/memfs"
 
+	"github.com/onixhdz/cartograph/internal/analyze"
 	"github.com/onixhdz/cartograph/internal/ingestion"
 	"github.com/onixhdz/cartograph/internal/remote"
 	"github.com/onixhdz/cartograph/internal/service"
@@ -761,12 +762,12 @@ func TestStatusCmd(t *testing.T) {
 		dataDir := t.TempDir()
 		origXDG := os.Getenv("XDG_DATA_HOME")
 		// DefaultDataDir appends "cartograph" to XDG_DATA_HOME, so point
-		// XDG_DATA_HOME to a parent so that dataDir == DefaultDataDir().
+		// XDG_DATA_HOME to a parent so that dataDir == storage.DefaultDataDir().
 		_ = os.Setenv("XDG_DATA_HOME", filepath.Dir(dataDir))
 		defer func() { _ = os.Setenv("XDG_DATA_HOME", origXDG) }()
 
-		// Rename the temp dir's base to "cartograph" to match DefaultDataDir().
-		actualDataDir := DefaultDataDir()
+		// Rename the temp dir's base to "cartograph" to match storage.DefaultDataDir().
+		actualDataDir := storage.DefaultDataDir()
 		_ = os.MkdirAll(actualDataDir, 0o750)
 
 		registry, err := storage.NewRegistry(actualDataDir)
@@ -815,7 +816,7 @@ func TestStatusCmd(t *testing.T) {
 		_ = os.Setenv("XDG_DATA_HOME", filepath.Dir(dataDir))
 		defer func() { _ = os.Setenv("XDG_DATA_HOME", origXDG) }()
 
-		actualDataDir := DefaultDataDir()
+		actualDataDir := storage.DefaultDataDir()
 		_ = os.MkdirAll(actualDataDir, 0o750)
 
 		cli := &CLI{Client: &mockClient{}}
@@ -1004,7 +1005,7 @@ func TestAnalyzeCmd_RepoSelectionAutoSplitsLocalRepos(t *testing.T) {
 	if strings.Count(out, "Analyzing ") != 2 {
 		t.Fatalf("expected two selected repos to be analyzed, got output:\n%s", out)
 	}
-	reg, err := storage.NewRegistry(DefaultDataDir())
+	reg, err := storage.NewRegistry(storage.DefaultDataDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1057,11 +1058,11 @@ func TestAnalyzeCmd_RepoSelectionRefusesLinkedContainer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reg, err := storage.NewRegistry(DefaultDataDir())
+	reg, err := storage.NewRegistry(storage.DefaultDataDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	containerHash := shortHash(abs)
+	containerHash := analyze.ShortHash(abs)
 	if err := reg.Add(storage.RegistryEntry{Name: filepath.Base(abs), Path: abs, Hash: containerHash, LinkedRepos: []string{"linked"}}); err != nil {
 		t.Fatal(err)
 	}

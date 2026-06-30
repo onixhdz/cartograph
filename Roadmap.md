@@ -21,7 +21,7 @@ Most structural code questions (blast radius, call chains, process ownership, su
 | Incremental Re-Indexing         | 🔲 Planned     | High     | Diff/staleness detection plus incremental refresh; only re-parse changed files (10–100× speedup)                                                                                                                |
 | CloudGraph                      | 🔲 Planned     | High     | Plugin-based cloud/infra data sources (AWS, GitHub, k8s, SaaS) ingested into the knowledge graph; query infrastructure alongside code via Cypher                                                                |
 | Semantic Config & Infra Parsing | 🔲 Planned     | High     | Classify config/infra/schema files and extract evidence-backed runtime facts from contracts, deployment manifests, SQL, Terraform/HCL, Docker, etc.; replaces generic fallback parsing with semantic extractors |
-| Security Flow Analysis          | 🔲 Planned     | High     | CodeQL-inspired security research primitives: call-site preservation, value facts, local data flow, temporary source/sink models, partial-flow exploration, and explainable path evidence                        |
+| Security Flow Analysis          | 🔲 Planned     | High     | CodeQL-inspired security research primitives: call-site preservation, value facts, local data flow, temporary source/sink models, partial-flow exploration, and explainable path evidence                       |
 | Architecture Summary            | 🔲 Planned     | Medium   | Auto-generate subsystem overview from community + centrality + entry points                                                                                                                                     |
 | Dead Code Detection             | 🔲 Planned     | Medium   | Reachability BFS from entry points; transitive dead code detection                                                                                                                                              |
 | Watch Mode                      | 🔲 Planned     | Medium   | `fsnotify` + incremental re-index; graph stays current while you code                                                                                                                                           |
@@ -32,11 +32,12 @@ Most structural code questions (blast radius, call chains, process ownership, su
 | Model2Vec Static Embeddings     | 🔲 Planned     | Low      | CGO-free embedding path; static lookup table (~30MB); two-stage: instant static, GGML upgrade in background                                                                                                     |
 | Binary Quantization             | 🔲 Planned     | Low      | Asymmetric binary doc embeddings (1 bit/dim) with float32 queries; ~32× storage reduction; popcount search for large repos                                                                                      |
 | Test Coverage Overlay           | 🔲 Planned     | Low      | Import lcov/go cover; risk-weighted gaps = coverage × churn × fan-in                                                                                                                                            |
+| API Compatibility CI            | 🔲 Planned     | Low      | Add Go public API compatibility checks for the embedded API and plugin SDK packages so breaking changes are caught before release                                                                               |
 
 ### Completed
 
-| Feature                    | Status | Priority | Description                                                                                                          |
-| -------------------------- | ------ | -------- | -------------------------------------------------------------------------------------------------------------------- |
+| Feature                    | Status  | Priority | Description                                                                                                          |
+| -------------------------- | ------- | -------- | -------------------------------------------------------------------------------------------------------------------- |
 | Graph indexing (`analyze`) | ✅ Done | —        | Parse source into symbol/relationship graph; bbolt + bleve storage                                                   |
 | Remote repo analysis       | ✅ Done | —        | Clone and analyze GitHub repos by URL or `org/repo` shorthand                                                        |
 | Query + semantic search    | ✅ Done | —        | BM25 + embedding hybrid search with process and graph enrichment                                                     |
@@ -88,13 +89,13 @@ MVP
 
 ## How It Compares
 
-| Capability                            | Cartograph | Typical alternatives          |
-| ------------------------------------- | ---------- | ----------------------------- |
-| No file lock — concurrent CLI + serve | ✅          | ❌ (file lock contention)      |
-| CGO-free embedding path (Model2Vec)   | ✅ planned  | ❌ (requires native libs)      |
-| Incremental re-indexing               | ✅ planned  | ❌ (full re-analyze every run) |
-| Cross-repo analysis                   | ✅ planned  | ❌                             |
-| Git history intelligence              | ✅ planned  | ❌ (separate paid tools)       |
-| Vulnerability reachability            | ✅ planned  | ❌ open source / 💰 paid        |
-| Architecture guardrails in CI         | ✅ planned  | ❌ (separate config + tools)   |
-| Single binary                         | ✅          | ❌                             |
+| Capability                            | Cartograph | Typical alternatives           |
+| ------------------------------------- | ---------- | ------------------------------ |
+| No file lock — concurrent CLI + serve | ✅         | ❌ (file lock contention)      |
+| CGO-free embedding path (Model2Vec)   | ✅ planned | ❌ (requires native libs)      |
+| Incremental re-indexing               | ✅ planned | ❌ (full re-analyze every run) |
+| Cross-repo analysis                   | ✅ planned | ❌                             |
+| Git history intelligence              | ✅ planned | ❌ (separate paid tools)       |
+| Vulnerability reachability            | ✅ planned | ❌ open source / 💰 paid       |
+| Architecture guardrails in CI         | ✅ planned | ❌ (separate config + tools)   |
+| Single binary                         | ✅         | ❌                             |

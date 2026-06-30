@@ -18,8 +18,8 @@ require (
 	github.com/gortexhq/tree-sitter-swift v0.1.1-0.20260424235305-8dde3a3327dd
 	github.com/klauspost/compress v1.18.6
 	github.com/modelcontextprotocol/go-sdk v1.6.1
-	github.com/odvcencio/gotreesitter v0.19.1
-	github.com/pelletier/go-toml/v2 v2.3.1
+	github.com/odvcencio/gotreesitter v0.20.6
+	github.com/pelletier/go-toml/v2 v2.4.2
 	github.com/posener/complete v1.2.3
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
 	github.com/tree-sitter/go-tree-sitter v0.25.0
@@ -36,10 +36,10 @@ require (
 	github.com/tree-sitter/tree-sitter-scala v0.26.0
 	github.com/tree-sitter/tree-sitter-typescript v0.23.2
 	github.com/vmihailenco/msgpack/v5 v5.4.1
-	go.etcd.io/bbolt v1.4.3
-	golang.org/x/mod v0.36.0
-	golang.org/x/sys v0.45.0
-	golang.org/x/term v0.43.0
+	go.etcd.io/bbolt v1.5.0
+	golang.org/x/mod v0.37.0
+	golang.org/x/sys v0.46.0
+	golang.org/x/term v0.44.0
 )
 
 require (
@@ -121,9 +121,9 @@ require (
 	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/telemetry v0.0.0-20260421165255-392afab6f40e // indirect
+	golang.org/x/telemetry v0.0.0-20260508192327-42602be52be6 // indirect
 	golang.org/x/text v0.37.0 // indirect
-	golang.org/x/tools v0.44.0 // indirect
+	golang.org/x/tools v0.45.0 // indirect
 	golang.org/x/vuln v1.3.0 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
