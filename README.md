@@ -27,7 +27,7 @@ curl -sSfL https://onixhdz.github.io/cartograph/install.sh | sh
 Install a specific version or to a custom directory:
 
 ```bash
-curl -sSfL https://onixhdz.github.io/cartograph/install.sh | sh -s -- --version v0.1.2
+curl -sSfL https://onixhdz.github.io/cartograph/install.sh | sh -s -- --version vX.Y.Z
 curl -sSfL https://onixhdz.github.io/cartograph/install.sh | sh -s -- --install-dir ~/bin
 ```
 

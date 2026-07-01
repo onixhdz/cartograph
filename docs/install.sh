@@ -7,7 +7,7 @@
 #
 # Usage:
 #   curl -sSfL https://onixhdz.github.io/cartograph/install.sh | sh
-#   curl -sSfL https://onixhdz.github.io/cartograph/install.sh | sh -s -- --version v0.1.2
+#   curl -sSfL https://onixhdz.github.io/cartograph/install.sh | sh -s -- --version vX.Y.Z
 #
 # Options:
 #   --version VERSION   Install a specific version (default: latest)
