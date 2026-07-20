@@ -18,15 +18,17 @@ import (
 
 // RegistryEntry describes a single indexed repository.
 type RegistryEntry struct {
-	Name      string    `json:"name"`
+	Name string `json:"name"`
+	// Path is the local source path for local repositories or the cloneable
+	// Git URL used to acquire remote repositories.
 	Path      string    `json:"path"`
 	Hash      string    `json:"hash"`
 	IndexedAt time.Time `json:"indexedAt"`
 	NodeCount int       `json:"nodeCount"`
 	EdgeCount int       `json:"edgeCount"`
 
-	// URL is the original Git URL (normalized: https, no trailing .git).
-	// Empty for locally analyzed repos.
+	// URL is the canonical remote identity (host/path with an optional
+	// explicit @ref). It is not a clone URL and is empty for local repositories.
 	URL string `json:"url,omitempty"`
 
 	// IndexVersion changes each time the repo is re-indexed.
@@ -41,6 +43,19 @@ type RegistryEntry struct {
 	// Meta holds per-repo details (commit hash, languages, duration, etc.)
 	// inline so the registry is the single source of truth.
 	Meta Meta `json:"meta"`
+}
+
+// ErrRegistryRepoNotFound identifies a registry lookup with no matching entry.
+var ErrRegistryRepoNotFound = errors.New("repo not found in registry")
+
+type registryRepoNotFoundError struct {
+	message string
+}
+
+func (e registryRepoNotFoundError) Error() string { return e.message }
+
+func (e registryRepoNotFoundError) Is(target error) bool {
+	return target == ErrRegistryRepoNotFound
 }
 
 // Registry manages a persistent list of indexed repositories.
@@ -69,19 +84,33 @@ func NewRegistry(dir string) (*Registry, error) {
 	return r, nil
 }
 
-// Add adds or updates an entry and persists the registry.
-// When updating, embedding state is preserved from the previous entry.
-// Callers that intentionally want a BM25-only repo state should invoke
-// ClearEmbedding after Add.
+// Add adds or updates an entry and persists the registry while preserving
+// embedding state from a previous entry with the same hash.
 func (r *Registry) Add(entry RegistryEntry) error {
+	return r.add(entry, true)
+}
+
+// AddWithoutEmbedding adds or updates an entry and atomically resets any
+// embedding state from a previous entry with the same hash.
+func (r *Registry) AddWithoutEmbedding(entry RegistryEntry) error {
+	entry.Meta.ResetEmbedding()
+	return r.add(entry, false)
+}
+
+func (r *Registry) add(entry RegistryEntry, preserveEmbedding bool) error {
+	if _, err := RepositoryDir(filepath.Dir(r.path), entry.Name, entry.Hash); err != nil {
+		return fmt.Errorf("registry: invalid repository identity: %w", err)
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if err := r.lockAndReload(); err != nil {
 		return err
 	}
 	defer r.flock.Unlock()
-	if prev, ok := r.entries[entry.Hash]; ok {
-		entry.Meta.CopyEmbeddingFrom(prev.Meta)
+	if preserveEmbedding {
+		if prev, ok := r.entries[entry.Hash]; ok {
+			entry.Meta.CopyEmbeddingFrom(prev.Meta)
+		}
 	}
 	r.entries[entry.Hash] = entry
 	return r.save()
@@ -220,9 +249,9 @@ func (r *Registry) Resolve(nameOrHash string) (RegistryEntry, error) {
 		switch len(aliasMatches) {
 		case 0:
 			if suggestion := r.closestRepoName(nameOrHash); suggestion != "" {
-				return RegistryEntry{}, fmt.Errorf("repo %q not found in registry — did you mean %q?", nameOrHash, suggestion)
+				return RegistryEntry{}, registryRepoNotFoundError{message: fmt.Sprintf("repo %q not found in registry — did you mean %q?", nameOrHash, suggestion)}
 			}
-			return RegistryEntry{}, fmt.Errorf("repo %q not found in registry", nameOrHash)
+			return RegistryEntry{}, registryRepoNotFoundError{message: fmt.Sprintf("repo %q not found in registry", nameOrHash)}
 		case 1:
 			return aliasMatches[0], nil
 		default:
@@ -631,6 +660,9 @@ func normalizeRepoPath(p string) string {
 // name. For "hashicorp/nomad" it returns "nomad". For a plain name
 // like "myrepo" it returns "myrepo" unchanged.
 func repoBasename(name string) string {
+	if i := strings.Index(name, "@"); i >= 0 {
+		name = name[:i]
+	}
 	if i := strings.LastIndex(name, "/"); i >= 0 {
 		return name[i+1:]
 	}

@@ -110,6 +110,34 @@ func TestMetaEmbeddingPreservedOnAdd(t *testing.T) {
 	}
 }
 
+func TestMetaEmbeddingResetAtomicallyOnAdd(t *testing.T) {
+	dir := t.TempDir()
+	reg, err := NewRegistry(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Add(RegistryEntry{Name: "myrepo", Hash: "abc12345"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.UpdateEmbedding("abc12345", EmbeddingInfo{Status: EmbeddingStatusComplete, Model: "stale"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.AddWithoutEmbedding(RegistryEntry{
+		Name: "myrepo", Hash: "abc12345", Meta: Meta{
+			CommitHash: "newcommit", EmbeddingStatus: EmbeddingStatusComplete, EmbeddingModel: "caller-stale",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := reg.Get("abc12345")
+	if !ok {
+		t.Fatal("expected updated entry")
+	}
+	if got.Meta.CommitHash != "newcommit" || got.Meta.EmbeddingStatus != "" || got.Meta.EmbeddingModel != "" {
+		t.Fatalf("embedding state was not reset atomically: %+v", got.Meta)
+	}
+}
+
 func TestMetaClearEmbedding(t *testing.T) {
 	dir := t.TempDir()
 	reg, err := NewRegistry(dir)

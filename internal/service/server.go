@@ -304,7 +304,11 @@ func (s *Server) GetBackendResources(repo string) (BackendResources, bool) {
 	}
 	entry, _ := s.registryEntry(repo)
 	if repoDir == "" && entry.Hash != "" {
-		repoDir = filepath.Join(s.dataDir, entry.Name, entry.Hash)
+		var err error
+		repoDir, err = storage.RepositoryDir(s.dataDir, entry.Name, entry.Hash)
+		if err != nil {
+			return BackendResources{}, false
+		}
 	}
 	return BackendResources{
 		Graph:              g,
@@ -483,7 +487,10 @@ func (s *Server) loadGraphFromRegistry(repo string) error {
 			return fmt.Errorf("repo %s: %w", repo, err)
 		}
 	}
-	repoDir := filepath.Join(s.dataDir, entry.Name, entry.Hash)
+	repoDir, err := storage.RepositoryDir(s.dataDir, entry.Name, entry.Hash)
+	if err != nil {
+		return fmt.Errorf("repository directory for %q: %w", repo, err)
+	}
 	dbPath := filepath.Join(repoDir, "graph.db")
 
 	store, err := bbolt.NewReadOnly(dbPath)
@@ -634,7 +641,10 @@ func (s *Server) lazyInitResolver(repo string) *storage.ContentResolver {
 		return cr
 	}
 
-	repoDir := filepath.Join(s.dataDir, entry.Name, entry.Hash)
+	repoDir, err := storage.RepositoryDir(s.dataDir, entry.Name, entry.Hash)
+	if err != nil {
+		return nil
+	}
 
 	cr = &storage.ContentResolver{
 		SourcePath: entry.Meta.SourcePath,
@@ -915,7 +925,11 @@ func (s *Server) runEmbedJob(ctx context.Context, job *embedJob, req EmbedReques
 		return
 	}
 	job.Hash = entry.Hash
-	repoDir = filepath.Join(s.dataDir, entry.Name, entry.Hash)
+	repoDir, err = storage.RepositoryDir(s.dataDir, entry.Name, entry.Hash)
+	if err != nil {
+		setError(fmt.Sprintf("repository directory: %v", err))
+		return
+	}
 	dbPath := filepath.Join(repoDir, "graph.db")
 
 	store, err := bbolt.New(dbPath)

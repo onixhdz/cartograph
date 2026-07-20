@@ -21,7 +21,8 @@ type Meta struct {
 	// BBolt "content" bucket with zstd compression.
 	HasContentBucket bool `json:"hasContentBucket,omitempty"`
 
-	// Branch is the Git branch that was analyzed.
+	// Branch is the requested Git branch or tag when specified; otherwise it
+	// is the resolved default branch.
 	Branch string `json:"branch,omitempty"`
 
 	// Version tracking — stamped at analysis time from the binary's

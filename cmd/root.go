@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -22,7 +21,6 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/huh"
 	"github.com/cloudprivacylabs/lpg/v2"
-	"github.com/go-git/go-billy/v5"
 	"golang.org/x/term"
 
 	analyzecore "github.com/onixhdz/cartograph/internal/analyze"
@@ -171,7 +169,10 @@ func (c *CloneCmd) Run(cli *CLI) error {
 	repoName := identity.Name
 	repoHash := analyzecore.ShortHash(identity.Canonical)
 	dataDir := storage.DefaultDataDir()
-	repoDir := filepath.Join(dataDir, repoName, repoHash)
+	repoDir, err := storage.RepositoryDir(dataDir, repoName, repoHash)
+	if err != nil {
+		return fmt.Errorf("clone: repository directory: %w", err)
+	}
 	srcDir := filepath.Join(repoDir, "src")
 
 	if info, err := os.Stat(srcDir); err == nil && info.IsDir() {
@@ -280,77 +281,44 @@ func (c *AnalyzeCmd) Run(cli *CLI) error {
 }
 
 func (c *AnalyzeCmd) runOne(cli *CLI, target string) error {
-	// Extract inline @ref (Go module style): owner/repo@v1.0 → owner/repo + branch "v1.0".
-	if base, ref := remote.SplitRef(target); ref != "" {
-		if c.Branch != "" {
-			return fmt.Errorf("cannot use both inline @ref (%s) and --branch flag (%s)", ref, c.Branch)
+	resolved, err := analyzecore.ResolveTarget(target, c.Branch, storage.DefaultDataDir())
+	if err != nil {
+		return fmt.Errorf("resolve analysis target: %w", err)
+	}
+	switch resolved.Kind {
+	case analyzecore.TargetRemote:
+		if resolved.Value != target {
+			fmt.Printf("Expanding %s → %s\n", target, resolved.Value)
 		}
-		target = base
-		origBranch := c.Branch
-		c.Branch = ref
-		defer func() { c.Branch = origBranch }()
+		return c.runRemoteWithRef(resolved.Ref, func() error {
+			return c.runRemote(cli, resolved.Value)
+		})
+	case analyzecore.TargetLocal:
+		return c.runLocal(cli, resolved.Value)
+	case analyzecore.TargetUnknown:
+		return c.runSuggestedRemote(resolved.Ref, func() string {
+			return c.suggestFromGitHub(resolved.Value)
+		}, func(repo string) error {
+			return c.runRemote(cli, repo)
+		})
+	default:
+		return fmt.Errorf("unsupported target kind %q", resolved.Kind)
 	}
+}
 
-	if remote.IsGitURL(target) {
-		return c.runRemote(cli, target)
+func (c *AnalyzeCmd) runRemoteWithRef(ref string, run func() error) error {
+	originalBranch := c.Branch
+	c.Branch = ref
+	defer func() { c.Branch = originalBranch }()
+	return run()
+}
+
+func (c *AnalyzeCmd) runSuggestedRemote(ref string, suggest func() string, run func(string) error) error {
+	repo := suggest()
+	if repo == "" {
+		return nil
 	}
-
-	// Host-prefixed URL without protocol scheme:
-	//   github.com/hashicorp/nomad   → https://github.com/hashicorp/nomad
-	//   gitlab.com/inkscape/inkscape → https://gitlab.com/inkscape/inkscape
-	if remote.IsGitHostURL(target) {
-		expanded := remote.ExpandGitHostURL(target)
-		fmt.Printf("Expanding %s → %s\n", target, expanded)
-		return c.runRemote(cli, expanded)
-	}
-
-	// GitHub shorthand: "owner/repo" → "https://github.com/owner/repo"
-	// Only when the target looks like owner/repo AND doesn't exist on disk.
-	if remote.IsGitHubShorthand(target) {
-		if _, err := os.Stat(target); os.IsNotExist(err) {
-			expanded := remote.ExpandGitHubShorthand(target)
-			fmt.Printf("Expanding %s → %s\n", target, expanded)
-			return c.runRemote(cli, expanded)
-		}
-	}
-
-	// Resolve from registry so "cartograph analyze nomad --embed=async"
-	// works without re-typing the full URL.
-	if _, err := os.Stat(target); os.IsNotExist(err) {
-		dataDir := storage.DefaultDataDir()
-		if reg, regErr := storage.NewRegistry(dataDir); regErr == nil {
-			if entry, resolveErr := reg.Resolve(target); resolveErr == nil {
-				if entry.URL != "" {
-					url := entry.URL
-					if remote.IsGitHostURL(url) {
-						url = remote.ExpandGitHostURL(url)
-					}
-					fmt.Printf("Resolved %q → %s\n", target, entry.URL)
-					return c.runRemote(cli, url)
-				}
-				// Local repo — reuse stored source path.
-				if entry.Meta.SourcePath != "" {
-					fmt.Printf("Resolved %q → %s\n", target, entry.Meta.SourcePath)
-					return c.runLocal(cli, entry.Meta.SourcePath)
-				}
-			}
-		}
-	}
-
-	// Bare project name (e.g. "nomad", "temporal"): if the target doesn't
-	// exist as a local directory, search GitHub and suggest matches.
-	if remote.IsBareProjectName(target) {
-		if _, err := os.Stat(target); os.IsNotExist(err) {
-			if repo := c.suggestFromGitHub(target); repo != "" {
-				return c.runRemote(cli, repo)
-			}
-			// We showed suggestions or search failed — either way, don't
-			// fall through to runLocal with a non-existent path.
-			return nil
-		}
-	}
-
-	return c.runLocal(cli, target)
+	return c.runRemoteWithRef(ref, func() error { return run(repo) })
 }
 
 // suggestFromGitHub searches GitHub for a bare project name and
@@ -481,6 +449,7 @@ func (c *AnalyzeCmd) runLocalSingle(cli *CLI, abs, repoName, repoHash string, al
 		Force:            c.Force,
 		Timing:           c.Timing,
 		AllowIdempotency: allowIdempotency,
+		ResetEmbedding:   c.Embed == embedOff,
 		OnEvent: func(event analyzecore.Event) {
 			switch event.Phase {
 			case analyzecore.PhaseReindexRequired:
@@ -575,7 +544,10 @@ func (c *AnalyzeCmd) runRemote(cli *CLI, url string) error {
 	repoName := identity.Name
 	repoHash := analyzecore.ShortHash(identity.Canonical)
 	dataDir := storage.DefaultDataDir()
-	repoDir := filepath.Join(dataDir, repoName, repoHash)
+	repoDir, err := storage.RepositoryDir(dataDir, repoName, repoHash)
+	if err != nil {
+		return fmt.Errorf("analyze: repository directory: %w", err)
+	}
 
 	// Check idempotency: ls-remote the current HEAD and compare with
 	// stored meta. This avoids a full clone when nothing changed.
@@ -679,7 +651,7 @@ func (c *AnalyzeCmd) runRemote(cli *CLI, url string) error {
 	if c.Clone {
 		return c.runCloneToDisk(cli, identity, repoName, repoHash, repoDir, dataDir, cloneOpts)
 	}
-	return c.runCloneToMemory(cli, identity, repoName, repoHash, repoDir, dataDir, cloneOpts)
+	return c.runCloneToTemporary(cli, identity, repoName, repoHash, dataDir, cloneOpts)
 }
 
 func (c *AnalyzeCmd) allowRemoteContainerIdempotency(dataDir, repoHash string) bool {
@@ -748,8 +720,7 @@ func (c *AnalyzeCmd) runSelectedMemoryRepos(
 ) error {
 	for _, repo := range selected {
 		repoHash := splitRemoteRepoHash(identity, repo.RelPath, result.Branch)
-		repoDir := filepath.Join(dataDir, repo.Name, repoHash)
-		if err := c.indexMemoryClone(cli, identity, repo.Name, repoHash, repoDir, dataDir, result, repo.Path); err != nil {
+		if err := c.indexMemoryClone(cli, identity, repo.Name, repoHash, dataDir, result, repo.Path); err != nil {
 			return err
 		}
 	}
@@ -989,24 +960,29 @@ func repoSignalList(signals []ingestion.RepoSignal) string {
 	return strings.Join(parts, ",")
 }
 
-// runCloneToMemory clones into memory, runs the pipeline, then persists
-// graph + content bucket. Source files never touch disk.
-func (c *AnalyzeCmd) runCloneToMemory(
+// runCloneToTemporary clones into temporary storage, runs the pipeline, then
+// persists the graph and content bucket before removing the source checkout.
+func (c *AnalyzeCmd) runCloneToTemporary(
 	cli *CLI, identity remote.RepoIdentity,
-	repoName, repoHash, repoDir, dataDir string,
+	repoName, repoHash, dataDir string,
 	cloneOpts remote.CloneOptions,
-) error {
-	spClone := newSpinner("Cloning repository into memory...")
+) (runErr error) {
+	spClone := newSpinner("Cloning repository into temporary storage...")
 	spClone.Start()
 
 	ctx, cancel := context.WithTimeout(context.Background(), remote.DefaultCloneTimeout)
 	defer cancel()
 
-	result, err := remote.CloneToMemory(ctx, cloneOpts)
+	result, err := remote.CloneToTemporary(ctx, cloneOpts)
 	if err != nil {
 		spClone.StopWithFailure("Clone failed")
 		return fmt.Errorf("analyze: %w", err)
 	}
+	defer func() {
+		if cleanupErr := os.RemoveAll(result.DiskPath); cleanupErr != nil {
+			runErr = errors.Join(runErr, fmt.Errorf("analyze: remove temporary clone: %w", cleanupErr))
+		}
+	}()
 	spClone.StopWithSuccess(fmt.Sprintf("Cloned %s (commit %s)", result.Branch, result.HeadSHA[:12]))
 
 	analyzeRoot := "/"
@@ -1032,140 +1008,92 @@ func (c *AnalyzeCmd) runCloneToMemory(
 		analyzeRoot = selection[0].Path
 		selectedRepoName = selection[0].Name
 		selectedRepoHash = splitRemoteRepoHash(identity, selection[0].RelPath, result.Branch)
-		repoDir = filepath.Join(dataDir, selectedRepoName, selectedRepoHash)
 	}
 
-	return c.indexMemoryClone(cli, identity, selectedRepoName, selectedRepoHash, repoDir, dataDir, result, analyzeRoot)
+	return c.indexMemoryClone(cli, identity, selectedRepoName, selectedRepoHash, dataDir, result, analyzeRoot)
 }
 
 func (c *AnalyzeCmd) indexMemoryClone(
 	cli *CLI,
 	identity remote.RepoIdentity,
-	repoName, repoHash, repoDir, dataDir string,
+	repoName, repoHash, dataDir string,
 	result *remote.CloneResult,
 	analyzeRoot string,
 ) error {
 	start := time.Now()
-
-	// "/" is the root because all memfs paths are relative to /.
-	spPipeline := newSpinner("Walking repository...")
-	spPipeline.Start()
-	pipeline := &ingestion.Pipeline{
-		Root:  analyzeRoot,
-		Graph: lpg.NewGraph(),
-		Options: ingestion.PipelineOptions{
-			Force:  c.Force,
-			Timing: c.Timing,
-			OnStep: func(step string, current, total int) {
-				spPipeline.Update(fmt.Sprintf("[%d/%d] %s", current, total, step))
-			},
-			OnFileProgress: func(done, total int) {
-				spPipeline.Update(fmt.Sprintf("[3/%d] Parsing files (%d/%d)", ingestion.PipelineStepCount, done, total))
-			},
+	var activeSpinner *spinner
+	analysisResult, err := analyzecore.Memory(context.Background(), analyzecore.MemorySource{
+		FS: result.FS, Root: analyzeRoot, Path: identity.CloneURL, URL: identity.Canonical,
+		Commit: result.HeadSHA, Branch: result.Branch,
+	}, analyzecore.Options{
+		DataDir: dataDir, RepoName: repoName, RepoHash: repoHash, Force: c.Force,
+		Timing: c.Timing, AllowIdempotency: true, ResetEmbedding: c.Embed == embedOff,
+		OnEvent: func(event analyzecore.Event) {
+			switch event.Phase {
+			case analyzecore.PhaseReindexRequired:
+				fmt.Printf("  ℹ %s. Rebuilding...\n", event.ReindexReason)
+			case analyzecore.PhasePipelineStart:
+				activeSpinner = newSpinner("Walking repository...")
+				activeSpinner.Start()
+			case analyzecore.PhasePipelineStep:
+				activeSpinner.Update(fmt.Sprintf("[%d/%d] %s", event.Current, event.Total, event.Message))
+			case analyzecore.PhaseFileProgress:
+				activeSpinner.Update(fmt.Sprintf("[3/%d] Parsing files (%d/%d)", ingestion.PipelineStepCount, event.Current, event.Total))
+			case analyzecore.PhasePipelineDone:
+				activeSpinner.StopWithSuccess("Pipeline complete")
+				activeSpinner = nil
+			case analyzecore.PhaseGraphSaveStart:
+				activeSpinner = newSpinner("Persisting graph and content...")
+				activeSpinner.Start()
+			case analyzecore.PhaseGraphSaveDone:
+				activeSpinner.StopWithSuccess("Graph and content persisted")
+				activeSpinner = nil
+			case analyzecore.PhaseIndexStart:
+				activeSpinner = newSpinner("Building search indexes...")
+				activeSpinner.Start()
+			case analyzecore.PhaseIndexDone:
+				activeSpinner.StopWithSuccess(fmt.Sprintf("Search indexes: BM25 %d documents, regex %d files", event.Index.BM25Documents, event.Index.RegexFiles))
+				activeSpinner = nil
+			}
 		},
-		Walker: remote.MemFSWalker{FS: result.FS},
-		Reader: remote.MemFSFileReader{FS: result.FS},
-	}
-	if err := pipeline.Run(); err != nil {
-		spPipeline.StopWithFailure("Pipeline failed")
-		return fmt.Errorf("analyze: %w", err)
-	}
-	spPipeline.StopWithSuccess("Pipeline complete")
-	g := pipeline.GetGraph()
-
-	nodeCount := graph.NodeCount(g)
-	edgeCount := graph.EdgeCount(g)
-	fmt.Printf("  Graph: %d nodes, %d edges\n", nodeCount, edgeCount)
-
-	if err := os.MkdirAll(repoDir, 0o750); err != nil {
-		return fmt.Errorf("analyze: create dir: %w", err)
-	}
-	dbPath := filepath.Join(repoDir, "graph.db")
-	spPersist := newSpinner("Persisting graph and content...")
-	spPersist.Start()
-	store, err := bbolt.New(dbPath)
-	if err != nil {
-		spPersist.StopWithFailure("Failed to open store")
-		return fmt.Errorf("analyze: open store: %w", err)
-	}
-	if err := store.SaveGraph(g); err != nil {
-		store.Close() //nolint:gosec
-		spPersist.StopWithFailure("Failed to persist graph")
-		return fmt.Errorf("analyze: save graph: %w", err)
-	}
-
-	// Populate content bucket — source won't be on disk.
-	cs, err := bbolt.NewContentStoreFromDB(store.DB())
-	if err != nil {
-		store.Close() //nolint:gosec
-		spPersist.StopWithFailure("Failed to init content store")
-		return fmt.Errorf("analyze: init content store: %w", err)
-	}
-	fileCount, err := populateContentBucket(cs, result.FS, analyzeRoot)
-	if err != nil {
-		cs.Close()    //nolint:gosec
-		store.Close() //nolint:gosec
-		spPersist.StopWithFailure("Failed to populate content")
-		return fmt.Errorf("analyze: populate content: %w", err)
-	}
-	cs.Close()    //nolint:gosec
-	store.Close() //nolint:gosec
-	spPersist.StopWithSuccess(fmt.Sprintf("Graph persisted, content stored: %d files", fileCount))
-
-	regexStats, err := buildAnalyzeIndexes(repoDir, g, c.Force, func(relPath string) (io.ReadCloser, error) {
-		return result.FS.Open(path.Join(analyzeRoot, relPath))
 	})
 	if err != nil {
-		return err
+		if activeSpinner != nil {
+			activeSpinner.StopWithFailure("Analysis failed")
+		}
+		return fmt.Errorf("analyze: %w", err)
 	}
+	if analysisResult.Skipped {
+		fmt.Printf("  Up to date (commit %s). ", analysisResult.Commit[:min(12, len(analysisResult.Commit))])
+		if c.Embed != embedOff {
+			fmt.Println("Triggering embedding...")
+			if mc, ok := cli.Client.(*service.MemoryClient); ok {
+				mc.ReleaseSearchIndex(repoHash)
+			}
+			c.requestEmbedding(repoHash)
+			return nil
+		}
+		fmt.Println("Use --force to re-analyze.")
+		return nil
+	}
+	fmt.Printf("  Graph: %d nodes, %d edges\n", analysisResult.NodeCount, analysisResult.EdgeCount)
 
-	langs := analyzecore.CollectLanguages(g)
-	duration := time.Since(start)
 	registry, err := storage.NewRegistry(dataDir)
 	if err != nil {
 		return fmt.Errorf("analyze: open registry: %w", err)
 	}
-	if err := registry.Add(storage.RegistryEntry{
-		Name:      repoName,
-		Path:      identity.CloneURL,
-		Hash:      repoHash,
-		IndexedAt: time.Now(),
-		NodeCount: nodeCount,
-		EdgeCount: edgeCount,
-		URL:       identity.Canonical,
-		Meta: storage.Meta{
-			CommitHash:           result.HeadSHA,
-			Languages:            langs,
-			Duration:             duration.Round(time.Millisecond).String(),
-			Branch:               result.Branch,
-			HasContentBucket:     true,
-			SchemaVersion:        version.SchemaVersion,
-			AlgorithmVersion:     version.AlgorithmVersion,
-			EmbeddingTextVersion: version.EmbeddingTextVersion,
-			BinaryVersion:        version.BuildVersion,
-			RegexIndexVersion:    search.RegexIndexVersion,
-			RegexIndexFiles:      regexStats.RegexFiles,
-			RegexIndexBytes:      regexStats.RegexBytes,
-		},
-	}); err != nil {
-		return fmt.Errorf("analyze: update registry: %w", err)
-	}
 	if err := finalizeEmbeddingMode(registry, repoHash, c.Embed); err != nil {
 		return err
 	}
-
 	if cli.Client != nil {
 		_ = cli.Client.Reload(service.ReloadRequest{Repo: repoHash})
 	}
-
-	// Embedding in sync mode blocks until complete.
 	if c.Embed != embedOff {
 		if mc, ok := cli.Client.(*service.MemoryClient); ok {
 			mc.ReleaseSearchIndex(repoHash)
 		}
 		c.requestEmbedding(repoHash)
 	}
-
 	fmt.Printf("Done in %s.\n", time.Since(start).Round(time.Millisecond))
 	return nil
 }
@@ -1217,7 +1145,10 @@ func (c *AnalyzeCmd) runCloneToDisk(
 		}
 		for _, repo := range selected {
 			repoHash := splitRemoteRepoHash(identity, repo.RelPath, branch)
-			repoDir := filepath.Join(dataDir, repo.Name, repoHash)
+			repoDir, err := storage.RepositoryDir(dataDir, repo.Name, repoHash)
+			if err != nil {
+				return fmt.Errorf("analyze: repository directory: %w", err)
+			}
 			if err := c.indexDiskClone(cli, identity, repo.Name, repoHash, repoDir, dataDir, repo.Path, headSHA, branch); err != nil {
 				return err
 			}
@@ -1501,78 +1432,6 @@ func buildAnalyzeIndexes(repoDir string, g *lpg.Graph, force bool, openFile func
 	return stats, nil
 }
 
-// populateContentBucket walks the billy filesystem and stores all files
-// in the BBolt content bucket with zstd compression.
-func populateContentBucket(cs *bbolt.ContentStore, fs billy.Filesystem, root string) (int, error) {
-	files := make(map[string][]byte)
-	base := cleanBillyRoot(fs, root)
-	if err := collectFiles(fs, base, base, files); err != nil {
-		return 0, err
-	}
-	if len(files) == 0 {
-		return 0, nil
-	}
-	if err := cs.PutBatch(files); err != nil {
-		return 0, fmt.Errorf("put batch: %w", err)
-	}
-	return len(files), nil
-}
-
-func cleanBillyRoot(fs billy.Filesystem, root string) string {
-	root = filepath.ToSlash(strings.TrimPrefix(path.Clean("/"+strings.TrimPrefix(root, "/")), "/"))
-	if root == "" || root == "." {
-		return "."
-	}
-	if info, err := fs.Stat(root); err == nil && info.IsDir() {
-		return root
-	}
-	return "."
-}
-
-// collectFiles recursively reads all files from a billy filesystem.
-func collectFiles(fs billy.Filesystem, dir, base string, files map[string][]byte) error {
-	entries, err := fs.ReadDir(dir)
-	if err != nil {
-		return fmt.Errorf("read dir %s: %w", dir, err)
-	}
-	for _, entry := range entries {
-		name := entry.Name()
-		relPath := dir
-		if relPath == "." {
-			relPath = name
-		} else {
-			relPath = dir + "/" + name
-		}
-
-		if entry.IsDir() && name == ".git" {
-			continue
-		}
-
-		if entry.IsDir() {
-			if err := collectFiles(fs, relPath, base, files); err != nil {
-				return err
-			}
-			continue
-		}
-
-		f, err := fs.Open(relPath)
-		if err != nil {
-			continue
-		}
-		data, err := io.ReadAll(f)
-		f.Close() //nolint:gosec
-		if err != nil {
-			continue
-		}
-		storePath := relPath
-		if base != "." {
-			storePath = strings.TrimPrefix(relPath, base+"/")
-		}
-		files[storePath] = data
-	}
-	return nil
-}
-
 func splitRemoteRepoHash(identity remote.RepoIdentity, relPath, branch string) string {
 	canonical := identity.Canonical
 	if !strings.Contains(canonical, "@") && branch != "" {
@@ -1827,7 +1686,10 @@ func (c *StatusCmd) writeStatus(w io.Writer, cli *CLI, repo string) (string, err
 		return "", fmt.Errorf("status: %w", err)
 	}
 
-	repoDir := filepath.Join(dataDir, entry.Name, entry.Hash)
+	repoDir, err := storage.RepositoryDir(dataDir, entry.Name, entry.Hash)
+	if err != nil {
+		return "", fmt.Errorf("status: repository directory for %q: %w", entry.Name, err)
+	}
 	m := entry.Meta
 
 	fmt.Fprintf(w, "Repository:  %s\n", entry.Name)
@@ -1963,9 +1825,20 @@ func (c *CleanCmd) Run(cli *CLI) error {
 			return fmt.Errorf("clean: open registry: %w", err)
 		}
 		for _, entry := range registry.List() {
-			repoDir := filepath.Join(dataDir, entry.Name, entry.Hash)
-			_ = os.RemoveAll(repoDir)
-			_ = registry.Remove(entry.Hash)
+			repoDir, pathErr := storage.RepositoryDir(dataDir, entry.Name, entry.Hash)
+			if pathErr != nil {
+				if removeErr := registry.Remove(entry.Hash); removeErr != nil {
+					return fmt.Errorf("clean: remove unsafe entry %q from registry: %w", entry.Name, removeErr)
+				}
+				fmt.Printf("  Removed unsafe registry entry %s (artifacts were not touched)\n", entry.Name)
+				continue
+			}
+			if removeErr := os.RemoveAll(repoDir); removeErr != nil {
+				return fmt.Errorf("clean: remove %q: %w", entry.Name, removeErr)
+			}
+			if removeErr := registry.Remove(entry.Hash); removeErr != nil {
+				return fmt.Errorf("clean: remove %q from registry: %w", entry.Name, removeErr)
+			}
 			fmt.Printf("  Removed %s\n", entry.Name)
 		}
 		if cli.Client != nil {
@@ -2001,9 +1874,20 @@ func (c *CleanCmd) Run(cli *CLI) error {
 		return fmt.Errorf("clean: %w", resolveErr)
 	}
 
-	repoDir := filepath.Join(dataDir, entry.Name, entry.Hash)
-	_ = os.RemoveAll(repoDir)
-	_ = registry.Remove(entry.Hash)
+	repoDir, pathErr := storage.RepositoryDir(dataDir, entry.Name, entry.Hash)
+	if pathErr != nil {
+		if err := registry.Remove(entry.Hash); err != nil {
+			return fmt.Errorf("clean: remove unsafe entry %q from registry: %w", entry.Name, err)
+		}
+		fmt.Printf("Removed unsafe registry entry %s; artifacts were not touched.\n", entry.Name)
+		return nil
+	}
+	if err := os.RemoveAll(repoDir); err != nil {
+		return fmt.Errorf("clean: remove %q: %w", entry.Name, err)
+	}
+	if err := registry.Remove(entry.Hash); err != nil {
+		return fmt.Errorf("clean: remove %q from registry: %w", entry.Name, err)
+	}
 
 	if cli.Client != nil {
 		_ = cli.Client.Reload(service.ReloadRequest{Repo: entry.Hash})

@@ -23,7 +23,7 @@ import (
 	"github.com/onixhdz/cartograph/internal/version"
 )
 
-// Phase identifies a local analysis lifecycle event.
+// Phase identifies an analysis lifecycle event.
 type Phase string
 
 const (
@@ -55,7 +55,7 @@ type IndexStats struct {
 	RegexBytes    int64
 }
 
-// Options configures local repository analysis.
+// Options configures local or in-memory repository analysis.
 type Options struct {
 	DataDir          string
 	RepoName         string
@@ -63,10 +63,11 @@ type Options struct {
 	Force            bool
 	Timing           bool
 	AllowIdempotency bool
+	ResetEmbedding   bool
 	OnEvent          func(Event)
 }
 
-// Result summarizes a local analysis run.
+// Result summarizes a local or in-memory analysis run.
 type Result struct {
 	RepoName      string
 	RepoHash      string
@@ -155,7 +156,10 @@ func Local(ctx context.Context, target string, opts Options) (*Result, error) {
 	g := pipeline.GetGraph()
 	nodeCount := graph.NodeCount(g)
 	edgeCount := graph.EdgeCount(g)
-	repoDir := filepath.Join(dataDir, repoName, repoHash)
+	repoDir, err := storage.RepositoryDir(dataDir, repoName, repoHash)
+	if err != nil {
+		return nil, fmt.Errorf("analyze: repository directory: %w", err)
+	}
 	if err := os.MkdirAll(repoDir, 0o750); err != nil {
 		return nil, fmt.Errorf("analyze: create dir: %w", err)
 	}
@@ -195,7 +199,7 @@ func Local(ctx context.Context, target string, opts Options) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("analyze: open registry: %w", err)
 	}
-	if err := registry.Add(storage.RegistryEntry{
+	entry := storage.RegistryEntry{
 		Name:      repoName,
 		Path:      abs,
 		Hash:      repoHash,
@@ -215,7 +219,8 @@ func Local(ctx context.Context, target string, opts Options) (*Result, error) {
 			RegexIndexFiles:      indexStats.RegexFiles,
 			RegexIndexBytes:      indexStats.RegexBytes,
 		},
-	}); err != nil {
+	}
+	if err := addAnalysisRegistryEntry(registry, entry, opts.ResetEmbedding); err != nil {
 		return nil, fmt.Errorf("analyze: update registry: %w", err)
 	}
 
@@ -295,6 +300,19 @@ func CollectLanguages(g *lpg.Graph) []string {
 	}
 	sort.Strings(langs)
 	return langs
+}
+
+func addAnalysisRegistryEntry(registry *storage.Registry, entry storage.RegistryEntry, resetEmbedding bool) error {
+	if resetEmbedding {
+		if err := registry.AddWithoutEmbedding(entry); err != nil {
+			return fmt.Errorf("add registry entry without embeddings: %w", err)
+		}
+		return nil
+	}
+	if err := registry.Add(entry); err != nil {
+		return fmt.Errorf("add registry entry: %w", err)
+	}
+	return nil
 }
 
 func emit(opts Options, event Event) {
