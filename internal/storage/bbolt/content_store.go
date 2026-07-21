@@ -152,6 +152,36 @@ func (cs *ContentStore) PutBatch(files map[string][]byte) error {
 	return nil
 }
 
+// ReplaceFrom atomically replaces all stored files, reading and compressing
+// one file at a time so callers do not need a second full in-memory copy.
+func (cs *ContentStore) ReplaceFrom(paths []string, readFile func(string) ([]byte, error)) error {
+	if readFile == nil {
+		return errors.New("content store: replace: read file function is required")
+	}
+	if err := cs.db.Update(func(tx *bolt.Tx) error {
+		if err := tx.DeleteBucket(bucketContent); err != nil && !errors.Is(err, bolterrors.ErrBucketNotFound) {
+			return fmt.Errorf("delete content bucket: %w", err)
+		}
+		bkt, err := tx.CreateBucket(bucketContent)
+		if err != nil {
+			return fmt.Errorf("create content bucket: %w", err)
+		}
+		for _, path := range paths {
+			data, err := readFile(path)
+			if err != nil {
+				return fmt.Errorf("read %q: %w", path, err)
+			}
+			if err := bkt.Put([]byte(path), cs.enc.EncodeAll(data, nil)); err != nil {
+				return fmt.Errorf("put %q: %w", path, err)
+			}
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("content store: replace: %w", err)
+	}
+	return nil
+}
+
 // Get retrieves and decompresses file content for the given path.
 // Returns an error if the path is not found.
 func (cs *ContentStore) Get(path string) ([]byte, error) {

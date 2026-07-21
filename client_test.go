@@ -12,12 +12,16 @@ import (
 	"time"
 
 	"github.com/cloudprivacylabs/lpg/v2"
+	"github.com/go-git/go-billy/v5"
+	"github.com/go-git/go-billy/v5/memfs"
 
 	internalplugin "github.com/onixhdz/cartograph/internal/plugin"
 	pluginsdk "github.com/onixhdz/cartograph/plugin"
 
 	"github.com/onixhdz/cartograph/internal/graph"
+	"github.com/onixhdz/cartograph/internal/remote"
 	"github.com/onixhdz/cartograph/internal/service"
+	"github.com/onixhdz/cartograph/internal/storage"
 )
 
 func TestEmbeddedClientAnalyzeAndRead(t *testing.T) {
@@ -71,6 +75,270 @@ func main() { _ = Hello() }
 	}
 	if _, err := client.Cypher(context.Background(), res.RepoHash, "MATCH (n) RETURN n LIMIT 1", CypherOptions{}); err != nil {
 		t.Fatalf("Cypher: %v", err)
+	}
+}
+
+func TestEmbeddedClientAnalyzeRemoteShorthand(t *testing.T) {
+	client, err := Open(Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	var cloned remote.CloneOptions
+	cloneCount := 0
+	cloneDir := t.TempDir()
+	client.cloneRemote = func(_ context.Context, opts remote.CloneOptions) (*remote.CloneResult, error) {
+		cloneCount++
+		cloned = opts
+		fs := memfs.New()
+		writeMemoryFile(t, fs, "go.mod", "module example.com/remote\n\ngo 1.25\n")
+		writeMemoryFile(t, fs, "main.go", "package main\nfunc Hello() string { return \"hello\" }\nfunc main() { _ = Hello() }\n")
+		return &remote.CloneResult{FS: fs, HeadSHA: strings.Repeat("a", 40), Branch: "v1.0.0", DiskPath: cloneDir}, nil
+	}
+
+	client.lsRemote = func(context.Context, remote.CloneOptions) (string, error) {
+		return strings.Repeat("a", 40), nil
+	}
+
+	result, err := client.Analyze(context.Background(), "example/project@v1.0.0", AnalyzeOptions{
+		CloneDepth: 2, AuthToken: "secret",
+	})
+	if err != nil {
+		t.Fatalf("Analyze remote: %v", err)
+	}
+	if result.RepoHash == "" || result.NodeCount == 0 || result.Commit != strings.Repeat("a", 40) {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if cloned.URL != "https://github.com/example/project" || cloned.Branch != "v1.0.0" || cloned.Depth != 2 || cloned.AuthToken != "secret" {
+		t.Fatalf("clone options = %+v", cloned)
+	}
+	if _, err := os.Stat(cloneDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("temporary clone directory was not removed: %v", err)
+	}
+	cat, err := client.Cat(context.Background(), result.RepoHash, []string{"main.go"}, CatOptions{})
+	if err != nil || len(cat.Files) != 1 || !strings.Contains(cat.Files[0].Content, "Hello") {
+		t.Fatalf("Cat after remote analysis: result=%+v err=%v", cat, err)
+	}
+
+	second, err := client.Analyze(context.Background(), "example/project@v1.0.0", AnalyzeOptions{})
+	if err != nil {
+		t.Fatalf("second Analyze: %v", err)
+	}
+	if !second.Skipped || cloneCount != 1 {
+		t.Fatalf("second analysis should reuse commit without cloning: result=%+v clones=%d", second, cloneCount)
+	}
+}
+
+func TestEmbeddedClientAnalyzeRegistryReplayPreservesCloneURLAndExplicitRef(t *testing.T) {
+	cases := []struct {
+		name           string
+		initialTarget  string
+		initialRef     string
+		resolvedBranch string
+		replayTarget   string
+		wantURL        string
+		wantRef        string
+	}{
+		{
+			name:           "GitLab resolved default branch",
+			initialTarget:  "https://gitlab.com/group/subgroup/project.git",
+			resolvedBranch: "main",
+			replayTarget:   "subgroup/project",
+			wantURL:        "https://gitlab.com/group/subgroup/project.git",
+		},
+		{
+			name:           "self hosted explicit ref",
+			initialTarget:  "https://git.example.test/team/service.git",
+			initialRef:     "release/v2",
+			resolvedBranch: "release/v2",
+			replayTarget:   "service",
+			wantURL:        "https://git.example.test/team/service.git",
+			wantRef:        "release/v2",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client, err := Open(Config{DataDir: t.TempDir()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer client.Close()
+
+			cloneCount := 0
+			commit := strings.Repeat("c", 40)
+			client.cloneRemote = func(_ context.Context, opts remote.CloneOptions) (*remote.CloneResult, error) {
+				cloneCount++
+				fs := memfs.New()
+				writeMemoryFile(t, fs, "go.mod", "module example.com/replay\n\ngo 1.25\n")
+				writeMemoryFile(t, fs, "main.go", "package main\nfunc main() {}\n")
+				return &remote.CloneResult{FS: fs, HeadSHA: commit, Branch: tc.resolvedBranch}, nil
+			}
+			var replayOptions remote.CloneOptions
+			client.lsRemote = func(_ context.Context, opts remote.CloneOptions) (string, error) {
+				replayOptions = opts
+				return commit, nil
+			}
+
+			if _, err := client.Analyze(context.Background(), tc.initialTarget, AnalyzeOptions{Ref: tc.initialRef}); err != nil {
+				t.Fatalf("initial Analyze: %v", err)
+			}
+			replayed, err := client.Analyze(context.Background(), tc.replayTarget, AnalyzeOptions{})
+			if err != nil {
+				t.Fatalf("registry replay Analyze: %v", err)
+			}
+			if !replayed.Skipped || cloneCount != 1 {
+				t.Fatalf("registry replay result=%+v cloneCount=%d", replayed, cloneCount)
+			}
+			if replayOptions.URL != tc.wantURL || replayOptions.Branch != tc.wantRef {
+				t.Fatalf("registry replay options=%+v, want URL=%q ref=%q", replayOptions, tc.wantURL, tc.wantRef)
+			}
+		})
+	}
+}
+
+func TestEmbeddedClientAnalyzeRemoteCancellation(t *testing.T) {
+	client, err := Open(Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	client.cloneRemote = func(ctx context.Context, _ remote.CloneOptions) (*remote.CloneResult, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	_, err = client.Analyze(ctx, "example/project", AnalyzeOptions{})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want context.DeadlineExceeded", err)
+	}
+}
+
+func TestEmbeddedClientAnalyzeRemoteCancellationAfterClone(t *testing.T) {
+	dataDir := t.TempDir()
+	client, err := Open(Config{DataDir: dataDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	client.cloneRemote = func(context.Context, remote.CloneOptions) (*remote.CloneResult, error) {
+		fs := memfs.New()
+		writeMemoryFile(t, fs, "main.go", "package main\nfunc main() {}\n")
+		cancel()
+		return &remote.CloneResult{FS: fs, HeadSHA: strings.Repeat("b", 40), Branch: "main"}, nil
+	}
+	_, err = client.Analyze(ctx, "example/project", AnalyzeOptions{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+	registry, registryErr := storage.NewRegistry(dataDir)
+	if registryErr != nil {
+		t.Fatal(registryErr)
+	}
+	if len(registry.List()) != 0 {
+		t.Fatalf("canceled clone published registry entries: %+v", registry.List())
+	}
+}
+
+func TestEmbeddedClientAnalyzeClearsStaleEmbeddingMetadata(t *testing.T) {
+	dataDir := t.TempDir()
+	repoDir := t.TempDir()
+	writeFile(t, filepath.Join(repoDir, "main.go"), "package main\nfunc Before() {}\n")
+	client, err := Open(Config{DataDir: dataDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	first, err := client.Analyze(context.Background(), repoDir, AnalyzeOptions{})
+	if err != nil {
+		t.Fatalf("first Analyze: %v", err)
+	}
+	registry, err := storage.NewRegistry(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.UpdateEmbedding(first.RepoHash, storage.EmbeddingInfo{
+		Status: storage.EmbeddingStatusComplete, Model: "stale-model", Dims: 384,
+		Provider: "stale-provider", Nodes: 10, Total: 10, Duration: "1s",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !client.client.HasCompleteEmbeddings(first.RepoHash) {
+		t.Fatal("expected seeded embedding metadata to be complete")
+	}
+
+	writeFile(t, filepath.Join(repoDir, "main.go"), "package main\nfunc After() {}\n")
+	second, err := client.Analyze(context.Background(), repoDir, AnalyzeOptions{Force: true})
+	if err != nil {
+		t.Fatalf("second Analyze: %v", err)
+	}
+	if second.Skipped {
+		t.Fatal("forced analysis unexpectedly skipped")
+	}
+	registry, err = storage.NewRegistry(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, ok := registry.Get(first.RepoHash)
+	if !ok {
+		t.Fatal("reanalyzed repository missing from registry")
+	}
+	if entry.Meta.EmbeddingStatus != "" || entry.Meta.EmbeddingModel != "" || entry.Meta.EmbeddingDims != 0 ||
+		entry.Meta.EmbeddingProvider != "" || entry.Meta.EmbeddingNodes != 0 || entry.Meta.EmbeddingTotal != 0 {
+		t.Fatalf("stale embedding metadata survived reanalysis: %+v", entry.Meta)
+	}
+	if client.client.HasCompleteEmbeddings(first.RepoHash) {
+		t.Fatal("reanalyzed repository still reports complete embeddings")
+	}
+}
+
+func TestEmbeddedClientAnalyzeCancellationAfterPersistenceSettlesCache(t *testing.T) {
+	dataDir := t.TempDir()
+	repoDir := t.TempDir()
+	writeFile(t, filepath.Join(repoDir, "main.go"), "package main\nfunc OldUniqueSymbol() {}\n")
+	client, err := Open(Config{DataDir: dataDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	first, err := client.Analyze(context.Background(), repoDir, AnalyzeOptions{})
+	if err != nil {
+		t.Fatalf("first Analyze: %v", err)
+	}
+	writeFile(t, filepath.Join(repoDir, "main.go"), "package main\nfunc NewUniqueSymbol() {}\n")
+	ctx, cancel := context.WithCancel(context.Background())
+	client.onAnalysisPersisted = cancel
+	result, err := client.Analyze(ctx, repoDir, AnalyzeOptions{Force: true})
+	if result != nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("Analyze result=%+v error=%v, want context cancellation", result, err)
+	}
+	client.onAnalysisPersisted = nil
+
+	searchResult, err := client.Search(context.Background(), first.RepoHash, "NewUniqueSymbol", SearchOptions{FixedStrings: true})
+	if err != nil {
+		t.Fatalf("Search after canceled publication: %v", err)
+	}
+	if searchResult.MatchCount == 0 {
+		t.Fatalf("cache was not settled on the persisted graph: %+v", searchResult)
+	}
+}
+
+func writeMemoryFile(t *testing.T, fs billy.Filesystem, path, content string) {
+	t.Helper()
+	file, err := fs.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.Write([]byte(content)); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 

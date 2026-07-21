@@ -11,15 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-git/go-billy/v5"
-	"github.com/go-git/go-billy/v5/memfs"
-
 	"github.com/onixhdz/cartograph/internal/analyze"
 	"github.com/onixhdz/cartograph/internal/ingestion"
 	"github.com/onixhdz/cartograph/internal/remote"
 	"github.com/onixhdz/cartograph/internal/service"
 	"github.com/onixhdz/cartograph/internal/storage"
-	"github.com/onixhdz/cartograph/internal/storage/bbolt"
 )
 
 const (
@@ -941,6 +937,45 @@ func TestCleanCmd(t *testing.T) {
 			t.Errorf("expected 'Done.' in output, got %q", out)
 		}
 	})
+
+	t.Run("unsafe legacy entry is removed without touching artifacts", func(t *testing.T) {
+		t.Setenv("XDG_DATA_HOME", t.TempDir())
+		dataDir := storage.DefaultDataDir()
+		if err := os.MkdirAll(dataDir, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		registryJSON := `[{"name":"../escape","hash":"abcdef01","meta":{}}]`
+		if err := os.WriteFile(filepath.Join(dataDir, "registry.json"), []byte(registryJSON), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		externalDir := filepath.Join(filepath.Dir(dataDir), "escape", "abcdef01")
+		if err := os.MkdirAll(externalDir, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		sentinel := filepath.Join(externalDir, "sentinel")
+		if err := os.WriteFile(sentinel, []byte("keep"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		out := captureStdout(t, func() {
+			if err := (&CleanCmd{Repo: "abcdef01"}).Run(&CLI{}); err != nil {
+				t.Fatal(err)
+			}
+		})
+		if !strings.Contains(out, "artifacts were not touched") {
+			t.Fatalf("unexpected clean output: %q", out)
+		}
+		if _, err := os.Stat(sentinel); err != nil {
+			t.Fatalf("external artifact was touched: %v", err)
+		}
+		registry, err := storage.NewRegistry(dataDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(registry.List()) != 0 {
+			t.Fatalf("unsafe registry entry remained: %+v", registry.List())
+		}
+	})
 }
 
 func TestAnalyzeCmd_MultipleSources(t *testing.T) {
@@ -1123,44 +1158,6 @@ func TestSplitRemoteRepoHashIncludesResolvedBranch(t *testing.T) {
 	}
 }
 
-func TestPopulateContentBucketScopesKeys(t *testing.T) {
-	fs := memfs.New()
-	writeMemCLITestFile(t, fs, "apps/web/index.js", "export function web() {}\n")
-	writeMemCLITestFile(t, fs, "apps/web/src/view.js", "export function view() {}\n")
-
-	dbPath := filepath.Join(t.TempDir(), "graph.db")
-	store, err := bbolt.New(dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cs, err := bbolt.NewContentStoreFromDB(store.DB())
-	if err != nil {
-		t.Fatal(err)
-	}
-	count, err := populateContentBucket(cs, fs, "/apps/web")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if count != 2 {
-		t.Fatalf("content count = %d, want 2", count)
-	}
-	if _, err := cs.Get("index.js"); err != nil {
-		t.Fatalf("expected project-relative index.js content: %v", err)
-	}
-	if _, err := cs.Get("src/view.js"); err != nil {
-		t.Fatalf("expected project-relative src/view.js content: %v", err)
-	}
-	if _, err := cs.Get("apps/web/index.js"); err == nil {
-		t.Fatal("did not expect container-relative content key")
-	}
-	if err := cs.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Close(); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func writeCLITestFile(t *testing.T, root, rel, content string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(rel))
@@ -1172,21 +1169,33 @@ func writeCLITestFile(t *testing.T, root, rel, content string) {
 	}
 }
 
-func writeMemCLITestFile(t *testing.T, fs billy.Filesystem, rel, content string) {
-	t.Helper()
-	if err := fs.MkdirAll(filepath.Dir(rel), 0o755); err != nil {
-		t.Fatal(err)
+func TestAnalyzeCmdDispatchesSelectedRemoteWithInlineRef(t *testing.T) {
+	resolved, err := analyze.ResolveTarget("project@v2.1.0", "", t.TempDir())
+	if err != nil || resolved.Kind != analyze.TargetUnknown {
+		t.Fatalf("ResolveTarget result=%+v error=%v", resolved, err)
 	}
-	f, err := fs.Create(rel)
+	cmd := &AnalyzeCmd{Branch: "original"}
+	called := false
+	err = cmd.runSuggestedRemote(resolved.Ref, func() string {
+		return "https://github.com/example/project"
+	}, func(repo string) error {
+		called = true
+		if repo != "https://github.com/example/project" {
+			t.Fatalf("selected repository = %q", repo)
+		}
+		if cmd.Branch != "v2.1.0" {
+			t.Fatalf("branch during remote dispatch = %q", cmd.Branch)
+		}
+		return nil
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.Write([]byte(content)); err != nil {
-		_ = f.Close()
-		t.Fatal(err)
+	if !called {
+		t.Fatal("selected remote was not dispatched")
 	}
-	if err := f.Close(); err != nil {
-		t.Fatal(err)
+	if cmd.Branch != "original" {
+		t.Fatalf("branch after remote dispatch = %q", cmd.Branch)
 	}
 }
 

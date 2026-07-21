@@ -90,7 +90,7 @@ Go programs can embed Cartograph in-process through the root package:
 import "github.com/onixhdz/cartograph"
 ```
 
-Use this when building a long-running local tool that needs Cartograph's index, query, Cypher, schema, and source-read operations without shelling out to the CLI or running a separate service. See [docs/embedded-api.md](docs/embedded-api.md).
+Use this when building a long-running tool that needs Cartograph's local or remote analysis, query, Cypher, schema, and source-read operations without shelling out to the CLI or running a separate service. `Client.Analyze` accepts local paths, Git URLs, host-prefixed URLs, repository shorthand, inline refs, and registry aliases. See [docs/embedded-api.md](docs/embedded-api.md).
 
 When a target contains multiple repo candidates, run plain `cartograph analyze <folder>` first. Analyze prints the candidate list and recommended follow-up commands.
 
