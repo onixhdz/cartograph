@@ -137,12 +137,26 @@ func TestParseRepoURL_Errors(t *testing.T) {
 		{"bare host", "https://github.com"},
 		{"local path", "/home/user/project"},
 		{"relative path", "relative/path"},
+		{"parent segment", "https://github.com/group/../project"},
+		{"dot segment", "https://github.com/group/./project"},
+		{"empty segment", "https://github.com/group//project"},
+		{"backslash", "https://github.com/group\\project"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := ParseRepoURL(tt.url, "")
 			if err == nil {
 				t.Errorf("ParseRepoURL(%q) expected error, got nil", tt.url)
+			}
+		})
+	}
+}
+
+func TestParseRepoURLRejectsUnsafeRef(t *testing.T) {
+	for _, ref := range []string{"../main", "feature/../main", "feature/./main", "feature//main", `feature\\main`} {
+		t.Run(ref, func(t *testing.T) {
+			if _, err := ParseRepoURL("https://gitlab.com/group/subgroup/project", ref); err == nil {
+				t.Fatalf("ParseRepoURL ref %q expected error", ref)
 			}
 		})
 	}

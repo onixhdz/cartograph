@@ -123,6 +123,11 @@ func ParseRepoURL(rawURL, branch string) (RepoIdentity, error) {
 	if err != nil {
 		return RepoIdentity{}, err
 	}
+	if branch != "" {
+		if err := validateIdentityPath(branch, "repository ref"); err != nil {
+			return RepoIdentity{}, err
+		}
+	}
 
 	canonical := modulePath
 	if branch != "" {
@@ -199,5 +204,20 @@ func cleanPath(s string) (string, error) {
 	if s == "" || !strings.Contains(s, "/") {
 		return "", fmt.Errorf("invalid repository URL: need at least host/path, got %q", s)
 	}
+	if err := validateIdentityPath(s, "repository URL"); err != nil {
+		return "", err
+	}
 	return s, nil
+}
+
+func validateIdentityPath(value, kind string) error {
+	if strings.ContainsAny(value, "\\\x00") {
+		return fmt.Errorf("invalid %s: unsafe path %q", kind, value)
+	}
+	for segment := range strings.SplitSeq(value, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return fmt.Errorf("invalid %s: unsafe path segment in %q", kind, value)
+		}
+	}
+	return nil
 }

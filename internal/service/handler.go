@@ -618,7 +618,10 @@ func buildStatus(dataDir, repo string) (*StatusResult, error) {
 	if !entry.IndexedAt.IsZero() {
 		res.IndexedAt = entry.IndexedAt.Format(time.RFC3339)
 	}
-	repoDir := filepath.Join(dataDir, entry.Name, entry.Hash)
+	repoDir, err := storage.RepositoryDir(dataDir, entry.Name, entry.Hash)
+	if err != nil {
+		return nil, fmt.Errorf("repo status: repository directory: %w", err)
+	}
 	for _, name := range []string{"graph.db", "search.bleve", "search.regex", "embeddings.db"} {
 		if size, ok := artifactSize(filepath.Join(repoDir, name)); ok {
 			res.Artifacts = append(res.Artifacts, RepoArtifact{Name: name, Bytes: size})

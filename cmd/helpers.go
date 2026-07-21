@@ -73,8 +73,13 @@ func resolveWikiDir(repoName string) (string, error) {
 		return filepath.Join(entry.Meta.SourcePath, ".cartograph", "wiki"), nil
 	}
 
-	// Remote clone: wiki under the global data directory.
-	return filepath.Join(storage.DefaultDataDir(), "wiki", entry.Name), nil
+	// Remote clone: wiki under the global data directory. Reuse repository
+	// containment validation even though wiki output is not hash-scoped.
+	contained, err := storage.RepositoryDir(filepath.Join(storage.DefaultDataDir(), "wiki"), entry.Name, entry.Hash)
+	if err != nil {
+		return "", fmt.Errorf("resolve wiki directory: %w", err)
+	}
+	return filepath.Dir(contained), nil
 }
 
 // DefaultSocketPath returns the default unix socket path used by the

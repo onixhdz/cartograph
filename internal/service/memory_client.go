@@ -107,7 +107,11 @@ func (mc *MemoryClient) GetBackendResources(repo string) (BackendResources, bool
 		}
 	}
 	if repoDir == "" && entry.Hash != "" {
-		repoDir = filepath.Join(mc.dataDir, entry.Name, entry.Hash)
+		var err error
+		repoDir, err = storage.RepositoryDir(mc.dataDir, entry.Name, entry.Hash)
+		if err != nil {
+			return BackendResources{}, false
+		}
 	}
 	return BackendResources{
 		Graph:              g,
@@ -588,7 +592,10 @@ func (mc *MemoryClient) loadFromDisk(repo string) error {
 		}
 	}
 
-	repoDir := filepath.Join(mc.dataDir, entry.Name, entry.Hash)
+	repoDir, err := storage.RepositoryDir(mc.dataDir, entry.Name, entry.Hash)
+	if err != nil {
+		return fmt.Errorf("memory client: repository directory for %q: %w", repo, err)
+	}
 	dbPath := filepath.Join(repoDir, "graph.db")
 
 	store, err := bbolt.NewReadOnly(dbPath)
@@ -665,7 +672,10 @@ func (mc *MemoryClient) getContentResolver(repo string) *storage.ContentResolver
 		return cr
 	}
 
-	repoDir := filepath.Join(mc.dataDir, entry.Name, entry.Hash)
+	repoDir, err := storage.RepositoryDir(mc.dataDir, entry.Name, entry.Hash)
+	if err != nil {
+		return nil
+	}
 
 	cr = &storage.ContentResolver{
 		SourcePath: entry.Meta.SourcePath,

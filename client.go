@@ -14,6 +14,7 @@ import (
 
 	"github.com/onixhdz/cartograph/internal/analyze"
 	"github.com/onixhdz/cartograph/internal/query"
+	"github.com/onixhdz/cartograph/internal/remote"
 	"github.com/onixhdz/cartograph/internal/service"
 	"github.com/onixhdz/cartograph/internal/storage"
 	"github.com/onixhdz/cartograph/internal/sysutil"
@@ -28,8 +29,11 @@ var ErrDataDirInUse = errors.New("cartograph: data directory in use")
 // A Client is safe for concurrent use. Repositories are loaded lazily on first
 // access and remain cached until Close is called.
 type Client struct {
-	dataDir string
-	client  *service.MemoryClient
+	dataDir             string
+	client              *service.MemoryClient
+	cloneRemote         func(context.Context, remote.CloneOptions) (*remote.CloneResult, error)
+	lsRemote            func(context.Context, remote.CloneOptions) (string, error)
+	onAnalysisPersisted func()
 }
 
 // Open opens an embedded Cartograph client.
@@ -44,7 +48,7 @@ func Open(cfg Config) (*Client, error) {
 
 	mc := service.NewMemoryClient(dataDir)
 	mc.SetBackendFactory(query.NewBackendFactory(mc))
-	return &Client{dataDir: dataDir, client: mc}, nil
+	return &Client{dataDir: dataDir, client: mc, cloneRemote: remote.CloneToTemporary, lsRemote: remote.LsRemote}, nil
 }
 
 func checkServiceLock(dataDir string) error {
@@ -178,43 +182,123 @@ func (c *Client) RegisterPlugin(ctx context.Context, p pluginsdk.Plugin, opts Re
 	}, nil
 }
 
-// Analyze analyzes and indexes one local repository.
-func (c *Client) Analyze(ctx context.Context, target string, opts AnalyzeOptions) (*AnalyzeResult, error) {
-	res, err := analyze.Local(ctx, target, analyze.Options{
-		DataDir:          c.dataDir,
-		Force:            opts.Force,
-		AllowIdempotency: true,
-		OnEvent: func(event analyze.Event) {
-			switch event.Phase {
-			case analyze.PhasePipelineStep:
-				if opts.OnStep != nil {
-					opts.OnStep(event.Message, event.Current, event.Total)
-				}
-			case analyze.PhaseFileProgress:
-				if opts.OnFileProgress != nil {
-					opts.OnFileProgress(event.Current, event.Total)
+// Analyze analyzes and indexes one local path, Git URL, host-prefixed URL,
+// or owner/repository shorthand target.
+func (c *Client) Analyze(ctx context.Context, target string, opts AnalyzeOptions) (result *AnalyzeResult, retErr error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("cartograph analyze: %w", err)
+	}
+	resolvedTarget, err := analyze.ResolveTarget(target, opts.Ref, c.dataDir)
+	if err != nil {
+		return nil, fmt.Errorf("cartograph analyze %q: %w", target, err)
+	}
+	if resolvedTarget.Kind == analyze.TargetUnknown {
+		return nil, fmt.Errorf("cartograph analyze %q: ambiguous bare project name; use owner/repository or a full Git URL", target)
+	}
+	analysisOpts := analyze.Options{
+		DataDir: c.dataDir, Force: opts.Force, AllowIdempotency: true, ResetEmbedding: true,
+		OnEvent: analyzeEventHandler(opts),
+	}
+	var res *analyze.Result
+	isRemote := resolvedTarget.Kind == analyze.TargetRemote
+	if !isRemote {
+		res, err = analyze.Local(ctx, resolvedTarget.Value, analysisOpts)
+	} else {
+		identity, parseErr := remote.ParseRepoURL(resolvedTarget.Value, resolvedTarget.Ref)
+		if parseErr != nil {
+			return nil, fmt.Errorf("cartograph analyze %q: %w", target, parseErr)
+		}
+		cloneOptions := remote.CloneOptions{
+			URL: identity.CloneURL, Branch: resolvedTarget.Ref, Depth: opts.CloneDepth, AuthToken: opts.AuthToken,
+		}
+		analysisOpts.RepoName = identity.Name
+		analysisOpts.RepoHash = analyze.ShortHash(identity.Canonical)
+		if !opts.Force {
+			if registry, registryErr := storage.NewRegistry(c.dataDir); registryErr == nil {
+				if _, exists := registry.Get(analysisOpts.RepoHash); exists {
+					checkCtx, cancelCheck := context.WithTimeout(ctx, 30*time.Second)
+					lsRemote := c.lsRemote
+					if lsRemote == nil {
+						lsRemote = remote.LsRemote
+					}
+					remoteCommit, checkErr := lsRemote(checkCtx, cloneOptions)
+					cancelCheck()
+					if checkErr == nil {
+						if cached, reason, found := analyze.CachedResult(c.dataDir, identity.Name, analysisOpts.RepoHash, identity.CloneURL, remoteCommit); found && reason == "" {
+							return analyzeResult(cached), nil
+						}
+					}
 				}
 			}
-		},
-	})
+		}
+		cloneCtx := ctx
+		var cancel context.CancelFunc
+		if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+			cloneCtx, cancel = context.WithTimeout(ctx, remote.DefaultCloneTimeout)
+			defer cancel()
+		}
+		clone := c.cloneRemote
+		if clone == nil {
+			clone = remote.CloneToTemporary
+		}
+		cloneResult, cloneErr := clone(cloneCtx, cloneOptions)
+		if cloneErr != nil {
+			return nil, fmt.Errorf("cartograph analyze %q: %w", target, cloneErr)
+		}
+		if cloneResult.DiskPath != "" {
+			defer func() {
+				if cleanupErr := os.RemoveAll(cloneResult.DiskPath); cleanupErr != nil {
+					result = nil
+					retErr = errors.Join(retErr, fmt.Errorf("cartograph analyze remove temporary clone: %w", cleanupErr))
+				}
+			}()
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("cartograph analyze %q: %w", target, err)
+		}
+		res, err = analyze.Memory(ctx, analyze.MemorySource{
+			FS: cloneResult.FS, Root: "/", Path: identity.CloneURL, URL: identity.Canonical,
+			Commit: cloneResult.HeadSHA, Branch: cloneResult.Branch,
+		}, analysisOpts)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("cartograph analyze %q: %w", target, err)
 	}
 	if !res.Skipped {
-		if err := c.client.Reload(service.ReloadRequest{Repo: res.RepoHash}); err != nil {
-			return nil, fmt.Errorf("cartograph analyze reload %q: %w", res.RepoName, err)
+		if c.onAnalysisPersisted != nil {
+			c.onAnalysisPersisted()
+		}
+		if reloadErr := c.client.Reload(service.ReloadRequest{Repo: res.RepoHash}); reloadErr != nil {
+			return nil, fmt.Errorf("cartograph analyze reload %q: %w", res.RepoName, reloadErr)
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, fmt.Errorf("cartograph analyze %q: %w", target, ctxErr)
 		}
 	}
+	return analyzeResult(res), nil
+}
+
+func analyzeEventHandler(opts AnalyzeOptions) func(analyze.Event) {
+	return func(event analyze.Event) {
+		switch event.Phase {
+		case analyze.PhasePipelineStep:
+			if opts.OnStep != nil {
+				opts.OnStep(event.Message, event.Current, event.Total)
+			}
+		case analyze.PhaseFileProgress:
+			if opts.OnFileProgress != nil {
+				opts.OnFileProgress(event.Current, event.Total)
+			}
+		}
+	}
+}
+
+func analyzeResult(res *analyze.Result) *AnalyzeResult {
 	return &AnalyzeResult{
-		RepoName:    res.RepoName,
-		RepoHash:    res.RepoHash,
-		IndexedPath: res.Path,
-		NodeCount:   res.NodeCount,
-		EdgeCount:   res.EdgeCount,
-		Duration:    res.Duration,
-		Skipped:     res.Skipped,
-		Commit:      res.Commit,
-	}, nil
+		RepoName: res.RepoName, RepoHash: res.RepoHash, IndexedPath: res.Path,
+		NodeCount: res.NodeCount, EdgeCount: res.EdgeCount, Duration: res.Duration,
+		Skipped: res.Skipped, Commit: res.Commit,
+	}
 }
 
 // Query runs a graph-aware query against an indexed repository or plugin dataset.
