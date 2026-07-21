@@ -3,7 +3,7 @@ module github.com/onixhdz/cartograph
 go 1.26.5
 
 require (
-	github.com/alecthomas/kong v1.15.0
+	github.com/alecthomas/kong v1.16.0
 	github.com/blevesearch/bleve/v2 v2.6.0
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/huh v1.0.0
@@ -16,9 +16,9 @@ require (
 	github.com/google/codesearch v1.2.0
 	github.com/gortexhq/tree-sitter-dart v0.1.0
 	github.com/gortexhq/tree-sitter-swift v0.1.1-0.20260424235305-8dde3a3327dd
-	github.com/klauspost/compress v1.19.0
+	github.com/klauspost/compress v1.19.1
 	github.com/modelcontextprotocol/go-sdk v1.6.1
-	github.com/odvcencio/gotreesitter v0.20.9
+	github.com/odvcencio/gotreesitter v0.45.0
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/posener/complete v1.2.3
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
@@ -37,7 +37,7 @@ require (
 	github.com/tree-sitter/tree-sitter-typescript v0.23.2
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	go.etcd.io/bbolt v1.5.0
-	golang.org/x/mod v0.37.0
+	golang.org/x/mod v0.38.0
 	golang.org/x/sys v0.47.0
 	golang.org/x/term v0.45.0
 )
