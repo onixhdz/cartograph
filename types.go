@@ -32,14 +32,20 @@ type PluginDatasetStatus struct {
 	Duration       time.Duration
 }
 
-// AnalyzeOptions controls local repository analysis.
+// AnalyzeOptions controls local or remote repository analysis.
 type AnalyzeOptions struct {
-	Force          bool
+	Force bool
+	// Ref selects a remote branch or tag. Local targets reject this option.
+	Ref string
+	// CloneDepth controls remote shallow-clone depth. Values <= 0 use depth 1.
+	CloneDepth int
+	// AuthToken authenticates HTTPS clones of private repositories.
+	AuthToken      string
 	OnStep         func(step string, current, total int)
 	OnFileProgress func(done, total int)
 }
 
-// AnalyzeResult summarizes a local repository analysis run.
+// AnalyzeResult summarizes a local or remote repository analysis run.
 type AnalyzeResult struct {
 	RepoName    string
 	RepoHash    string

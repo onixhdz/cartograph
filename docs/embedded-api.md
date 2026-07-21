@@ -40,6 +40,41 @@ if err != nil {
 _ = matches
 ```
 
+## Analysis targets
+
+`Client.Analyze` accepts the same deterministic target strings as the CLI:
+
+```go
+// Full Git URL.
+remoteResult, err := client.Analyze(ctx,
+    "https://github.com/go-git/go-billy.git",
+    cartograph.AnalyzeOptions{},
+)
+
+// Repository shorthand plus an inline branch or tag.
+taggedResult, err := client.Analyze(ctx,
+    "go-git/go-billy@v5.6.2",
+    cartograph.AnalyzeOptions{},
+)
+```
+
+Supported target forms are local paths, `https://`, `http://`, `ssh://`,
+`git@host:path`, known-host paths such as `gitlab.com/group/project`,
+`owner/repository` shorthand, inline `@ref`, and existing registry aliases.
+Existing local paths win over shorthand interpretation.
+
+Use `AnalyzeOptions.Ref` when the ref cannot be written inline, `CloneDepth` to
+control shallow cloning, and `AuthToken` for private HTTPS repositories. Remote
+source is cloned into temporary local storage and removed after analysis; only
+the graph, source-content bucket, and search indexes remain in `DataDir`. Content
+persistence stores files up to 10 MiB each with a 256 MiB repository total. The
+caller's context controls cancellation, and clones use a five-minute timeout when
+the context has no deadline.
+
+Bare project names remain intentionally interactive in the CLI because several
+repositories can share a name. Embedded callers must provide an unambiguous
+`owner/repository`, host-prefixed path, full URL, or registry alias.
+
 ## Configuration
 
 `cartograph.Config` is intentionally small:
@@ -124,9 +159,10 @@ Zig and the `embedding_cgo` build tag are not required for the embedded API. v1 
 
 ## Deferred from v1
 
-The first embedded API deliberately excludes:
+The embedded API deliberately excludes:
 
-- remote URL/GitHub-shorthand analysis,
+- interactive bare-project repository search,
+- multi-repository candidate selection within one remote target,
 - embedding-backed semantic search and embedding job management,
 - out-of-process or polyglot plugin runtimes,
 - public storage interfaces,

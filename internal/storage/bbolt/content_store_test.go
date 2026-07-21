@@ -1,6 +1,7 @@
 package bbolt
 
 import (
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -64,6 +65,26 @@ func TestContentStore_PutBatch(t *testing.T) {
 
 	if n := cs.Count(); n != len(files) {
 		t.Errorf("Count() = %d, want %d", n, len(files))
+	}
+}
+
+func TestContentStore_ReplaceFromRollsBackOnReadError(t *testing.T) {
+	cs := newTestStore(t)
+	if err := cs.Put("old.go", []byte("old")); err != nil {
+		t.Fatal(err)
+	}
+	readErr := errors.New("read failed")
+	err := cs.ReplaceFrom([]string{"new.go", "bad.go"}, func(path string) ([]byte, error) {
+		if path == "bad.go" {
+			return nil, readErr
+		}
+		return []byte("new"), nil
+	})
+	if !errors.Is(err, readErr) {
+		t.Fatalf("ReplaceFrom error = %v, want %v", err, readErr)
+	}
+	if !cs.Has("old.go") || cs.Has("new.go") {
+		t.Fatalf("replacement was not atomic: paths=%v", cs.Paths())
 	}
 }
 

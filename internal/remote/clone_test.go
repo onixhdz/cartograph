@@ -7,6 +7,9 @@ import (
 	"testing"
 	"time"
 
+	git "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+
 	"github.com/onixhdz/cartograph/internal/ingestion"
 )
 
@@ -85,12 +88,57 @@ func TestCloneToMemory_WithBranch(t *testing.T) {
 	}
 }
 
+func TestCloneWithRetryPreservesResolvedDefaultBranch(t *testing.T) {
+	opts := CloneOptions{URL: "https://example.com/repo.git"}
+	result, err := cloneWithRetry(context.Background(), opts, buildCloneOptions(opts), func(*git.CloneOptions) (*CloneResult, error) {
+		return &CloneResult{Branch: "main"}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Branch != "main" {
+		t.Fatalf("result branch = %q, want resolved default branch", result.Branch)
+	}
+}
+
+func TestCloneWithRetryReportsRequestedTagForDetachedHead(t *testing.T) {
+	opts := CloneOptions{URL: "https://example.com/repo.git", Branch: "v1.2.3"}
+	cloneOptions := buildCloneOptions(opts)
+	attempts := 0
+	result, err := cloneWithRetry(context.Background(), opts, cloneOptions, func(co *git.CloneOptions) (*CloneResult, error) {
+		attempts++
+		switch co.ReferenceName {
+		case plumbing.NewBranchReferenceName(opts.Branch):
+			return nil, errors.New("reference not found")
+		case plumbing.NewTagReferenceName(opts.Branch):
+			return &CloneResult{Branch: plumbing.HEAD.Short()}, nil
+		default:
+			return nil, errors.New("unexpected reference")
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 2 {
+		t.Fatalf("clone attempts = %d, want 2", attempts)
+	}
+	if result.Branch != opts.Branch {
+		t.Fatalf("result branch = %q, want requested tag %q", result.Branch, opts.Branch)
+	}
+}
+
 // TestCloneToMemory_EmptyURL returns error.
 func TestCloneToMemory_EmptyURL(t *testing.T) {
 	ctx := context.Background()
 	_, err := CloneToMemory(ctx, CloneOptions{})
 	if err == nil {
 		t.Error("expected error for empty URL")
+	}
+}
+
+func TestCloneToTemporary_EmptyURL(t *testing.T) {
+	if _, err := CloneToTemporary(context.Background(), CloneOptions{}); err == nil {
+		t.Fatal("expected error for empty URL")
 	}
 }
 

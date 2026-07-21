@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/memfs"
+	"github.com/go-git/go-billy/v5/osfs"
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -38,9 +40,8 @@ type CloneResult struct {
 	// HeadSHA is the full commit hash of HEAD after clone.
 	HeadSHA string
 
-	// Branch is the resolved branch name (short form, e.g. "main").
-	// If the user specified a branch, this is that branch; otherwise
-	// it is the remote's default branch.
+	// Branch is the caller-requested branch or tag when one was provided;
+	// otherwise it is the remote's resolved default branch.
 	Branch string
 
 	// DiskPath is set only for disk clones — the path where source lives.
@@ -52,6 +53,8 @@ const (
 	maxRetries  = 3
 	retryBaseMs = 500 // base delay in milliseconds (doubles each attempt)
 )
+
+var errTemporaryCloneCleanup = errors.New("temporary clone cleanup failed")
 
 // CloneToMemory performs a shallow clone into an in-memory filesystem.
 // Retries transient failures with exponential backoff; falls back to refs/tags/ if needed.
@@ -78,6 +81,44 @@ func CloneToMemory(ctx context.Context, opts CloneOptions) (*CloneResult, error)
 	result, err := cloneWithRetry(ctx, opts, cloneOpts, doClone)
 	if err != nil {
 		return nil, fmt.Errorf("clone %s: %w", opts.URL, err)
+	}
+	return result, nil
+}
+
+// CloneToTemporary clones a repository into a temporary disk-backed
+// filesystem. The caller must remove result.DiskPath when analysis settles.
+func CloneToTemporary(ctx context.Context, opts CloneOptions) (*CloneResult, error) {
+	if opts.URL == "" {
+		return nil, errors.New("clone: URL is required")
+	}
+	if opts.Depth <= 0 {
+		opts.Depth = 1
+	}
+	cloneOpts := buildCloneOptions(opts)
+	doClone := func(co *git.CloneOptions) (*CloneResult, error) {
+		dir, err := os.MkdirTemp("", "cartograph-clone-*")
+		if err != nil {
+			return nil, fmt.Errorf("clone: create temporary directory: %w", err)
+		}
+		repo, err := git.PlainCloneContext(ctx, dir, false, co)
+		if err != nil {
+			if cleanupErr := os.RemoveAll(dir); cleanupErr != nil {
+				return nil, fmt.Errorf("%w: remove %s: %s (clone error: %s)", errTemporaryCloneCleanup, dir, cleanupErr.Error(), err.Error())
+			}
+			return nil, fmt.Errorf("temporary clone: %w", err)
+		}
+		result, err := buildResult(repo, osfs.New(dir), dir)
+		if err != nil {
+			if cleanupErr := os.RemoveAll(dir); cleanupErr != nil {
+				return nil, fmt.Errorf("%w: remove %s: %s (result error: %s)", errTemporaryCloneCleanup, dir, cleanupErr.Error(), err.Error())
+			}
+			return nil, err
+		}
+		return result, nil
+	}
+	result, err := cloneWithRetry(ctx, opts, cloneOpts, doClone)
+	if err != nil {
+		return nil, fmt.Errorf("clone %s to temporary storage: %w", opts.URL, err)
 	}
 	return result, nil
 }
@@ -119,6 +160,9 @@ func cloneWithRetry(
 	for attempt := range maxRetries {
 		result, err := doClone(co)
 		if err == nil {
+			if opts.Branch != "" {
+				result.Branch = opts.Branch
+			}
 			return result, nil
 		}
 		lastErr = err
@@ -131,6 +175,7 @@ func cloneWithRetry(
 			co.ReferenceName = plumbing.NewTagReferenceName(opts.Branch)
 			result2, err2 := doClone(co)
 			if err2 == nil {
+				result2.Branch = opts.Branch
 				return result2, nil
 			}
 			lastErr = err2
@@ -175,7 +220,7 @@ func isTransient(err error) bool {
 		return false
 	}
 	// Context errors mean the caller canceled — don't retry.
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, errTemporaryCloneCleanup) {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
