@@ -32,6 +32,7 @@ go.work.sum
 
 # local cgo build artifacts
 internal/embedding/local/zig-out/
+internal/embedding/local/zig-pkg/
 internal/embedding/local/.zig-cache/
 internal/embedding/local/.zig-target.stamp
 .zig-cache

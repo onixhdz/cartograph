@@ -64,7 +64,7 @@ tasks:
     desc: Remove Zig build artifacts and caches
     dir: "{{.EMBEDDING_LIB_DIR}}"
     cmds:
-      - rm -rf zig-out .zig-cache .zig-target.stamp '{{.ZIG_CACHE_DIR}}' '{{.ZIG_GLOBAL_CACHE_DIR}}'
+      - rm -rf zig-out zig-pkg .zig-cache .zig-target.stamp '{{.ZIG_CACHE_DIR}}' '{{.ZIG_GLOBAL_CACHE_DIR}}'
 
   test:
     desc: Run unit tests without the native embedding backend (no Zig)

@@ -22,7 +22,9 @@ Most structural code questions (blast radius, call chains, process ownership, su
 | CloudGraph                      | 🔲 Planned     | High     | Plugin-based cloud/infra data sources (AWS, GitHub, k8s, SaaS) ingested into the knowledge graph; query infrastructure alongside code via Cypher                                                                |
 | Semantic Config & Infra Parsing | 🔲 Planned     | High     | Classify config/infra/schema files and extract evidence-backed runtime facts from contracts, deployment manifests, SQL, Terraform/HCL, Docker, etc.; replaces generic fallback parsing with semantic extractors |
 | Security Flow Analysis          | 🔲 Planned     | High     | CodeQL-inspired security research primitives: call-site preservation, value facts, local data flow, temporary source/sink models, partial-flow exploration, and explainable path evidence                       |
+| Lossless Syntax Tree Research   | 🔬 Research    | Medium   | Evaluate compact LST-derived source evidence and occurrence modeling for precise call sites, local data flow, safer refactoring, and incremental indexing without storing every syntax token in the graph      |
 | Architecture Summary            | 🔲 Planned     | Medium   | Auto-generate subsystem overview from community + centrality + entry points                                                                                                                                     |
+| Definitive Wiki Output           | 🔲 Planned     | Medium   | Replace the current wiki output with a portable OKF pipeline: deterministic graph evidence, domain-aware page planning, parallel page writing, normalization, generated indexes, validation, and a static OKF-compatible viewer |
 | Dead Code Detection             | 🔲 Planned     | Medium   | Reachability BFS from entry points; transitive dead code detection                                                                                                                                              |
 | Watch Mode                      | 🔲 Planned     | Medium   | `fsnotify` + incremental re-index; graph stays current while you code                                                                                                                                           |
 | Vulnerability Surface           | 🔲 Planned     | Medium   | Map CVEs to IMPORTS edges; flag only reachable vulnerabilities                                                                                                                                                  |
@@ -75,6 +77,7 @@ MVP
  ├─► Trigram Regex Search        → zero-dep, enhances query + MCP
  ├─► Package Architecture Map    → aggregation only, quick win
  ├─► Architecture Summary        → surfaces subsystems organically
+ │    └─► Definitive Wiki Output  → graph evidence → page plan → parallel writers → OKF normalization → indexes → validation → portable Markdown → viewer
  ├─► PR Context Generation       → daily use, drives adoption
  ├─► Cross-Repo Analysis         → dependency/import workspace foundation for microservice / enterprise use cases; does not require CloudGraph
  │    ├─► Semantic Config & Infra Parsing → contract/deployment evidence for runtime boundaries
