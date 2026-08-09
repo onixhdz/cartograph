@@ -11,7 +11,7 @@ require (
 	github.com/cloudprivacylabs/opencypher v1.0.0
 	github.com/fwcd/tree-sitter-kotlin v0.0.0-20260411204054-55622a49bd59
 	github.com/go-git/go-billy/v5 v5.9.0
-	github.com/go-git/go-git/v5 v5.19.1
+	github.com/go-git/go-git/v5 v5.19.2
 	github.com/gofrs/flock v0.13.0
 	github.com/google/codesearch v1.2.0
 	github.com/gortexhq/tree-sitter-dart v0.1.0
