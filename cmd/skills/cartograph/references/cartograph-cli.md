@@ -15,7 +15,6 @@ Analyze builds the graph plus search artifacts for `cartograph query` and raw so
 
 **Flags:**
 - `--force` — Force full re-analysis, ignoring cache
-- `--clone` — Clone URL to disk (keeps source + git history)
 - `--branch <name>` — Branch or tag to analyze
 - `--depth <n>` — Clone depth (default: 1, 0 = full history)
 - `--auth-token <token>` — Auth token for private repos (env: `GITHUB_TOKEN`)
@@ -60,8 +59,8 @@ cartograph analyze hashicorp/nomad moby/moby
 # Mix local and remote targets
 cartograph analyze . hashicorp/nomad /other/local/repo
 
-# Index with full git clone
-cartograph analyze --clone https://github.com/org/repo
+# Index with full git history
+cartograph analyze --depth 0 https://github.com/org/repo
 
 # Force re-index
 cartograph analyze --force

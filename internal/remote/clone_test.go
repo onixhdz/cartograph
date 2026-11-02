@@ -3,20 +3,20 @@ package remote
 import (
 	"context"
 	"errors"
-	"strings"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
-
-	"github.com/onixhdz/cartograph/internal/ingestion"
+	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
-// TestCloneToMemory_PublicRepo clones a small public repository into memory
-// and verifies that the working tree contains files and HEAD is accessible.
+// TestSyncCheckout_PublicRepo clones a small public repository into a
+// persistent checkout and verifies HEAD and the working tree.
 // This test requires network access and is skipped if cloning fails.
-func TestCloneToMemory_PublicRepo(t *testing.T) {
+func TestSyncCheckout_PublicRepo(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping network test in short mode")
 	}
@@ -24,67 +24,26 @@ func TestCloneToMemory_PublicRepo(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	result, err := CloneToMemory(ctx, CloneOptions{
-		URL:   "https://github.com/go-git/go-billy.git",
-		Depth: 1,
-	})
-	if err != nil {
-		t.Skipf("skipping: clone failed (likely network issue): %v", err)
-	}
-
-	// Verify we got a HEAD SHA.
-	if result.HeadSHA == "" {
-		t.Error("expected non-empty HeadSHA")
-	}
-	if len(result.HeadSHA) != 40 {
-		t.Errorf("expected 40-char SHA, got %d: %s", len(result.HeadSHA), result.HeadSHA)
-	}
-
-	// Verify we got a branch name.
-	if result.Branch == "" {
-		t.Error("expected non-empty Branch")
-	}
-	t.Logf("Cloned branch=%s commit=%s", result.Branch, result.HeadSHA[:12])
-
-	// Verify the memfs has files.
-	if result.FS == nil {
-		t.Fatal("expected non-nil FS")
-	}
-	entries, err := result.FS.ReadDir(".")
-	if err != nil {
-		t.Fatalf("ReadDir(.) error: %v", err)
-	}
-	if len(entries) == 0 {
-		t.Error("expected files in memfs root")
-	}
-
-	// We know go-billy has a fs.go file.
-	_, err = result.FS.Stat("fs.go")
-	if err != nil {
-		t.Errorf("expected fs.go in memfs: %v", err)
-	}
-}
-
-// TestCloneToMemory_WithBranch clones a specific branch.
-func TestCloneToMemory_WithBranch(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping network test in short mode")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	result, err := CloneToMemory(ctx, CloneOptions{
+	dir := filepath.Join(t.TempDir(), "src")
+	result, err := SyncCheckout(ctx, dir, CloneOptions{
 		URL:    "https://github.com/go-git/go-billy.git",
 		Branch: "master",
 		Depth:  1,
 	})
 	if err != nil {
-		t.Skipf("skipping: clone failed: %v", err)
+		t.Skipf("skipping: clone failed (likely network issue): %v", err)
 	}
-
+	if len(result.HeadSHA) != 40 {
+		t.Errorf("expected 40-char SHA, got %d: %s", len(result.HeadSHA), result.HeadSHA)
+	}
 	if result.Branch != "master" {
 		t.Errorf("Branch = %q, want 'master'", result.Branch)
+	}
+	if result.DiskPath != dir {
+		t.Errorf("DiskPath = %q, want %q", result.DiskPath, dir)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "fs.go")); err != nil {
+		t.Errorf("expected fs.go in checkout: %v", err)
 	}
 }
 
@@ -127,18 +86,100 @@ func TestCloneWithRetryReportsRequestedTagForDetachedHead(t *testing.T) {
 	}
 }
 
-// TestCloneToMemory_EmptyURL returns error.
-func TestCloneToMemory_EmptyURL(t *testing.T) {
-	ctx := context.Background()
-	_, err := CloneToMemory(ctx, CloneOptions{})
-	if err == nil {
-		t.Error("expected error for empty URL")
+func TestSyncCheckout_EmptyURL(t *testing.T) {
+	if _, err := SyncCheckout(context.Background(), t.TempDir(), CloneOptions{}); err == nil {
+		t.Fatal("expected error for empty URL")
 	}
 }
 
-func TestCloneToTemporary_EmptyURL(t *testing.T) {
-	if _, err := CloneToTemporary(context.Background(), CloneOptions{}); err == nil {
-		t.Fatal("expected error for empty URL")
+func TestSyncCheckoutReusesAndReplacesCheckout(t *testing.T) {
+	origin := t.TempDir()
+	originRepo, err := git.PlainInit(origin, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstCommit := commitOriginFile(t, originRepo, origin, "first.txt")
+	opts := CloneOptions{URL: "file://" + filepath.ToSlash(origin), Depth: 1}
+	dir := filepath.Join(t.TempDir(), "repo", "src")
+
+	first, err := SyncCheckout(context.Background(), dir, opts)
+	if err != nil {
+		t.Fatalf("initial SyncCheckout: %v", err)
+	}
+	if first.HeadSHA != firstCommit || first.DiskPath != dir {
+		t.Fatalf("initial checkout = head %s path %s, want head %s path %s", first.HeadSHA, first.DiskPath, firstCommit, dir)
+	}
+
+	// A local marker survives only if the unchanged checkout is reused.
+	marker := filepath.Join(dir, "reuse-marker")
+	if err := os.WriteFile(marker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SyncCheckout(context.Background(), dir, opts); err != nil {
+		t.Fatalf("unchanged SyncCheckout: %v", err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("unchanged remote must reuse the checkout: %v", err)
+	}
+
+	secondCommit := commitOriginFile(t, originRepo, origin, "second.txt")
+	second, err := SyncCheckout(context.Background(), dir, opts)
+	if err != nil {
+		t.Fatalf("changed SyncCheckout: %v", err)
+	}
+	if second.HeadSHA != secondCommit || second.DiskPath != dir {
+		t.Fatalf("replaced checkout = head %s path %s, want head %s path %s", second.HeadSHA, second.DiskPath, secondCommit, dir)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("changed remote must replace the checkout, marker stat: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "second.txt")); err != nil {
+		t.Fatalf("replaced checkout is missing new file: %v", err)
+	}
+	assertOnlyCheckoutInParent(t, dir)
+
+	if _, err := SyncCheckout(context.Background(), dir, CloneOptions{URL: "file://" + filepath.ToSlash(filepath.Join(origin, "missing"))}); err == nil {
+		t.Fatal("clone from a missing remote expected error")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "second.txt")); err != nil {
+		t.Fatalf("failed clone must keep the previous checkout: %v", err)
+	}
+	assertOnlyCheckoutInParent(t, dir)
+}
+
+func commitOriginFile(t *testing.T, repo *git.Repository, root, name string) string {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(root, name), []byte(name), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	worktree, err := repo.Worktree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worktree.Add(name); err != nil {
+		t.Fatal(err)
+	}
+	hash, err := worktree.Commit("add "+name, &git.CommitOptions{
+		Author: &object.Signature{Name: "test", Email: "test@example.com", When: time.Unix(0, 0)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return hash.String()
+}
+
+func assertOnlyCheckoutInParent(t *testing.T, dir string) {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Dir(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != filepath.Base(dir) {
+		names := make([]string, len(entries))
+		for i, entry := range entries {
+			names[i] = entry.Name()
+		}
+		t.Fatalf("checkout parent entries = %v, want only %s", names, filepath.Base(dir))
 	}
 }
 
@@ -167,9 +208,6 @@ func TestCloneToDisk_PublicRepo(t *testing.T) {
 	if result.DiskPath != dest {
 		t.Errorf("DiskPath = %q, want %q", result.DiskPath, dest)
 	}
-	if result.FS != nil {
-		t.Error("expected nil FS for disk clone")
-	}
 	t.Logf("Cloned to disk: branch=%s commit=%s", result.Branch, result.HeadSHA[:12])
 }
 
@@ -179,59 +217,6 @@ func TestCloneToDisk_EmptyURL(t *testing.T) {
 	_, err := CloneToDisk(ctx, t.TempDir(), CloneOptions{})
 	if err == nil {
 		t.Error("expected error for empty URL")
-	}
-}
-
-// TestMemFSWalker_WithClone walks a cloned-in-memory repo and verifies
-// we get real WalkResults with languages detected.
-func TestMemFSWalker_WithClone(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping network test in short mode")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	result, err := CloneToMemory(ctx, CloneOptions{
-		URL:   "https://github.com/go-git/go-billy.git",
-		Depth: 1,
-	})
-	if err != nil {
-		t.Skipf("skipping: clone failed: %v", err)
-	}
-
-	walker := MemFSWalker{FS: result.FS}
-	results, err := walker.Walk("/", ingestion.WalkOptions{})
-	if err != nil {
-		t.Fatalf("Walk error: %v", err)
-	}
-
-	if len(results) == 0 {
-		t.Fatal("expected walk results, got none")
-	}
-
-	goFiles := 0
-	for _, r := range results {
-		if !r.IsDir && r.Language == "go" {
-			goFiles++
-		}
-	}
-	if goFiles == 0 {
-		t.Error("expected at least one Go file in walk results")
-	}
-	t.Logf("Walk found %d entries (%d Go files)", len(results), goFiles)
-
-	// Verify file reader works on the same filesystem.
-	reader := MemFSFileReader{FS: result.FS}
-	data, err := reader.ReadFile("fs.go")
-	if err != nil {
-		t.Fatalf("ReadFile(fs.go) error: %v", err)
-	}
-	if len(data) == 0 {
-		t.Error("expected non-empty content for fs.go")
-	}
-	if !strings.Contains(string(data), "package") {
-		t.Error("expected Go source code in fs.go")
 	}
 }
 
@@ -368,7 +353,7 @@ func TestLsRemote_MatchesClone(t *testing.T) {
 		t.Skipf("skipping: ls-remote failed: %v", err)
 	}
 
-	result, err := CloneToMemory(ctx, opts)
+	result, err := CloneToDisk(ctx, t.TempDir(), opts)
 	if err != nil {
 		t.Skipf("skipping: clone failed: %v", err)
 	}

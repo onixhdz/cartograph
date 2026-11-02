@@ -65,9 +65,9 @@ Existing local paths win over shorthand interpretation.
 
 Use `AnalyzeOptions.Ref` when the ref cannot be written inline, `CloneDepth` to
 control shallow cloning, and `AuthToken` for private HTTPS repositories. Remote
-source is cloned into temporary local storage and removed after analysis; only
-the graph, source-content bucket, and search indexes remain in `DataDir`. Content
-persistence stores files up to 10 MiB each with a 256 MiB repository total. The
+source is checked out under the repository's `DataDir` entry and kept on disk so
+every file stays readable; re-analysis reuses the checkout when its commit matches
+the remote and otherwise replaces it with a fresh clone. The
 caller's context controls cancellation, and clones use a five-minute timeout when
 the context has no deadline.
 

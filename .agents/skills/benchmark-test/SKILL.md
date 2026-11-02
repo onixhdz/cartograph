@@ -314,13 +314,11 @@ Existing coverage: Go (steampipe, nomad), TypeScript (excalidraw), Python (fasta
 
 ### 1. Resolve and index the project
 
-Use `--clone` so the source code is available on disk for explore agents
-to read directly. Without `--clone`, cartograph streams files from git
-objects — the graph is built but there's no directory tree to `grep`/`view`.
+Remote sources are kept on disk so explore agents can read them directly.
 
 ```bash
-# Index AND clone source to ~/.local/share/cartograph/<owner>/<repo>/
-./cartograph-darwin-arm64 analyze <owner/repo> --embed=sync --clone
+# Index and keep source under ~/.local/share/cartograph/<owner>/<repo>/<hash>/src
+./cartograph-darwin-arm64 analyze <owner/repo> --embed=sync
 ```
 
 Check the node count — this goes in the battery header and determines the

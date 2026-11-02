@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -31,7 +32,7 @@ var ErrDataDirInUse = errors.New("cartograph: data directory in use")
 type Client struct {
 	dataDir             string
 	client              *service.MemoryClient
-	cloneRemote         func(context.Context, remote.CloneOptions) (*remote.CloneResult, error)
+	cloneRemote         func(context.Context, string, remote.CloneOptions) (*remote.CloneResult, error)
 	lsRemote            func(context.Context, remote.CloneOptions) (string, error)
 	onAnalysisPersisted func()
 }
@@ -48,7 +49,7 @@ func Open(cfg Config) (*Client, error) {
 
 	mc := service.NewMemoryClient(dataDir)
 	mc.SetBackendFactory(query.NewBackendFactory(mc))
-	return &Client{dataDir: dataDir, client: mc, cloneRemote: remote.CloneToTemporary, lsRemote: remote.LsRemote}, nil
+	return &Client{dataDir: dataDir, client: mc, cloneRemote: remote.SyncCheckout, lsRemote: remote.LsRemote}, nil
 }
 
 func checkServiceLock(dataDir string) error {
@@ -184,7 +185,7 @@ func (c *Client) RegisterPlugin(ctx context.Context, p pluginsdk.Plugin, opts Re
 
 // Analyze analyzes and indexes one local path, Git URL, host-prefixed URL,
 // or owner/repository shorthand target.
-func (c *Client) Analyze(ctx context.Context, target string, opts AnalyzeOptions) (result *AnalyzeResult, retErr error) {
+func (c *Client) Analyze(ctx context.Context, target string, opts AnalyzeOptions) (*AnalyzeResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("cartograph analyze: %w", err)
 	}
@@ -208,8 +209,12 @@ func (c *Client) Analyze(ctx context.Context, target string, opts AnalyzeOptions
 		if parseErr != nil {
 			return nil, fmt.Errorf("cartograph analyze %q: %w", target, parseErr)
 		}
+		cloneDepth := opts.CloneDepth
+		if cloneDepth <= 0 {
+			cloneDepth = 1
+		}
 		cloneOptions := remote.CloneOptions{
-			URL: identity.CloneURL, Branch: resolvedTarget.Ref, Depth: opts.CloneDepth, AuthToken: opts.AuthToken,
+			URL: identity.CloneURL, Branch: resolvedTarget.Ref, Depth: cloneDepth, AuthToken: opts.AuthToken,
 		}
 		analysisOpts.RepoName = identity.Name
 		analysisOpts.RepoHash = analyze.ShortHash(identity.Canonical)
@@ -237,27 +242,23 @@ func (c *Client) Analyze(ctx context.Context, target string, opts AnalyzeOptions
 			cloneCtx, cancel = context.WithTimeout(ctx, remote.DefaultCloneTimeout)
 			defer cancel()
 		}
+		repoDir, dirErr := storage.RepositoryDir(c.dataDir, identity.Name, analysisOpts.RepoHash)
+		if dirErr != nil {
+			return nil, fmt.Errorf("cartograph analyze %q: repository directory: %w", target, dirErr)
+		}
 		clone := c.cloneRemote
 		if clone == nil {
-			clone = remote.CloneToTemporary
+			clone = remote.SyncCheckout
 		}
-		cloneResult, cloneErr := clone(cloneCtx, cloneOptions)
+		cloneResult, cloneErr := clone(cloneCtx, filepath.Join(repoDir, "src"), cloneOptions)
 		if cloneErr != nil {
 			return nil, fmt.Errorf("cartograph analyze %q: %w", target, cloneErr)
-		}
-		if cloneResult.DiskPath != "" {
-			defer func() {
-				if cleanupErr := os.RemoveAll(cloneResult.DiskPath); cleanupErr != nil {
-					result = nil
-					retErr = errors.Join(retErr, fmt.Errorf("cartograph analyze remove temporary clone: %w", cleanupErr))
-				}
-			}()
 		}
 		if err := ctx.Err(); err != nil {
 			return nil, fmt.Errorf("cartograph analyze %q: %w", target, err)
 		}
-		res, err = analyze.Memory(ctx, analyze.MemorySource{
-			FS: cloneResult.FS, Root: "/", Path: identity.CloneURL, URL: identity.Canonical,
+		res, err = analyze.Remote(ctx, analyze.RemoteSource{
+			Dir: cloneResult.DiskPath, CloneURL: identity.CloneURL, URL: identity.Canonical,
 			Commit: cloneResult.HeadSHA, Branch: cloneResult.Branch,
 		}, analysisOpts)
 	}

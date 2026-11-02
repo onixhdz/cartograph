@@ -13,12 +13,12 @@ type Meta struct {
 	Duration string `json:"duration,omitempty"`
 
 	// SourcePath is the absolute path to the repo source on disk.
-	// Empty for in-memory analyzed repos (URL without --clone).
+	// Empty for legacy remote repos analyzed into the content bucket.
 	SourcePath string `json:"sourcePath,omitempty"`
 
-	// HasContentBucket is true only for repos analyzed in-memory (URL
-	// without --clone). When true, full file content is stored in the
-	// BBolt "content" bucket with zstd compression.
+	// HasContentBucket is true only for legacy remote repos whose full file
+	// content was stored in the BBolt "content" bucket with zstd compression.
+	// New analyses read remote source from SourcePath instead.
 	HasContentBucket bool `json:"hasContentBucket,omitempty"`
 
 	// Branch is the requested Git branch or tag when specified; otherwise it

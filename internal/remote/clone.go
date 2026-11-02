@@ -5,12 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/go-git/go-billy/v5"
-	"github.com/go-git/go-billy/v5/memfs"
-	"github.com/go-git/go-billy/v5/osfs"
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -23,17 +21,12 @@ import (
 type CloneOptions struct {
 	URL       string // Git remote URL (required)
 	Branch    string // Branch or tag to clone (empty = default branch)
-	Depth     int    // Shallow clone depth (1 = shallow, 0 = full; default 1)
+	Depth     int    // Clone depth (1 = shallow, 0 = full history)
 	AuthToken string // PAT or token for authentication (empty = public)
 }
 
 // CloneResult holds the result of a clone operation.
 type CloneResult struct {
-	// FS is the billy.Filesystem containing the working tree.
-	// For in-memory clones this is a memfs; for disk clones it is nil
-	// (the files are on the OS filesystem at DiskPath).
-	FS billy.Filesystem
-
 	// Repo is the go-git Repository object for reading refs, HEAD, etc.
 	Repo *git.Repository
 
@@ -44,7 +37,7 @@ type CloneResult struct {
 	// otherwise it is the remote's resolved default branch.
 	Branch string
 
-	// DiskPath is set only for disk clones — the path where source lives.
+	// DiskPath is the checkout directory where the source lives.
 	DiskPath string
 }
 
@@ -54,63 +47,52 @@ const (
 	retryBaseMs = 500 // base delay in milliseconds (doubles each attempt)
 )
 
-var errTemporaryCloneCleanup = errors.New("temporary clone cleanup failed")
+var errStagingCloneCleanup = errors.New("staging clone cleanup failed")
 
-// CloneToMemory performs a shallow clone into an in-memory filesystem.
-// Retries transient failures with exponential backoff; falls back to refs/tags/ if needed.
-func CloneToMemory(ctx context.Context, opts CloneOptions) (*CloneResult, error) {
+// SyncCheckout makes dir a persistent checkout of the remote ref. An existing
+// checkout is reused when its HEAD matches the remote; otherwise a fresh clone
+// is staged next to dir and swapped in only after it succeeds, so a failed
+// clone never destroys the previous source. Depth 0 clones full history.
+func SyncCheckout(ctx context.Context, dir string, opts CloneOptions) (*CloneResult, error) {
 	if opts.URL == "" {
 		return nil, errors.New("clone: URL is required")
 	}
-	if opts.Depth <= 0 {
-		opts.Depth = 1
-	}
-
-	cloneOpts := buildCloneOptions(opts)
-
-	doClone := func(co *git.CloneOptions) (*CloneResult, error) {
-		stor := memory.NewStorage()
-		fs := memfs.New()
-		repo, err := git.CloneContext(ctx, stor, fs, co)
-		if err != nil {
-			return nil, fmt.Errorf("clone to memory: %w", err)
-		}
-		return buildResult(repo, fs, "")
-	}
-
-	result, err := cloneWithRetry(ctx, opts, cloneOpts, doClone)
-	if err != nil {
-		return nil, fmt.Errorf("clone %s: %w", opts.URL, err)
-	}
-	return result, nil
-}
-
-// CloneToTemporary clones a repository into a temporary disk-backed
-// filesystem. The caller must remove result.DiskPath when analysis settles.
-func CloneToTemporary(ctx context.Context, opts CloneOptions) (*CloneResult, error) {
-	if opts.URL == "" {
-		return nil, errors.New("clone: URL is required")
-	}
-	if opts.Depth <= 0 {
-		opts.Depth = 1
-	}
-	cloneOpts := buildCloneOptions(opts)
-	doClone := func(co *git.CloneOptions) (*CloneResult, error) {
-		dir, err := os.MkdirTemp("", "cartograph-clone-*")
-		if err != nil {
-			return nil, fmt.Errorf("clone: create temporary directory: %w", err)
-		}
-		repo, err := git.PlainCloneContext(ctx, dir, false, co)
-		if err != nil {
-			if cleanupErr := os.RemoveAll(dir); cleanupErr != nil {
-				return nil, fmt.Errorf("%w: remove %s: %s (clone error: %s)", errTemporaryCloneCleanup, dir, cleanupErr.Error(), err.Error())
+	if repo, err := git.PlainOpen(dir); err == nil {
+		if head, headErr := repo.Head(); headErr == nil {
+			if remoteSHA, lsErr := LsRemote(ctx, opts); lsErr == nil && remoteSHA == head.Hash().String() {
+				result, err := buildResult(repo, dir)
+				if err != nil {
+					return nil, err
+				}
+				if opts.Branch != "" {
+					result.Branch = opts.Branch
+				}
+				return result, nil
 			}
-			return nil, fmt.Errorf("temporary clone: %w", err)
 		}
-		result, err := buildResult(repo, osfs.New(dir), dir)
+	}
+
+	parent := filepath.Dir(dir)
+	if err := os.MkdirAll(parent, 0o750); err != nil {
+		return nil, fmt.Errorf("clone: create checkout parent: %w", err)
+	}
+	cloneOpts := buildCloneOptions(opts)
+	doClone := func(co *git.CloneOptions) (*CloneResult, error) {
+		staging, err := os.MkdirTemp(parent, ".clone-*")
 		if err != nil {
-			if cleanupErr := os.RemoveAll(dir); cleanupErr != nil {
-				return nil, fmt.Errorf("%w: remove %s: %s (result error: %s)", errTemporaryCloneCleanup, dir, cleanupErr.Error(), err.Error())
+			return nil, fmt.Errorf("clone: create staging directory: %w", err)
+		}
+		repo, err := git.PlainCloneContext(ctx, staging, false, co)
+		if err != nil {
+			if cleanupErr := os.RemoveAll(staging); cleanupErr != nil {
+				return nil, fmt.Errorf("%w: remove %s: %s (clone error: %s)", errStagingCloneCleanup, staging, cleanupErr.Error(), err.Error())
+			}
+			return nil, fmt.Errorf("checkout clone: %w", err)
+		}
+		result, err := buildResult(repo, staging)
+		if err != nil {
+			if cleanupErr := os.RemoveAll(staging); cleanupErr != nil {
+				return nil, fmt.Errorf("%w: remove %s: %s (result error: %s)", errStagingCloneCleanup, staging, cleanupErr.Error(), err.Error())
 			}
 			return nil, err
 		}
@@ -118,9 +100,52 @@ func CloneToTemporary(ctx context.Context, opts CloneOptions) (*CloneResult, err
 	}
 	result, err := cloneWithRetry(ctx, opts, cloneOpts, doClone)
 	if err != nil {
-		return nil, fmt.Errorf("clone %s to temporary storage: %w", opts.URL, err)
+		return nil, fmt.Errorf("clone %s: %w", opts.URL, err)
 	}
+	if err := publishCheckout(result.DiskPath, dir); err != nil {
+		return nil, err
+	}
+	// The repository handle points at the staging path; reopen at dir.
+	repo, err := git.PlainOpen(dir)
+	if err != nil {
+		return nil, fmt.Errorf("clone: open checkout %s: %w", dir, err)
+	}
+	result.Repo = repo
+	result.DiskPath = dir
 	return result, nil
+}
+
+// publishCheckout moves staging to dir. The previous checkout is renamed
+// aside first and restored if the swap fails, so dir always holds either the
+// old or the new tree, never a partially deleted one.
+func publishCheckout(staging, dir string) error {
+	previous := ""
+	if _, err := os.Lstat(dir); err == nil {
+		previous = staging + ".previous"
+		if err := os.Rename(dir, previous); err != nil {
+			_ = os.RemoveAll(staging)
+			return fmt.Errorf("clone: move previous checkout %s: %w", dir, err)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		_ = os.RemoveAll(staging)
+		return fmt.Errorf("clone: inspect checkout %s: %w", dir, err)
+	}
+	if err := os.Rename(staging, dir); err != nil {
+		publishErr := fmt.Errorf("clone: publish checkout %s: %w", dir, err)
+		if previous != "" {
+			if restoreErr := os.Rename(previous, dir); restoreErr != nil {
+				publishErr = errors.Join(publishErr, fmt.Errorf("clone: restore previous checkout from %s: %w", previous, restoreErr))
+			}
+		}
+		_ = os.RemoveAll(staging)
+		return publishErr
+	}
+	if previous != "" {
+		// The new checkout is already published; failing here would leave the
+		// index behind the source. A leftover staging tree only wastes disk.
+		_ = os.RemoveAll(previous)
+	}
+	return nil
 }
 
 // CloneToDisk performs a clone to a directory on disk.
@@ -137,7 +162,7 @@ func CloneToDisk(ctx context.Context, destDir string, opts CloneOptions) (*Clone
 		if err != nil {
 			return nil, fmt.Errorf("plain clone: %w", err)
 		}
-		return buildResult(repo, nil, destDir)
+		return buildResult(repo, destDir)
 	}
 
 	result, err := cloneWithRetry(ctx, opts, cloneOpts, doClone)
@@ -220,7 +245,7 @@ func isTransient(err error) bool {
 		return false
 	}
 	// Context errors mean the caller canceled — don't retry.
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, errTemporaryCloneCleanup) {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, errStagingCloneCleanup) {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
@@ -323,7 +348,7 @@ func buildCloneOptions(opts CloneOptions) *git.CloneOptions {
 }
 
 // buildResult extracts HEAD info from the cloned repository.
-func buildResult(repo *git.Repository, fs billy.Filesystem, diskPath string) (*CloneResult, error) {
+func buildResult(repo *git.Repository, diskPath string) (*CloneResult, error) {
 	head, err := repo.Head()
 	if err != nil {
 		return nil, fmt.Errorf("clone: read HEAD: %w", err)
@@ -333,7 +358,6 @@ func buildResult(repo *git.Repository, fs billy.Filesystem, diskPath string) (*C
 	sha := head.Hash().String()
 
 	return &CloneResult{
-		FS:       fs,
 		Repo:     repo,
 		HeadSHA:  sha,
 		Branch:   branch,

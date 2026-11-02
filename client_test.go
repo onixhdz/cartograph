@@ -12,8 +12,6 @@ import (
 	"time"
 
 	"github.com/cloudprivacylabs/lpg/v2"
-	"github.com/go-git/go-billy/v5"
-	"github.com/go-git/go-billy/v5/memfs"
 
 	internalplugin "github.com/onixhdz/cartograph/internal/plugin"
 	pluginsdk "github.com/onixhdz/cartograph/plugin"
@@ -87,14 +85,15 @@ func TestEmbeddedClientAnalyzeRemoteShorthand(t *testing.T) {
 
 	var cloned remote.CloneOptions
 	cloneCount := 0
-	cloneDir := t.TempDir()
-	client.cloneRemote = func(_ context.Context, opts remote.CloneOptions) (*remote.CloneResult, error) {
+	var checkoutDir string
+	client.cloneRemote = func(_ context.Context, dir string, opts remote.CloneOptions) (*remote.CloneResult, error) {
 		cloneCount++
 		cloned = opts
-		fs := memfs.New()
-		writeMemoryFile(t, fs, "go.mod", "module example.com/remote\n\ngo 1.25\n")
-		writeMemoryFile(t, fs, "main.go", "package main\nfunc Hello() string { return \"hello\" }\nfunc main() { _ = Hello() }\n")
-		return &remote.CloneResult{FS: fs, HeadSHA: strings.Repeat("a", 40), Branch: "v1.0.0", DiskPath: cloneDir}, nil
+		checkoutDir = dir
+		writeFile(t, filepath.Join(dir, "go.mod"), "module example.com/remote\n\ngo 1.25\n")
+		writeFile(t, filepath.Join(dir, "main.go"), "package main\nfunc Hello() string { return \"hello\" }\nfunc main() { _ = Hello() }\n")
+		writeFile(t, filepath.Join(dir, ".github", "workflows", "ci.yml"), "name: ci\n")
+		return &remote.CloneResult{HeadSHA: strings.Repeat("a", 40), Branch: "v1.0.0", DiskPath: dir}, nil
 	}
 
 	client.lsRemote = func(context.Context, remote.CloneOptions) (string, error) {
@@ -113,11 +112,11 @@ func TestEmbeddedClientAnalyzeRemoteShorthand(t *testing.T) {
 	if cloned.URL != "https://github.com/example/project" || cloned.Branch != "v1.0.0" || cloned.Depth != 2 || cloned.AuthToken != "secret" {
 		t.Fatalf("clone options = %+v", cloned)
 	}
-	if _, err := os.Stat(cloneDir); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("temporary clone directory was not removed: %v", err)
+	if _, err := os.Stat(filepath.Join(checkoutDir, "main.go")); err != nil {
+		t.Fatalf("remote checkout was not kept on disk: %v", err)
 	}
-	cat, err := client.Cat(context.Background(), result.RepoHash, []string{"main.go"}, CatOptions{})
-	if err != nil || len(cat.Files) != 1 || !strings.Contains(cat.Files[0].Content, "Hello") {
+	cat, err := client.Cat(context.Background(), result.RepoHash, []string{"main.go", ".github/workflows/ci.yml"}, CatOptions{})
+	if err != nil || len(cat.Files) != 2 || !strings.Contains(cat.Files[0].Content, "Hello") || !strings.Contains(cat.Files[1].Content, "ci") {
 		t.Fatalf("Cat after remote analysis: result=%+v err=%v", cat, err)
 	}
 
@@ -167,12 +166,11 @@ func TestEmbeddedClientAnalyzeRegistryReplayPreservesCloneURLAndExplicitRef(t *t
 
 			cloneCount := 0
 			commit := strings.Repeat("c", 40)
-			client.cloneRemote = func(_ context.Context, opts remote.CloneOptions) (*remote.CloneResult, error) {
+			client.cloneRemote = func(_ context.Context, dir string, _ remote.CloneOptions) (*remote.CloneResult, error) {
 				cloneCount++
-				fs := memfs.New()
-				writeMemoryFile(t, fs, "go.mod", "module example.com/replay\n\ngo 1.25\n")
-				writeMemoryFile(t, fs, "main.go", "package main\nfunc main() {}\n")
-				return &remote.CloneResult{FS: fs, HeadSHA: commit, Branch: tc.resolvedBranch}, nil
+				writeFile(t, filepath.Join(dir, "go.mod"), "module example.com/replay\n\ngo 1.25\n")
+				writeFile(t, filepath.Join(dir, "main.go"), "package main\nfunc main() {}\n")
+				return &remote.CloneResult{HeadSHA: commit, Branch: tc.resolvedBranch, DiskPath: dir}, nil
 			}
 			var replayOptions remote.CloneOptions
 			client.lsRemote = func(_ context.Context, opts remote.CloneOptions) (string, error) {
@@ -203,7 +201,7 @@ func TestEmbeddedClientAnalyzeRemoteCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer client.Close()
-	client.cloneRemote = func(ctx context.Context, _ remote.CloneOptions) (*remote.CloneResult, error) {
+	client.cloneRemote = func(ctx context.Context, _ string, _ remote.CloneOptions) (*remote.CloneResult, error) {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}
@@ -223,11 +221,10 @@ func TestEmbeddedClientAnalyzeRemoteCancellationAfterClone(t *testing.T) {
 	}
 	defer client.Close()
 	ctx, cancel := context.WithCancel(context.Background())
-	client.cloneRemote = func(context.Context, remote.CloneOptions) (*remote.CloneResult, error) {
-		fs := memfs.New()
-		writeMemoryFile(t, fs, "main.go", "package main\nfunc main() {}\n")
+	client.cloneRemote = func(_ context.Context, dir string, _ remote.CloneOptions) (*remote.CloneResult, error) {
+		writeFile(t, filepath.Join(dir, "main.go"), "package main\nfunc main() {}\n")
 		cancel()
-		return &remote.CloneResult{FS: fs, HeadSHA: strings.Repeat("b", 40), Branch: "main"}, nil
+		return &remote.CloneResult{HeadSHA: strings.Repeat("b", 40), Branch: "main", DiskPath: dir}, nil
 	}
 	_, err = client.Analyze(ctx, "example/project", AnalyzeOptions{})
 	if !errors.Is(err, context.Canceled) {
@@ -324,21 +321,6 @@ func TestEmbeddedClientAnalyzeCancellationAfterPersistenceSettlesCache(t *testin
 	}
 	if searchResult.MatchCount == 0 {
 		t.Fatalf("cache was not settled on the persisted graph: %+v", searchResult)
-	}
-}
-
-func writeMemoryFile(t *testing.T, fs billy.Filesystem, path, content string) {
-	t.Helper()
-	file, err := fs.Create(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := file.Write([]byte(content)); err != nil {
-		_ = file.Close()
-		t.Fatal(err)
-	}
-	if err := file.Close(); err != nil {
-		t.Fatal(err)
 	}
 }
 

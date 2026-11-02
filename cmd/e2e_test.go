@@ -57,7 +57,7 @@ func TestE2E_AnalyzeURL_QueryCat(t *testing.T) {
 	// ── Step 1: Analyze a small public repo via URL ────────────────
 	// go-billy is ~70 Go files, small and fast to clone.
 
-	t.Log("Step 1: analyzing https://github.com/go-git/go-billy (in-memory)...")
+	t.Log("Step 1: analyzing https://github.com/go-git/go-billy...")
 
 	analyzeCmd := &AnalyzeCmd{
 		Targets: []string{"https://github.com/go-git/go-billy"},
@@ -99,14 +99,14 @@ func TestE2E_AnalyzeURL_QueryCat(t *testing.T) {
 	if entry.Meta.CommitHash == "" {
 		t.Error("expected non-empty commit hash in meta")
 	}
-	if !entry.Meta.HasContentBucket {
-		t.Error("expected HasContentBucket=true for in-memory analyzed repo")
+	if entry.Meta.HasContentBucket {
+		t.Error("expected HasContentBucket=false for remote repo kept on disk")
 	}
-	if entry.Meta.SourcePath != "" {
-		t.Errorf("expected empty SourcePath for in-memory repo, got %q", entry.Meta.SourcePath)
+	if entry.Meta.SourcePath == "" {
+		t.Error("expected SourcePath for remote checkout")
 	}
-	t.Logf("Meta: commit=%s contentBucket=%v url=%s branch=%s",
-		entry.Meta.CommitHash[:12], entry.Meta.HasContentBucket, entry.URL, entry.Meta.Branch)
+	t.Logf("Meta: commit=%s sourcePath=%s url=%s branch=%s",
+		entry.Meta.CommitHash[:12], entry.Meta.SourcePath, entry.URL, entry.Meta.Branch)
 
 	// ── Step 2: Query the graph ────────────────────────────────────
 
@@ -245,10 +245,6 @@ func TestE2E_AnalyzeURL_CloneToDisk(t *testing.T) {
 		}
 	})
 	t.Log(out)
-
-	if !strings.Contains(out, "clone to disk") {
-		t.Errorf("expected 'clone to disk' in output, got:\n%s", out)
-	}
 
 	// Verify meta has SourcePath set and no content bucket.
 	registry, err := storage.NewRegistry(dataDir)

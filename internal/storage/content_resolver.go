@@ -69,7 +69,7 @@ func (cr *ContentResolver) ReadFile(relPath string) ([]byte, error) {
 	}
 
 	if cr.SourcePath == "" && cr.Store == nil {
-		return nil, fmt.Errorf("content resolver: %q — no source path or content store configured; re-analyze with --clone", relPath)
+		return nil, fmt.Errorf("content resolver: %q — no source path or content store configured; re-analyze to restore the source checkout", relPath)
 	}
 	return nil, fmt.Errorf("content resolver: %q not found (checked disk and content store)", relPath)
 }
